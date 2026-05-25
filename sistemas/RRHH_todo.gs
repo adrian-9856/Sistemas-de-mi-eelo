@@ -51,7 +51,8 @@ function autorizar() {
 // ── Menú ────────────────────────────────────────────────────
 
 function onOpen() {
-  var ui = SpreadsheetApp.getUi();
+  var ui;
+  try { ui = SpreadsheetApp.getUi(); } catch(_) { return; } // ejecutado desde el editor: no hay UI
   ui.createMenu("👥 RRHH")
     .addItem("🏗️  PASO 1 — Crear hojas del sistema",   "crearHojas")
     .addItem("📁  PASO 2 — Crear estructura en Drive", "crearEstructuraDrive")
