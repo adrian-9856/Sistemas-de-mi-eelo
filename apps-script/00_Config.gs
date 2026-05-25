@@ -6,8 +6,7 @@
 const CONFIG = {
 
   // --- TARIFAS ---
-  TARIFA_HORA: 25,            // Quetzales por hora trabajada
-  HORAS_QUINCENA_NORMAL: 80, // Horas esperadas por quincena
+  TARIFA_HORA: 25,
 
   // --- CORREOS ---
   CORREO_ADMIN: "adrian@creamosguatemala.org",
@@ -22,27 +21,38 @@ const CONFIG = {
     VENTAS:         "COMERCIAL_VENTAS",
     COMPRAS:        "COMERCIAL_COMPRAS",
     DASHBOARD:      "DASHBOARD",
+    NOMBRES_CANON:  "NOMBRES_CANONICOS",   // hoja auxiliar de mapeo
   },
 
   // --- KOBO ---
-  KOBO_API_TOKEN: "TU_TOKEN_AQUI",       // Reemplaza con tu token de KoboToolbox
-  KOBO_ASSET_UID: "TU_ASSET_UID_AQUI",  // UID del formulario en Kobo
-  KOBO_CAMPO_NOMBRE: "nombre_participante",
-  KOBO_CAMPO_ENTRADA: "hora_entrada",
-  KOBO_CAMPO_SALIDA:  "hora_salida",
-  KOBO_CAMPO_TIPO:    "tipo_registro",
-  KOBO_CAMPO_UUID:    "_uuid",
+  // Campo "Participante" contiene: "Nombre Completo (CREAMOS_ID)"
+  // Ej: "Juana del Rosario Vicente Choy (JUVI281187)"
+  KOBO_API_TOKEN:  "TU_TOKEN_AQUI",
+  KOBO_ASSET_UID:  "TU_ASSET_UID_AQUI",
 
-  // --- GOOGLE DRIVE (IDs de carpetas) ---
-  // Deja vacío la primera vez; el sistema las crea automáticamente.
+  // Nombres exactos de columnas en la hoja DatosKobo (o en la API)
+  KOBO_COL: {
+    START:        1,   // col A: start (timestamp de envío del formulario)
+    END:          2,   // col B: end
+    TIPO:         4,   // col D: "Ingreso / Egreso"  →  "🟢 Entrada" | "🔴 Salida"
+    PARTICIPANTE: 5,   // col E: "Nombre (CREAMOS_ID)"
+    UUID:         12,  // col L: _uuid
+  },
+
+  // Valores exactos del campo Tipo
+  KOBO_ENTRADA: "🟢 Entrada",
+  KOBO_SALIDA:  "🔴 Salida",
+
+  // --- GOOGLE DRIVE ---
+  // Se llenan automáticamente la primera vez que ejecutas "Crear estructura en Drive"
   DRIVE: {
-    CARPETA_RAIZ:     "",   // "Mi eelo - Sistema Unificado"
+    CARPETA_RAIZ:     "",
     CARPETA_FACTURAS: "",
     CARPETA_REPORTES: "",
     CARPETA_ORDENES:  "",
   },
 
-  // --- MESES (para fórmulas y docs) ---
+  // --- MESES ---
   MESES: [
     "Enero","Febrero","Marzo","Abril","Mayo","Junio",
     "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"

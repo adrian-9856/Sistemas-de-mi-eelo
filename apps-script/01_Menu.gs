@@ -5,31 +5,54 @@
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu("🚀 Mi eelo")
-    .addItem("📥 Importar desde Kobo",          "importarDesdeKobo")
-    .addItem("🔗 Normalizar IDs participantes",  "normalizarIDs")
+
+    // ── Importación inicial (una sola vez) ──
+    .addSubMenu(SpreadsheetApp.getUi().createMenu("📂 Carga inicial de datos")
+      .addItem("👥 Importar participantes desde Excel",  "importarParticipantesDesdeExcel")
+      .addItem("📋 Importar asistencia desde Planilla",  "importarDesdePlanillaLocal")
+      .addItem("📦 Importar OPs / OMs",                  "importarOrdenes")
+      .addItem("💼 Importar ventas (Comercial)",          "importarVentas")
+      .addItem("🛒 Importar compras (Comercial)",         "importarCompras")
+    )
     .addSeparator()
-    .addItem("💰 Calcular facturación del mes",  "calcularFacturacionMes")
-    .addItem("📄 Generar facturas en Google Docs","generarFacturasMes")
+
+    // ── Operaciones diarias ──
+    .addItem("📥 Importar asistencia desde Kobo",        "importarDesdeKobo")
+    .addItem("🔗 Emparejar entradas/salidas + horas",    "emparejarAsistencia")
+    .addItem("✅ Verificar IDs de participantes",         "normalizarIDs")
     .addSeparator()
-    .addItem("📊 Generar reporte mensual (Doc)", "generarReporteMensual")
-    .addItem("📦 Generar orden de producción",   "generarOrdenProduccion")
+
+    // ── Facturación ──
+    .addItem("💰 Calcular facturación del mes",          "calcularFacturacionMes")
+    .addItem("📄 Generar facturas en Google Docs",        "generarFacturasMes")
+    .addItem("📊 Generar reporte mensual (Doc)",          "generarReporteMensual")
     .addSeparator()
-    .addItem("🔔 Enviar recordatorio de pagos",  "enviarRecordatorioPagos")
-    .addItem("📬 Resumen mensual por correo",    "enviarResumenMensual")
+
+    // ── Órdenes ──
+    .addItem("📦 Generar Doc de orden seleccionada",     "generarOrdenProduccion")
     .addSeparator()
-    .addItem("📁 Crear estructura en Drive",     "crearEstructuraDrive")
-    .addItem("🔄 Actualizar Dashboard",          "actualizarDashboard")
+
+    // ── Notificaciones ──
+    .addItem("🔔 Enviar recordatorio de pagos",          "enviarRecordatorioPagos")
+    .addItem("📬 Enviar resumen mensual al admin",        "enviarResumenMensual")
     .addSeparator()
-    .addItem("⚙️  Configurar triggers automáticos","configurarTriggers")
+
+    // ── Sistema ──
+    .addItem("📁 Crear estructura en Drive",             "crearEstructuraDrive")
+    .addItem("🔄 Actualizar Dashboard",                  "actualizarDashboard")
+    .addItem("⚙️  Configurar triggers automáticos",       "configurarTriggers")
+
     .addToUi();
 }
 
-// Ejecutado automáticamente cada vez que se abre el Spreadsheet.
 function onEdit(e) {
   var hoja = e.range.getSheet().getName();
-  if (hoja === CONFIG.HOJAS.FACTURACION) {
-    // Si marcaron una factura como pagada, actualiza el dashboard.
-    var col = e.range.getColumn();
-    if (col === 11) actualizarDashboard(); // columna K = Pagado
+  // Cuando se marca un pago como completado en FACTURACION_CONSOLIDADA (col K)
+  if (hoja === CONFIG.HOJAS.FACTURACION && e.range.getColumn() === 11) {
+    actualizarDashboard();
+  }
+  // Cuando se cambia el estado de una orden (col I de ORDENES_PRODUCCION)
+  if (hoja === CONFIG.HOJAS.ORDENES && e.range.getColumn() === 9) {
+    actualizarDashboard();
   }
 }
