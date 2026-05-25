@@ -36,6 +36,12 @@ function _alert(msg) {
   catch(_) { Logger.log(msg); }
 }
 
+// Corre ESTA función desde el editor para autorizar permisos (solo la primera vez).
+function autorizar() {
+  var nombre = SpreadsheetApp.getActiveSpreadsheet().getName();
+  Logger.log("✅ Autorizado. Sheets: " + nombre + " — Ahora recarga el Sheets.");
+}
+
 // ── Menú ────────────────────────────────────────────────────
 
 function onOpen() {
