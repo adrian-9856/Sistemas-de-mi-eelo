@@ -201,13 +201,31 @@ function nuevaOrden() { _run(function() {
   var numero = _siguienteNumero(hoja, tipo);
   var fecha  = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy");
 
-  // 1. Crear el Doc PRIMERO (antes de tocar el Sheets) — así no hay carrera con el trigger.
+  // 1. Crear Doc y escribir contenido inicial DIRECTAMENTE — sin segunda llamada.
   var carpeta = _carpetaCliente("Sin_Cliente");
   var doc     = DocumentApp.create(numero);
   DriveApp.getFileById(doc.getId()).moveTo(carpeta);
   var url     = doc.getUrl();
 
-  // 2. Agregar la fila con la URL ya incluida (col 34 nunca está vacía).
+  var o = {
+    numero:numero, tipo:tipo, fecha:fecha,
+    cliente:"", contacto:"", proyecto:"", fechaPromesa:"",
+    descripcion:"", cantidad:"", tela:"", color:"",
+    ancho:"", altura:"", fuelle:"", sisMed:"Inches",
+    bolsInt:"No", bolsExt:"No", tirantes:"No", forros:"No", specs:"",
+    serigrafia:"No", colores:"", pantones:"", locImp:"", medImp:"",
+    filmsNum:"", filmsCod:"",
+    mockup:"No", muestra:"No",
+    estado:"Pendiente", participantes:"", comentarios:"",
+    urlMockup:"", urlDoc:url,
+  };
+  var body = doc.getBody();
+  body.clear();
+  body.setMarginTop(36).setMarginBottom(36).setMarginLeft(54).setMarginRight(54);
+  _escribirContenidoDoc(body, o);
+  doc.saveAndClose();
+
+  // 2. Insertar fila con la URL ya en col 34.
   hoja.appendRow([
     numero, tipo, fecha,
     "","","","",
@@ -221,11 +239,8 @@ function nuevaOrden() { _run(function() {
     "", url,
   ]);
 
-  // 3. Sincronizar contenido del Doc con los datos iniciales (no crea otro, ya existe).
   var fila = hoja.getLastRow();
   hoja.setActiveRange(hoja.getRange(fila, 1));
-  _sincronizarFila(hoja, fila);
-
   ui.alert("✅ " + numero + " creada.\n" + url);
 }); }
 
@@ -283,16 +298,23 @@ function _leerFila(hoja, fila) {
 function _construirDoc(o, carpeta) {
   var titulo = o.numero + (o.descripcion ? " — " + o.descripcion : "");
   var doc = null;
-
-  // Abre el Doc existente por URL — nunca borra nada.
   var urlExistente = String(o.urlDoc || "");
-  if (urlExistente.startsWith("http")) {
-    var m = urlExistente.match(/\/d\/([a-zA-Z0-9_-]+)/);
-    if (m) { try { doc = DocumentApp.openById(m[1]); doc.setName(titulo); } catch(_) {} }
-  }
+  var teniaUrl = urlExistente.startsWith("http");
 
-  // Solo crea uno nuevo si no existe ninguno todavía.
-  if (!doc) {
+  // Si hay URL, INSISTIR en abrir el Doc existente (con reintentos para timing).
+  if (teniaUrl) {
+    var m = urlExistente.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    if (m) {
+      for (var i = 0; i < 5; i++) {
+        try { doc = DocumentApp.openById(m[1]); break; }
+        catch(_) { if (i < 4) Utilities.sleep(500); }
+      }
+    }
+    // Si tenía URL pero no se pudo abrir, NO crear duplicado — lanzar error.
+    if (!doc) throw new Error("No se pudo abrir el Doc existente: " + urlExistente);
+    doc.setName(titulo);
+  } else {
+    // Sin URL: es la primera vez, crear nuevo.
     doc = DocumentApp.create(titulo);
     DriveApp.getFileById(doc.getId()).moveTo(carpeta);
   }
