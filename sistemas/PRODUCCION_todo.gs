@@ -131,13 +131,18 @@ function onEdit(e) {
   try { if (e.range.getColumn() === 30) actualizarDashboard(); } catch(_) {}
 }
 
-// Trigger instalable — actualiza el Doc al editar (requiere PASO 3).
+// Trigger instalable — SOLO actualiza docs existentes. La creación inicial la hace nuevaOrden.
 function onEditInstalable(e) {
   var sheet = e.range.getSheet();
   if (sheet.getName() !== CFG.HOJAS.ORDENES) return;
   var fila = e.range.getRow();
   if (fila < 2) return;
-  if (e.range.getColumn() === 34) return; // col AH = URL del Doc: ignorar para evitar loop
+  if (e.range.getColumn() === 34) return; // evita loop al guardar URL
+
+  // Si la fila no tiene Doc todavía, no crear uno — lo crea nuevaOrden.
+  var urlExistente = String(sheet.getRange(fila, 34).getValue() || "");
+  if (!urlExistente.startsWith("http")) return;
+
   try { _sincronizarFila(sheet, fila); } catch(err) { Logger.log("Sync error fila " + fila + ": " + err.message); }
 }
 
