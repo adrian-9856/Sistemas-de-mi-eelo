@@ -480,21 +480,52 @@ function configurarTriggers() { _run(function() {
 function reinstalarSistema() { _run(function() {
   var ui = SpreadsheetApp.getUi();
   var resp = ui.alert(
-    "⚠️ Reinstalar sistema",
-    "Esto BORRA las hojas ORDENES, CLIENTES y DASHBOARD y las recrea vacías.\n\nLos Docs y carpetas en Drive NO se tocan.\n\n¿Continuar?",
+    "⚠️ Reinstalar sistema — BORRADO COMPLETO",
+    "Esto elimina TODO:\n\n" +
+    "• Hojas ORDENES, CLIENTES, DASHBOARD\n" +
+    "• Carpeta 'Mi eelo · Producción' y TODO su contenido en Drive\n  (Docs, carpetas de clientes, archivos)\n\n" +
+    "Esta acción NO se puede deshacer.\n¿Continuar?",
     ui.ButtonSet.YES_NO
   );
   if (resp !== ui.Button.YES) return;
 
+  // 1. Borrar hojas del Sheets
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   ["ORDENES","CLIENTES","DASHBOARD"].forEach(function(nombre) {
     var h = ss.getSheetByName(nombre);
     if (h) ss.deleteSheet(h);
   });
 
-  // Espera un momento para que Sheets procese los deletes.
-  Utilities.sleep(500);
+  // 2. Borrar carpeta raíz en Drive (y todo su contenido)
+  var p    = PropertiesService.getScriptProperties();
+  var idRaiz = p.getProperty("DRIVE_RAIZ");
+  if (idRaiz) {
+    try {
+      var carpetaRaiz = DriveApp.getFolderById(idRaiz);
+      _borrarCarpetaRecursivo(carpetaRaiz);
+    } catch(_) {}
+  } else {
+    // Busca por nombre si no hay ID guardado
+    var it = DriveApp.getFoldersByName(CFG.ORG + " · Producción");
+    while (it.hasNext()) _borrarCarpetaRecursivo(it.next());
+  }
 
-  // Recrea las hojas desde cero.
+  // 3. Limpiar propiedades guardadas
+  p.deleteAllProperties();
+
+  // 4. Recrea hojas limpias
+  Utilities.sleep(500);
   crearHojas();
+  _alert("✅ Sistema reinstalado desde cero.\nSiguiente paso: PASO 2 — Crear estructura en Drive.");
 }); }
+
+function _borrarCarpetaRecursivo(carpeta) {
+  // Borra todos los archivos dentro
+  var archivos = carpeta.getFiles();
+  while (archivos.hasNext()) archivos.next().setTrashed(true);
+  // Borra subcarpetas recursivamente
+  var subcarpetas = carpeta.getFolders();
+  while (subcarpetas.hasNext()) _borrarCarpetaRecursivo(subcarpetas.next());
+  // Borra la carpeta misma
+  carpeta.setTrashed(true);
+}
