@@ -52,7 +52,6 @@ function onOpen() {
     .addItem("⚙️  PASO 3 — Activar sincronización",      "configurarTriggers")
     .addSeparator()
     .addItem("➕ Nueva orden (OP o OM)",              "nuevaOrden")
-    .addItem("📄 Generar Doc de la orden seleccionada","generarDocOrden")
     .addItem("🔄 Sincronizar Doc de esta fila",        "sincronizarDocFila")
     .addSeparator()
     .addItem("🔍 Filtrar órdenes por cliente",         "filtrarPorCliente")
@@ -165,9 +164,9 @@ function sincronizarDocFila() { _run(function() {
 
 function nuevaOrden() { _run(function() {
   var ui     = SpreadsheetApp.getUi();
-  var resp   = ui.prompt("Nueva orden", "¿OP o OM?", ui.ButtonSet.OK_CANCEL);
+  var resp = ui.prompt("Nueva orden", "¿OP o OM?", ui.ButtonSet.OK_CANCEL);
   if (resp.getSelectedButton() !== ui.Button.OK) return;
-  var tipo   = resp.getResponseText().trim().toUpperCase();
+  var tipo = resp.getResponseText().trim().toUpperCase();
   if (tipo !== "OP" && tipo !== "OM") { ui.alert("Escribe OP o OM."); return; }
 
   var hoja   = _sh(CFG.HOJAS.ORDENES);
@@ -176,20 +175,27 @@ function nuevaOrden() { _run(function() {
 
   hoja.appendRow([
     numero, tipo, fecha,
-    "","","","",   // Cliente Contacto Proyecto Fecha_Promesa
-    "","","","",   // Descripcion Cantidad Tela Color
-    "","","","Inches",  // Medidas
-    "No","No","No","No","", // Specs
-    "No","","","","",  // Serigrafia
-    "","",             // Films
-    "No","No",         // Mockup
-    "Pendiente","","", // Estado Participantes Comentarios
-    "","",             // URLs
+    "","","","",
+    "","","","",
+    "","","","Inches",
+    "No","No","No","No","",
+    "No","","","","",
+    "","",
+    "No","No",
+    "Pendiente","","",
+    "","",
   ]);
 
-  var f = hoja.getLastRow();
-  hoja.setActiveRange(hoja.getRange(f, 1));
-  ui.alert("✅ Creada: " + numero + "\nCompleta los datos en la fila.");
+  var fila = hoja.getLastRow();
+  hoja.setActiveRange(hoja.getRange(fila, 1));
+
+  // Crea el Doc automáticamente con los datos iniciales.
+  var o       = _leerFila(hoja, fila);
+  var carpeta = _carpetaCliente("Sin_Cliente");
+  var doc     = _construirDoc(o, carpeta);
+  hoja.getRange(fila, 34).setValue(doc.getUrl());
+
+  ui.alert("✅ " + numero + " creada con Doc listo.\nCompleta los datos — el Doc se sincroniza con el menú 🔄");
 }); }
 
 function filtrarPorCliente() { _run(function() {
