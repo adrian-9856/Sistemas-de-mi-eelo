@@ -59,6 +59,8 @@ function onOpen() {
     .addSeparator()
     .addItem("📁 Crear carpeta Drive del cliente",     "crearCarpetaCliente")
     .addItem("🔄 Actualizar Dashboard",                "actualizarDashboard")
+    .addSeparator()
+    .addItem("🗑️  Reinstalar sistema (borra hojas)",    "reinstalarSistema")
     .addToUi();
 }
 
@@ -262,19 +264,17 @@ function _leerFila(hoja, fila) {
 
 function _construirDoc(o, carpeta) {
   var titulo = o.numero + (o.descripcion ? " — " + o.descripcion : "");
-
-  // Reutiliza el Doc existente si la URL ya está guardada en la fila.
   var doc = null;
+
+  // Abre el Doc existente por URL — nunca borra nada.
   var urlExistente = String(o.urlDoc || "");
   if (urlExistente.startsWith("http")) {
     var m = urlExistente.match(/\/d\/([a-zA-Z0-9_-]+)/);
     if (m) { try { doc = DocumentApp.openById(m[1]); doc.setName(titulo); } catch(_) {} }
   }
 
-  // Si no hay Doc existente, crea uno nuevo (borra duplicados por nombre).
+  // Solo crea uno nuevo si no existe ninguno todavía.
   if (!doc) {
-    var prev = carpeta.getFilesByName(titulo);
-    while (prev.hasNext()) prev.next().setTrashed(true);
     doc = DocumentApp.create(titulo);
     DriveApp.getFileById(doc.getId()).moveTo(carpeta);
   }
@@ -472,4 +472,26 @@ function configurarTriggers() { _run(function() {
   ScriptApp.newTrigger("onEditInstalable").forSpreadsheet(ss).onEdit().create();
   ScriptApp.newTrigger("actualizarDashboard").timeBased().everyMinutes(30).create();
   _alert("✅ Automatizaciones activas:\n• Doc se actualiza al editar cada fila\n• Dashboard cada 30 min");
+}); }
+
+function reinstalarSistema() { _run(function() {
+  var ui = SpreadsheetApp.getUi();
+  var resp = ui.alert(
+    "⚠️ Reinstalar sistema",
+    "Esto BORRA las hojas ORDENES, CLIENTES y DASHBOARD y las recrea vacías.\n\nLos Docs y carpetas en Drive NO se tocan.\n\n¿Continuar?",
+    ui.ButtonSet.YES_NO
+  );
+  if (resp !== ui.Button.YES) return;
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  ["ORDENES","CLIENTES","DASHBOARD"].forEach(function(nombre) {
+    var h = ss.getSheetByName(nombre);
+    if (h) ss.deleteSheet(h);
+  });
+
+  // Espera un momento para que Sheets procese los deletes.
+  Utilities.sleep(500);
+
+  // Recrea las hojas desde cero.
+  crearHojas();
 }); }
