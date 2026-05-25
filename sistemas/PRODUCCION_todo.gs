@@ -190,7 +190,7 @@ function _sincronizarFila(hoja, fila) {
 //  AD Estado  AE Participantes  AF Comentarios  AG URL_Mockup  AH URL_Doc
 
 function nuevaOrden() { _run(function() {
-  var ui     = SpreadsheetApp.getUi();
+  var ui   = SpreadsheetApp.getUi();
   var resp = ui.prompt("Nueva orden", "¿OP o OM?", ui.ButtonSet.OK_CANCEL);
   if (resp.getSelectedButton() !== ui.Button.OK) return;
   var tipo = resp.getResponseText().trim().toUpperCase();
@@ -200,6 +200,13 @@ function nuevaOrden() { _run(function() {
   var numero = _siguienteNumero(hoja, tipo);
   var fecha  = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy");
 
+  // 1. Crear el Doc PRIMERO (antes de tocar el Sheets) — así no hay carrera con el trigger.
+  var carpeta = _carpetaCliente("Sin_Cliente");
+  var doc     = DocumentApp.create(numero);
+  DriveApp.getFileById(doc.getId()).moveTo(carpeta);
+  var url     = doc.getUrl();
+
+  // 2. Agregar la fila con la URL ya incluida (col 34 nunca está vacía).
   hoja.appendRow([
     numero, tipo, fecha,
     "","","","",
@@ -210,13 +217,15 @@ function nuevaOrden() { _run(function() {
     "","",
     "No","No",
     "Pendiente","","",
-    "","",
+    "", url,
   ]);
 
+  // 3. Sincronizar contenido del Doc con los datos iniciales (no crea otro, ya existe).
   var fila = hoja.getLastRow();
   hoja.setActiveRange(hoja.getRange(fila, 1));
-  var url = _sincronizarFila(hoja, fila);
-  ui.alert("✅ " + numero + " creada.\nDoc listo — completa los datos y usa 🔄 Sincronizar para actualizar.\n\n" + url);
+  _sincronizarFila(hoja, fila);
+
+  ui.alert("✅ " + numero + " creada.\n" + url);
 }); }
 
 function filtrarPorCliente() { _run(function() {
