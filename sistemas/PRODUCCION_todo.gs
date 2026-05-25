@@ -245,15 +245,25 @@ function generarDocOrden() { _run(function() {
   var doc     = _construirDoc(o, carpeta);
   var url     = doc.getUrl();
 
-  hoja.getRange(fila, 34).setFormula('=HYPERLINK("' + url + '","Ver Doc")');
+  hoja.getRange(fila, 34).setValue(url);
   _alert("✅ " + o.numero + "\n" + url);
 }); }
 
-// Actualiza el Doc existente de la fila (llamado desde onEdit).
+// Actualiza el Doc existente de la fila (llamado desde onEditInstalable).
 function _actualizarDocFila(hoja, fila) {
-  var o = _leerFila(hoja, fila);
-  if (!o.urlDoc) return;
-  var match = String(o.urlDoc).match(/\/d\/([a-zA-Z0-9_-]+)/);
+  var o    = _leerFila(hoja, fila);
+  var cell = hoja.getRange(fila, 34);
+
+  // Obtiene la URL desde el valor directo o desde fórmula HYPERLINK legacy.
+  var url = String(cell.getValue() || "");
+  if (!url.startsWith("http")) {
+    var fm = cell.getFormula();
+    var m2 = fm.match(/HYPERLINK\("([^"]+)"/);
+    if (m2) url = m2[1];
+  }
+  if (!url.startsWith("http")) return;
+
+  var match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
   if (!match) return;
   var doc  = DocumentApp.openById(match[1]);
   var body = doc.getBody();
