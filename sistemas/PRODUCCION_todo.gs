@@ -123,9 +123,15 @@ function _formatearEncabezado(hoja, color) {
 }
 
 function onEdit(e) {
-  if (e.range.getSheet().getName() === CFG.HOJAS.ORDENES && e.range.getColumn() === 30) {
-    try { actualizarDashboard(); } catch(_) {}
-  }
+  var sheet = e.range.getSheet();
+  if (sheet.getName() !== CFG.HOJAS.ORDENES) return;
+  var fila = e.range.getRow();
+  if (fila < 2) return;
+  try { if (e.range.getColumn() === 30) actualizarDashboard(); } catch(_) {}
+  try {
+    var urlDoc = sheet.getRange(fila, 34).getValue();
+    if (urlDoc) _actualizarDocFila(sheet, fila);
+  } catch(_) {}
 }
 
 // ── Órdenes ─────────────────────────────────────────────────
@@ -234,15 +240,41 @@ function generarDocOrden() { _run(function() {
   _alert("✅ " + o.numero + "\n" + url);
 }); }
 
+// Actualiza el Doc existente de la fila (llamado desde onEdit).
+function _actualizarDocFila(hoja, fila) {
+  var o = _leerFila(hoja, fila);
+  if (!o.urlDoc) return;
+  var match = String(o.urlDoc).match(/\/d\/([a-zA-Z0-9_-]+)/);
+  if (!match) return;
+  var doc  = DocumentApp.openById(match[1]);
+  var body = doc.getBody();
+  body.clear();
+  _escribirContenidoDoc(body, o);
+  doc.saveAndClose();
+}
+
 function _construirDoc(o, carpeta) {
   var titulo = o.numero + (o.descripcion ? " — " + o.descripcion : "");
-  var prev   = carpeta.getFilesByName(titulo);
-  while (prev.hasNext()) prev.next().setTrashed(true);
-
-  var doc  = DocumentApp.create(titulo);
+  var doc;
+  if (o.urlDoc) {
+    var m = String(o.urlDoc).match(/\/d\/([a-zA-Z0-9_-]+)/);
+    if (m) { try { doc = DocumentApp.openById(m[1]); doc.setName(titulo); } catch(_) { doc = null; } }
+  }
+  if (!doc) {
+    var prev = carpeta.getFilesByName(titulo);
+    while (prev.hasNext()) prev.next().setTrashed(true);
+    doc = DocumentApp.create(titulo);
+  }
   var body = doc.getBody();
+  body.clear();
   body.setMarginTop(36).setMarginBottom(36).setMarginLeft(54).setMarginRight(54);
+  _escribirContenidoDoc(body, o);
+  doc.saveAndClose();
+  try { DriveApp.getFileById(doc.getId()).moveTo(carpeta); } catch(_) {}
+  return doc;
+}
 
+function _escribirContenidoDoc(body, o) {
   _h1(body, CFG.ORG);
   _meta(body, CFG.DIRECCION);
   _meta(body, CFG.TELEFONO);
@@ -294,13 +326,9 @@ function _construirDoc(o, carpeta) {
 
   _sp(body);
   body.appendParagraph(
-    "Emisión: " + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy") +
+    "Actualizado: " + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm") +
     "     Estado: " + (o.estado||"Pendiente")
   ).setAlignment(DocumentApp.HorizontalAlignment.RIGHT).setItalic(true).setFontSize(9);
-
-  doc.saveAndClose();
-  DriveApp.getFileById(doc.getId()).moveTo(carpeta);
-  return doc;
 }
 
 function _h1(body, t) {
