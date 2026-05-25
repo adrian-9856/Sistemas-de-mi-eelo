@@ -1,68 +1,85 @@
-# Sistema Unificado — Mi eelo
+# Sistemas Mi eelo
 
-Sistema centralizado en Google Sheets con automatizaciones via Apps Script.
-Conecta KoboToolbox, Google Drive, Google Docs y correo en un solo flujo.
-
----
-
-## ¿Qué hace este sistema?
-
-| Tarea                          | Antes                        | Ahora                              |
-|-------------------------------|------------------------------|------------------------------------|
-| Asistencia                    | Manual en Excel              | Importación automática desde Kobo  |
-| Facturación                   | 14 hojas separadas           | 1 hoja calculada automáticamente   |
-| Facturas individuales         | Manual                       | Google Docs generados con 1 clic   |
-| Reportes mensuales            | Manual                       | Google Doc automático al admin     |
-| Órdenes de producción         | 141 hojas Excel              | 1 hoja con Doc por orden           |
-| Notificaciones de pago        | Ninguna                      | Correo automático cada viernes     |
-| Resumen al admin              | Manual                       | Correo automático el día 1         |
-| Archivos organizados          | Carpetas desorganizadas      | Estructura Drive automática        |
+Dos sistemas independientes. Cada uno es un Google Sheets separado con sus propios scripts.
 
 ---
 
-## Estructura del repositorio
+## Sistema 1 — Producción (OPs y OMs)
+`sistemas/produccion/`
 
+**Google Sheets:** "Mi eelo · Producción"
+
+| Hoja | Contenido |
+|------|-----------|
+| ORDENES | Todas las OPs y OMs con 35 columnas: cliente, medidas, serigrafía, mockup, estado |
+| CLIENTES | Lista de clientes con enlace directo a su carpeta en Drive |
+| DASHBOARD | Métricas en tiempo real: órdenes por estado y por cliente |
+
+**Lo que hace:**
+- Nueva orden (OP o OM) con número automático `OP26-001`
+- Genera el Google Doc del formulario real con 1 clic desde cualquier fila
+- Organiza los Docs en Drive por cliente: `Órdenes/Clientes/Peace by Piece/`
+- Filtra todas las órdenes de un cliente con 1 clic
+- Dashboard que se actualiza automáticamente
+
+**Scripts (pegar en Apps Script en este orden):**
 ```
-apps-script/
-  00_Config.gs          ← EMPIEZA AQUÍ: edita tus credenciales y tarifas
-  01_Menu.gs            ← Menú en Google Sheets
-  02_KoboImport.gs      ← Importa asistencia desde KoboToolbox
-  03_Participantes.gs   ← Gestión de IDs de participantes
-  04_Facturacion.gs     ← Cálculo de horas y montos
-  05_Documentos.gs      ← Genera facturas y reportes en Google Docs
-  06_Drive.gs           ← Organiza archivos en Google Drive
-  07_Notificaciones.gs  ← Envía correos automáticos
-  08_Dashboard.gs       ← Actualiza métricas en tiempo real
-  09_Triggers.gs        ← Configura automatizaciones (ejecutar 1 sola vez)
-
-docs/
-  instalacion.md        ← Guía paso a paso para instalar
-  arquitectura.md       ← Cómo fluyen los datos entre módulos
+00_Config.gs     ← edita aquí tu correo y nombre de org
+01_Menu.gs
+02_Ordenes.gs
+03_Documentos.gs
+04_Drive.gs
+05_Dashboard.gs
+06_Triggers.gs
 ```
 
 ---
 
-## Inicio rápido
+## Sistema 2 — RRHH / Participantes
+`sistemas/rrhh/`
 
-1. Lee [`docs/instalacion.md`](docs/instalacion.md) — guía completa paso a paso
-2. Edita `apps-script/00_Config.gs` con tu token de Kobo y correo
-3. Pega los scripts en **Extensiones → Apps Script** de tu Google Sheets
-4. Ejecuta **🚀 Mi eelo → ⚙️ Configurar triggers automáticos** una sola vez
+**Google Sheets:** "Mi eelo · RRHH"
 
-Listo. El sistema corre solo desde ese punto.
+| Hoja | Contenido |
+|------|-----------|
+| PARTICIPANTES | 76 personas: Creamos ID, nombre, proyecto, datos bancarios |
+| ASISTENCIA | Registro de entradas/salidas desde Kobo, horas calculadas |
+| FACTURACION | Historial de pagos por quincena y mes |
+| DASHBOARD | Métricas: participantes activos, total a pagar, pendientes |
+
+**Lo que hace:**
+- Importa asistencia desde KoboToolbox cada hora (automático)
+- Empareja cada entrada con su salida para calcular horas reales
+- Calcula montos por quincena automáticamente
+- Genera recibo de pago en Google Docs por participante
+- Correos automáticos: recordatorio de pagos (viernes) y resumen mensual (día 1)
+- Drive organizado: `Facturas/2026/Mayo/Recibo_ANLA060686_Q1_Mayo_2026`
+
+**Scripts (pegar en Apps Script en este orden):**
+```
+00_Config.gs     ← edita aquí tu token Kobo, correo y tarifa/hora
+01_Menu.gs
+02_Kobo.gs
+03_Facturacion.gs
+04_Documentos.gs
+05_Drive.gs
+06_Notificaciones.gs
+07_Dashboard.gs
+08_Participantes.gs
+09_Triggers.gs
+```
 
 ---
 
-## Automatizaciones activas
+## Cómo instalar cada sistema
 
-| Frecuencia         | Acción                                     |
-|--------------------|--------------------------------------------|
-| Cada hora          | Importa asistencia desde KoboToolbox       |
-| Diario (00:00)     | Recalcula facturación del mes              |
-| Cada 30 minutos    | Actualiza Dashboard                        |
-| Día 1 de cada mes  | Envía resumen mensual al administrador     |
-| Cada viernes 9am   | Recordatorio de pagos pendientes           |
+1. Crea un Google Sheets nuevo con el nombre correspondiente
+2. Ve a **Extensiones → Apps Script**
+3. Borra el código default y crea un archivo por cada `.gs` (botón "+")
+4. Pega el contenido de cada archivo en el mismo orden
+5. Edita `00_Config.gs` con tus datos reales
+6. Recarga el Sheets — aparece el menú
+7. Ejecuta **Crear estructura en Drive** (una vez)
+8. Ejecuta **Configurar automatizaciones** (una vez)
 
----
-
-*Versión: 2.0 — Mayo 2026*
+La guía detallada de carga inicial está en `docs/carga-inicial.md`
