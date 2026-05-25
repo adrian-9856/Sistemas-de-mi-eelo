@@ -3,56 +3,71 @@
 // ============================================================
 
 function onOpen() {
-  SpreadsheetApp.getUi()
-    .createMenu("🚀 Mi eelo")
+  var ui = SpreadsheetApp.getUi();
+  ui.createMenu("🚀 Mi eelo")
 
-    // ── Importación inicial (una sola vez) ──
-    .addSubMenu(SpreadsheetApp.getUi().createMenu("📂 Carga inicial de datos")
-      .addItem("👥 Importar participantes desde Excel",  "importarParticipantesDesdeExcel")
-      .addItem("📋 Importar asistencia desde Planilla",  "importarDesdePlanillaLocal")
-      .addItem("📦 Importar OPs / OMs",                  "importarOrdenes")
-      .addItem("💼 Importar ventas (Comercial)",          "importarVentas")
-      .addItem("🛒 Importar compras (Comercial)",         "importarCompras")
+    // ── Carga inicial (una sola vez) ──────────────────────
+    .addSubMenu(ui.createMenu("📂 Carga inicial de datos")
+      .addItem("👥 Importar participantes desde Excel",   "importarParticipantesDesdeExcel")
+      .addItem("📋 Importar asistencia (DatosKobo)",      "importarDesdePlanillaLocal")
+      .addItem("💳 Importar datos de facturación (DPI/NIT/Banco)", "importarDatosFacturacion")
+      .addItem("💰 Importar historial facturación (14 meses)",     "importarHistorialFacturacion")
+      .addItem("📦 Importar OPs / OMs (hojas numéricas)", "importarOrdenes")
+      .addItem("💼 Importar ventas (Comercial Sales)",    "importarVentas")
+      .addItem("🛒 Importar compras (Comercial Compras)", "importarCompras")
     )
     .addSeparator()
 
-    // ── Operaciones diarias ──
-    .addItem("📥 Importar asistencia desde Kobo",        "importarDesdeKobo")
-    .addItem("🔗 Emparejar entradas/salidas + horas",    "emparejarAsistencia")
-    .addItem("✅ Verificar IDs de participantes",         "normalizarIDs")
+    // ── Operaciones diarias ───────────────────────────────
+    .addItem("📥 Importar asistencia desde Kobo",         "importarDesdeKobo")
+    .addItem("🔗 Emparejar entradas/salidas → horas",     "emparejarAsistencia")
+    .addItem("✅ Verificar IDs participantes",             "normalizarIDs")
     .addSeparator()
 
-    // ── Facturación ──
-    .addItem("💰 Calcular facturación del mes",          "calcularFacturacionMes")
-    .addItem("📄 Generar facturas en Google Docs",        "generarFacturasMes")
-    .addItem("📊 Generar reporte mensual (Doc)",          "generarReporteMensual")
+    // ── Facturación ──────────────────────────────────────
+    .addItem("💰 Calcular facturación del mes",           "calcularFacturacionMes")
+    .addItem("📄 Generar facturas en Google Docs",         "generarFacturasMes")
+    .addItem("📊 Generar reporte mensual (Doc)",           "generarReporteMensual")
     .addSeparator()
 
-    // ── Órdenes ──
-    .addItem("📦 Generar Doc de orden seleccionada",     "generarOrdenProduccion")
+    // ── Órdenes ──────────────────────────────────────────
+    .addItem("📦 Generar Doc de la orden seleccionada",   "generarOrdenProduccion")
     .addSeparator()
 
-    // ── Notificaciones ──
-    .addItem("🔔 Enviar recordatorio de pagos",          "enviarRecordatorioPagos")
-    .addItem("📬 Enviar resumen mensual al admin",        "enviarResumenMensual")
+    // ── Clientes / Proveedores ────────────────────────────
+    .addSubMenu(ui.createMenu("👤 Clientes y Proveedores")
+      .addItem("📁 Crear carpeta Drive del cliente seleccionado",    "crearCarpetaCliente")
+      .addItem("📁 Crear carpetas para TODOS los clientes",          "crearCarpetasTodosClientes")
+      .addItem("🔍 Ver órdenes del cliente seleccionado",            "verOrdenesCliente")
+      .addItem("📁 Crear carpeta Drive del proveedor seleccionado",  "crearCarpetaProveedor")
+      .addItem("🧹 Limpiar filtros en Órdenes",                      "limpiarFiltros")
+    )
     .addSeparator()
 
-    // ── Sistema ──
-    .addItem("📁 Crear estructura en Drive",             "crearEstructuraDrive")
-    .addItem("🔄 Actualizar Dashboard",                  "actualizarDashboard")
-    .addItem("⚙️  Configurar triggers automáticos",       "configurarTriggers")
+    // ── Notificaciones ───────────────────────────────────
+    .addItem("🔔 Enviar recordatorio de pagos",           "enviarRecordatorioPagos")
+    .addItem("📬 Enviar resumen mensual al admin",         "enviarResumenMensual")
+    .addSeparator()
+
+    // ── Sistema ──────────────────────────────────────────
+    .addItem("📁 Crear estructura en Drive",              "crearEstructuraDrive")
+    .addItem("🔄 Actualizar Dashboard",                   "actualizarDashboard")
+    .addItem("⚙️  Configurar triggers automáticos",        "configurarTriggers")
 
     .addToUi();
 }
 
 function onEdit(e) {
   var hoja = e.range.getSheet().getName();
-  // Cuando se marca un pago como completado en FACTURACION_CONSOLIDADA (col K)
-  if (hoja === CONFIG.HOJAS.FACTURACION && e.range.getColumn() === 11) {
+  var col  = e.range.getColumn();
+
+  // Pago marcado en FACTURACION_CONSOLIDADA (col K = 11)
+  if (hoja === CONFIG.HOJAS.FACTURACION && col === 11) {
     actualizarDashboard();
   }
-  // Cuando se cambia el estado de una orden (col I de ORDENES_PRODUCCION)
-  if (hoja === CONFIG.HOJAS.ORDENES && e.range.getColumn() === 9) {
+
+  // Estado de orden cambiado en ORDENES_PRODUCCION (col AD = 30)
+  if (hoja === CONFIG.HOJAS.ORDENES && col === 30) {
     actualizarDashboard();
   }
 }
