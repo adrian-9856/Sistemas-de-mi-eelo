@@ -31,9 +31,15 @@ function _sh(nombre) {
 // Ejecuta fn mostrando cualquier error como alerta (o en el log si no hay UI).
 function _run(fn) {
   try { fn(); } catch(e) {
-    try { SpreadsheetApp.getUi().alert("❌ " + e.message); }
+    try { _alert("❌ " + e.message); }
     catch(_) { Logger.log("❌ " + e.message); throw e; }
   }
+}
+
+// Muestra alerta si hay UI, o escribe en el log si se ejecuta desde el editor.
+function _alert(msg) {
+  try { SpreadsheetApp.getUi().alert(msg); }
+  catch(_) { Logger.log(msg); }
 }
 
 // ── Menú ────────────────────────────────────────────────────
@@ -113,7 +119,7 @@ function crearHojas() { _run(function() {
   if (hDef && ss.getSheets().length > 3) ss.deleteSheet(hDef);
 
   ss.setActiveSheet(hP);
-  SpreadsheetApp.getUi().alert("✅ Hojas creadas:\n• PARTICIPANTES\n• ASISTENCIA\n• FACTURACION\n\nSiguiente paso: PASO 2 — Crear estructura en Drive");
+  _alert("✅ Hojas creadas:\n• PARTICIPANTES\n• ASISTENCIA\n• FACTURACION\n\nSiguiente paso: PASO 2 — Crear estructura en Drive");
 }); }
 
 function _fmtEnc(hoja, color) {
@@ -153,7 +159,7 @@ function importarDesdeKobo() { _run(function() {
     hoja.getRange(hoja.getLastRow() + 1, 1, nuevos.length, 10).setValues(nuevos);
   }
   emparejarAsistencia();
-  SpreadsheetApp.getUi().alert("✅ " + nuevos.length + " registros nuevos importados.");
+  _alert("✅ " + nuevos.length + " registros nuevos importados.");
 }); }
 
 // Carga histórica desde hoja "DatosKobo" pegada en este Sheets.
@@ -180,7 +186,7 @@ function importarAsistenciaHistorica() { _run(function() {
     hojaDest.getRange(hojaDest.getLastRow() + 1, 1, nuevos.length, 10).setValues(nuevos);
   }
   emparejarAsistencia();
-  SpreadsheetApp.getUi().alert("✅ " + nuevos.length + " registros históricos importados.");
+  _alert("✅ " + nuevos.length + " registros históricos importados.");
 }); }
 
 function emparejarAsistencia() { _run(function() {
@@ -301,7 +307,7 @@ function _calcular(mes, anio) {
     });
   });
   actualizarDashboard();
-  SpreadsheetApp.getUi().alert("✅ Facturación calculada — " + nombreMes + " " + anio);
+  _alert("✅ Facturación calculada — " + nombreMes + " " + anio);
 }
 
 // Pega cada hoja del Excel como "IMPORT_Mayo", "IMPORT_Junio"... y ejecuta esto.
@@ -336,7 +342,7 @@ function importarFacturacionHistorica() { _run(function() {
       if (q2) { hojaF.appendRow(["",nombre,m.nombre,m.anio,"2","",q2,"No","","No","No","",""]); total++; }
     }
   });
-  SpreadsheetApp.getUi().alert("✅ " + total + " registros importados.");
+  _alert("✅ " + total + " registros importados.");
 }); }
 
 function _filaEnc(datos) {
@@ -372,7 +378,7 @@ function generarRecibosMes() { _run(function() {
     hojaF.getRange(i+1, 14).setValue(doc.getUrl());
     generados++;
   }
-  SpreadsheetApp.getUi().alert("✅ " + generados + " recibos generados.");
+  _alert("✅ " + generados + " recibos generados.");
 }); }
 
 function generarReporteMensual() { _run(function() {
@@ -424,7 +430,7 @@ function generarReporteMensual() { _run(function() {
 
   doc.saveAndClose();
   DriveApp.getFileById(doc.getId()).moveTo(carpeta);
-  SpreadsheetApp.getUi().alert("✅ Reporte: " + doc.getUrl());
+  _alert("✅ Reporte: " + doc.getUrl());
 }); }
 
 function _crearRecibo(f, carpeta) {
@@ -467,7 +473,7 @@ function crearEstructuraDrive() { _run(function() {
   p.setProperty("DRIVE_RAIZ",     raiz.getId());
   p.setProperty("DRIVE_FACTURAS", facturas.getId());
   p.setProperty("DRIVE_REPORTES", reportes.getId());
-  SpreadsheetApp.getUi().alert("✅ Drive listo\n" + raiz.getUrl());
+  _alert("✅ Drive listo\n" + raiz.getUrl());
 }); }
 
 function _carpetaFacturas(anio, mes) {
@@ -511,7 +517,7 @@ function enviarRecordatorioPagos() { _run(function() {
     });
     n++;
   }
-  SpreadsheetApp.getUi().alert("✅ "+n+" recordatorios enviados.");
+  _alert("✅ "+n+" recordatorios enviados.");
 }); }
 
 function enviarResumenMensual() { _run(function() {
@@ -534,7 +540,7 @@ function enviarResumenMensual() { _run(function() {
     body:"Resumen "+mes+" "+anio+"\n══════════════════\n\n"+lineas.join("\n")+
          "\n\n══════════════════\nTotal: Q "+total.toFixed(2)+"\nPagados: "+pag+"\nPendientes: "+pend
   });
-  SpreadsheetApp.getUi().alert("✅ Resumen enviado.");
+  _alert("✅ Resumen enviado.");
 }); }
 
 function _mapaCorreos(hojaP) {
@@ -607,7 +613,7 @@ function importarParticipantes() { _run(function() {
                      "", "", "", "", "", ""]);
     n++;
   }
-  SpreadsheetApp.getUi().alert("✅ "+n+" participantes importados.");
+  _alert("✅ "+n+" participantes importados.");
 }); }
 
 function _idsExistentes(hoja) {
@@ -625,7 +631,7 @@ function configurarTriggers() { _run(function() {
   ScriptApp.newTrigger("actualizarDashboard").timeBased().everyMinutes(30).create();
   ScriptApp.newTrigger("enviarResumenMensual").timeBased().onMonthDay(1).atHour(8).create();
   ScriptApp.newTrigger("enviarRecordatorioPagos").timeBased().onWeekDay(ScriptApp.WeekDay.FRIDAY).atHour(9).create();
-  SpreadsheetApp.getUi().alert(
+  _alert(
     "✅ Automatizaciones activas:\n"+
     "• Kobo: cada hora\n• Facturación: diario 00:00\n"+
     "• Dashboard: cada 30 min\n• Resumen: día 1 / 08:00\n• Recordatorios: viernes 09:00"

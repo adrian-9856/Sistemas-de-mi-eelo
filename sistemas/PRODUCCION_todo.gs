@@ -25,9 +25,15 @@ function _sh(nombre) {
 // Ejecuta fn mostrando cualquier error como alerta (o en el log si no hay UI).
 function _run(fn) {
   try { fn(); } catch(e) {
-    try { SpreadsheetApp.getUi().alert("❌ " + e.message); }
+    try { _alert("❌ " + e.message); }
     catch(_) { Logger.log("❌ " + e.message); throw e; }
   }
+}
+
+// Muestra alerta si hay UI, o escribe en el log si se ejecuta desde el editor.
+function _alert(msg) {
+  try { SpreadsheetApp.getUi().alert(msg); }
+  catch(_) { Logger.log(msg); }
 }
 
 // ── Menú ────────────────────────────────────────────────────
@@ -97,7 +103,7 @@ function crearHojas() { _run(function() {
   // Activa la hoja ORDENES
   ss.setActiveSheet(hOrd);
 
-  SpreadsheetApp.getUi().alert(
+  _alert(
     "✅ Hojas creadas:\n• ORDENES (34 columnas con validaciones)\n• CLIENTES\n\n" +
     "Siguiente paso:\n📦 Producción → PASO 2 — Crear estructura en Drive"
   );
@@ -209,17 +215,17 @@ function _leerFila(hoja, fila) {
 function generarDocOrden() { _run(function() {
   var hoja = _sh(CFG.HOJAS.ORDENES);
   var fila = hoja.getActiveRange().getRow();
-  if (fila < 2) { SpreadsheetApp.getUi().alert("Selecciona una fila de ORDENES."); return; }
+  if (fila < 2) { _alert("Selecciona una fila de ORDENES."); return; }
 
   var o = _leerFila(hoja, fila);
-  if (!o.numero) { SpreadsheetApp.getUi().alert("La fila no tiene número de orden."); return; }
+  if (!o.numero) { _alert("La fila no tiene número de orden."); return; }
 
   var carpeta = _carpetaCliente(o.cliente || "Sin_Cliente");
   var doc     = _construirDoc(o, carpeta);
   var url     = doc.getUrl();
 
   hoja.getRange(fila, 34).setFormula('=HYPERLINK("' + url + '","Ver Doc")');
-  SpreadsheetApp.getUi().alert("✅ " + o.numero + "\n" + url);
+  _alert("✅ " + o.numero + "\n" + url);
 }); }
 
 function _construirDoc(o, carpeta) {
@@ -335,7 +341,7 @@ function crearEstructuraDrive() { _run(function() {
   var p    = PropertiesService.getScriptProperties();
   p.setProperty("DRIVE_RAIZ",     raiz.getId());
   p.setProperty("DRIVE_CLIENTES", cli.getId());
-  SpreadsheetApp.getUi().alert("✅ Estructura Drive creada\n" + raiz.getUrl());
+  _alert("✅ Estructura Drive creada\n" + raiz.getUrl());
 }); }
 
 function crearCarpetaCliente() { _run(function() {
@@ -343,10 +349,10 @@ function crearCarpetaCliente() { _run(function() {
   var fila   = hoja.getActiveRange().getRow();
   if (fila < 2) return;
   var nombre = hoja.getRange(fila, 2).getValue();
-  if (!nombre) { SpreadsheetApp.getUi().alert("La fila no tiene nombre de cliente."); return; }
+  if (!nombre) { _alert("La fila no tiene nombre de cliente."); return; }
   var carpeta = _carpetaCliente(nombre);
   hoja.getRange(fila, 7).setValue(carpeta.getUrl());
-  SpreadsheetApp.getUi().alert("✅ Carpeta: " + carpeta.getUrl());
+  _alert("✅ Carpeta: " + carpeta.getUrl());
 }); }
 
 function _carpetaCliente(nombre) {
@@ -416,5 +422,5 @@ function actualizarDashboard() { _run(function() {
 function configurarTriggers() { _run(function() {
   ScriptApp.getProjectTriggers().forEach(function(t) { ScriptApp.deleteTrigger(t); });
   ScriptApp.newTrigger("actualizarDashboard").timeBased().everyMinutes(30).create();
-  SpreadsheetApp.getUi().alert("✅ Dashboard: actualización cada 30 min activa.");
+  _alert("✅ Dashboard: actualización cada 30 min activa.");
 }); }
