@@ -137,7 +137,8 @@ function onEditInstalable(e) {
   if (sheet.getName() !== CFG.HOJAS.ORDENES) return;
   var fila = e.range.getRow();
   if (fila < 2) return;
-  try { _sincronizarFila(sheet, fila); } catch(err) { Logger.log("Sync error: " + err.message); }
+  if (e.range.getColumn() === 34) return; // col AH = URL del Doc: ignorar para evitar loop
+  try { _sincronizarFila(sheet, fila); } catch(err) { Logger.log("Sync error fila " + fila + ": " + err.message); }
 }
 
 // Sincroniza el Doc de la fila activa desde el menú (siempre funciona).
@@ -149,26 +150,28 @@ function sincronizarDocFila() { _run(function() {
   _alert("✅ Doc actualizado.\n" + url);
 }); }
 
-// Núcleo: crea o actualiza el Doc de la fila y devuelve la URL.
+// Núcleo: crea o actualiza el Doc de la fila. Nunca crea uno nuevo si ya existe.
 function _sincronizarFila(hoja, fila) {
-  var o = _leerFila(hoja, fila);
+  var o        = _leerFila(hoja, fila);
   if (!o.numero) throw new Error("La fila " + fila + " no tiene número de orden.");
 
-  // Lee la URL real de la celda AH (col 34), incluso si es fórmula HYPERLINK.
+  // Lee la URL real de col 34 — funciona con valor plano O fórmula HYPERLINK en cualquier idioma.
   var celdaUrl = hoja.getRange(fila, 34);
-  var urlReal  = String(celdaUrl.getValue() || "");
-  if (!urlReal.startsWith("http")) {
-    var formula = celdaUrl.getFormula();
-    var match   = formula.match(/HYPERLINK\("([^"]+)"/);
-    if (match) urlReal = match[1];
+  var urlActual = String(celdaUrl.getValue() || "");
+  if (!urlActual.startsWith("http")) {
+    var fm  = celdaUrl.getFormula();
+    var mUrl = fm.match(/https?:\/\/[^\s"]+/); // extrae URL sin depender del nombre de la función
+    if (mUrl) urlActual = mUrl[0];
   }
-  o.urlDoc = urlReal; // asegura que _construirDoc use la URL correcta
+  o.urlDoc = urlActual; // garantiza que _construirDoc abra el Doc existente
 
-  var carpeta = _carpetaCliente(o.cliente || "Sin_Cliente");
-  var doc     = _construirDoc(o, carpeta);
-  var url     = doc.getUrl();
-  celdaUrl.setValue(url); // guarda siempre como URL plana (no fórmula)
-  return url;
+  var carpeta  = _carpetaCliente(o.cliente || "Sin_Cliente");
+  var doc      = _construirDoc(o, carpeta);
+  var urlNueva = doc.getUrl();
+
+  // Solo escribe en la celda si la URL cambió (evita disparar el trigger innecesariamente).
+  if (urlNueva !== urlActual) celdaUrl.setValue(urlNueva);
+  return urlNueva;
 }
 
 // ── Órdenes ─────────────────────────────────────────────────
