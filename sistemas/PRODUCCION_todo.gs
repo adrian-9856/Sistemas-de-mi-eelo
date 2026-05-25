@@ -49,17 +49,17 @@ function onOpen() {
     .createMenu("📦 Producción")
     .addItem("🏗️  PASO 1 — Crear hojas del sistema",    "crearHojas")
     .addItem("📁  PASO 2 — Crear estructura en Drive",  "crearEstructuraDrive")
+    .addItem("⚙️  PASO 3 — Activar sincronización",      "configurarTriggers")
     .addSeparator()
     .addItem("➕ Nueva orden (OP o OM)",              "nuevaOrden")
     .addItem("📄 Generar Doc de la orden seleccionada","generarDocOrden")
+    .addItem("🔄 Sincronizar Doc de esta fila",        "sincronizarDocFila")
     .addSeparator()
     .addItem("🔍 Filtrar órdenes por cliente",         "filtrarPorCliente")
     .addItem("🧹 Quitar filtros",                      "limpiarFiltros")
     .addSeparator()
     .addItem("📁 Crear carpeta Drive del cliente",     "crearCarpetaCliente")
     .addItem("🔄 Actualizar Dashboard",                "actualizarDashboard")
-    .addSeparator()
-    .addItem("⚙️  Configurar automatizaciones",         "configurarTriggers")
     .addToUi();
 }
 
@@ -138,10 +138,20 @@ function onEditInstalable(e) {
   var fila = e.range.getRow();
   if (fila < 2) return;
   try {
-    var urlDoc = sheet.getRange(fila, 34).getValue();
-    if (urlDoc) _actualizarDocFila(sheet, fila);
-  } catch(_) {}
+    _actualizarDocFila(sheet, fila);
+  } catch(err) {
+    Logger.log("onEditInstalable error fila " + fila + ": " + err.message);
+  }
 }
+
+// Sincroniza el Doc de la fila seleccionada (botón de menú, siempre funciona).
+function sincronizarDocFila() { _run(function() {
+  var hoja = _sh(CFG.HOJAS.ORDENES);
+  var fila = hoja.getActiveRange().getRow();
+  if (fila < 2) { _alert("Selecciona una fila de ORDENES primero."); return; }
+  _actualizarDocFila(hoja, fila);
+  _alert("✅ Doc sincronizado.");
+}); }
 
 // ── Órdenes ─────────────────────────────────────────────────
 // Columnas ORDENES:
