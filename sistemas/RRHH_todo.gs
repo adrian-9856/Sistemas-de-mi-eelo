@@ -38,6 +38,9 @@ function _run(fn) {
 function onOpen() {
   var ui = SpreadsheetApp.getUi();
   ui.createMenu("👥 RRHH")
+    .addItem("🏗️  PASO 1 — Crear hojas del sistema",   "crearHojas")
+    .addItem("📁  PASO 2 — Crear estructura en Drive", "crearEstructuraDrive")
+    .addSeparator()
     .addSubMenu(ui.createMenu("📂 Carga inicial (una sola vez)")
       .addItem("👥 Importar participantes",           "importarParticipantes")
       .addItem("📋 Importar asistencia histórica",    "importarAsistenciaHistorica")
@@ -64,6 +67,56 @@ function onEdit(e) {
   if (e.range.getSheet().getName() === CFG.HOJAS.FACTURACION && e.range.getColumn() === 11) {
     try { actualizarDashboard(); } catch(_) {}
   }
+}
+
+// ── Crear hojas ─────────────────────────────────────────────
+
+function crearHojas() { _run(function() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  var hP = ss.getSheetByName("PARTICIPANTES") || ss.insertSheet("PARTICIPANTES");
+  if (hP.getLastRow() === 0) {
+    hP.appendRow(["Creamos_ID","Nombre","Proyecto","Division","Programa","Estado","Etapa",
+      "Educacion","Apoyo_Emocional","Inclusion_Laboral","Categoria",
+      "DPI","NIT","Correo_Electronico","Banco","Numero_Cuenta","Forma_Pago"]);
+    _fmtEnc(hP, "#639922");
+    hP.getRange("F2:F500").setDataValidation(
+      SpreadsheetApp.newDataValidation()
+        .requireValueInList(["Activo","Inactivo","Egresado"], true).build());
+  }
+
+  var hA = ss.getSheetByName("ASISTENCIA") || ss.insertSheet("ASISTENCIA");
+  if (hA.getLastRow() === 0) {
+    hA.appendRow(["Creamos_ID","Nombre","Fecha_Registro","Tipo",
+      "Horas_Trabajadas","Es_Dia_Estudio","Es_Terapia","Porcentaje_Pago","Horas_A_Pagar","UUID_Kobo"]);
+    _fmtEnc(hA, "#1f54a8");
+  }
+
+  var hF = ss.getSheetByName("FACTURACION") || ss.insertSheet("FACTURACION");
+  if (hF.getLastRow() === 0) {
+    hF.appendRow(["Creamos_ID","Nombre","Mes","Anio","Quincena",
+      "Horas_Trabajadas","Monto_A_Pagar","Factura_Entregada","Numero_Factura",
+      "Declaraguate","Pagado","Fecha_Pago","Comentarios"]);
+    _fmtEnc(hF, "#639922");
+    hF.getRange("H2:H2000").setDataValidation(
+      SpreadsheetApp.newDataValidation().requireValueInList(["Sí","No"], true).build());
+    hF.getRange("J2:J2000").setDataValidation(
+      SpreadsheetApp.newDataValidation().requireValueInList(["Sí","No"], true).build());
+    hF.getRange("K2:K2000").setDataValidation(
+      SpreadsheetApp.newDataValidation().requireValueInList(["Sí","No"], true).build());
+  }
+
+  var hDef = ss.getSheetByName("Hoja 1") || ss.getSheetByName("Sheet1");
+  if (hDef && ss.getSheets().length > 3) ss.deleteSheet(hDef);
+
+  ss.setActiveSheet(hP);
+  SpreadsheetApp.getUi().alert("✅ Hojas creadas:\n• PARTICIPANTES\n• ASISTENCIA\n• FACTURACION\n\nSiguiente paso: PASO 2 — Crear estructura en Drive");
+}); }
+
+function _fmtEnc(hoja, color) {
+  var enc = hoja.getRange(1, 1, 1, hoja.getLastColumn());
+  enc.setBackground(color).setFontColor("#ffffff").setFontWeight("bold");
+  hoja.setFrozenRows(1);
 }
 
 // ── Kobo ────────────────────────────────────────────────────

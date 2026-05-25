@@ -32,6 +32,9 @@ function _run(fn) {
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu("📦 Producción")
+    .addItem("🏗️  PASO 1 — Crear hojas del sistema",    "crearHojas")
+    .addItem("📁  PASO 2 — Crear estructura en Drive",  "crearEstructuraDrive")
+    .addSeparator()
     .addItem("➕ Nueva orden (OP o OM)",              "nuevaOrden")
     .addItem("📄 Generar Doc de la orden seleccionada","generarDocOrden")
     .addSeparator()
@@ -41,9 +44,67 @@ function onOpen() {
     .addItem("📁 Crear carpeta Drive del cliente",     "crearCarpetaCliente")
     .addItem("🔄 Actualizar Dashboard",                "actualizarDashboard")
     .addSeparator()
-    .addItem("📁 Crear estructura en Drive",           "crearEstructuraDrive")
     .addItem("⚙️  Configurar automatizaciones",         "configurarTriggers")
     .addToUi();
+}
+
+// ── Crear hojas con encabezados ──────────────────────────────
+
+function crearHojas() { _run(function() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // ── ORDENES ──────────────────────────────────────────────
+  var hOrd = ss.getSheetByName("ORDENES") || ss.insertSheet("ORDENES");
+  if (hOrd.getLastRow() === 0) {
+    hOrd.appendRow([
+      "Numero_Orden","Tipo","Fecha_Creacion","Cliente","Contacto","Proyecto",
+      "Fecha_Promesa","Descripcion","Cantidad","Tela","Color",
+      "Ancho","Altura","Fuelle","Sis_Medicion",
+      "Bolsillo_Interno","Bolsillo_Externo","Tirantes","Forros","Specs_Adicionales",
+      "Serigrafia","Num_Colores","Pantones","Loc_Impresion","Med_Impresion",
+      "Films_Num","Films_Cod","Mockup","Muestra_Bodega",
+      "Estado","Participantes_Asignados","Comentarios",
+      "URL_Mockup_Drive","URL_Doc_Drive"
+    ]);
+    _formatearEncabezado(hOrd, "#1f54a8");
+    // Validación de datos en columna Estado (col 30)
+    var reglaEstado = SpreadsheetApp.newDataValidation()
+      .requireValueInList(["Pendiente","En Proceso","Completada","Cancelada"], true)
+      .build();
+    hOrd.getRange("AD2:AD1000").setDataValidation(reglaEstado);
+    // Validación Tipo (col 2)
+    var reglaTipo = SpreadsheetApp.newDataValidation()
+      .requireValueInList(["OP","OM"], true).build();
+    hOrd.getRange("B2:B1000").setDataValidation(reglaTipo);
+  }
+
+  // ── CLIENTES ─────────────────────────────────────────────
+  var hCli = ss.getSheetByName("CLIENTES") || ss.insertSheet("CLIENTES");
+  if (hCli.getLastRow() === 0) {
+    hCli.appendRow([
+      "ID_Cliente","Nombre","Contacto","Email","Telefono","Pais","URL_Carpeta_Drive","Notas"
+    ]);
+    _formatearEncabezado(hCli, "#1f54a8");
+  }
+
+  // Borra hoja "Hoja 1" vacía si existe
+  var hDefault = ss.getSheetByName("Hoja 1") || ss.getSheetByName("Sheet1");
+  if (hDefault && ss.getSheets().length > 2) ss.deleteSheet(hDefault);
+
+  // Activa la hoja ORDENES
+  ss.setActiveSheet(hOrd);
+
+  SpreadsheetApp.getUi().alert(
+    "✅ Hojas creadas:\n• ORDENES (34 columnas con validaciones)\n• CLIENTES\n\n" +
+    "Siguiente paso:\n📦 Producción → PASO 2 — Crear estructura en Drive"
+  );
+}); }
+
+function _formatearEncabezado(hoja, color) {
+  var enc = hoja.getRange(1, 1, 1, hoja.getLastColumn());
+  enc.setBackground(color).setFontColor("#ffffff").setFontWeight("bold");
+  hoja.setFrozenRows(1);
+  hoja.getRange(1,1,1,hoja.getLastColumn()).setWrap(false);
 }
 
 function onEdit(e) {
