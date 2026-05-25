@@ -122,12 +122,21 @@ function _formatearEncabezado(hoja, color) {
   hoja.getRange(1,1,1,hoja.getLastColumn()).setWrap(false);
 }
 
+// Simple trigger — sin autorización, solo lee Sheets.
 function onEdit(e) {
   var sheet = e.range.getSheet();
   if (sheet.getName() !== CFG.HOJAS.ORDENES) return;
   var fila = e.range.getRow();
   if (fila < 2) return;
   try { if (e.range.getColumn() === 30) actualizarDashboard(); } catch(_) {}
+}
+
+// Trigger instalable — con autorización completa, actualiza el Doc.
+function onEditInstalable(e) {
+  var sheet = e.range.getSheet();
+  if (sheet.getName() !== CFG.HOJAS.ORDENES) return;
+  var fila = e.range.getRow();
+  if (fila < 2) return;
   try {
     var urlDoc = sheet.getRange(fila, 34).getValue();
     if (urlDoc) _actualizarDocFila(sheet, fila);
@@ -455,6 +464,8 @@ function actualizarDashboard() { _run(function() {
 
 function configurarTriggers() { _run(function() {
   ScriptApp.getProjectTriggers().forEach(function(t) { ScriptApp.deleteTrigger(t); });
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  ScriptApp.newTrigger("onEditInstalable").forSpreadsheet(ss).onEdit().create();
   ScriptApp.newTrigger("actualizarDashboard").timeBased().everyMinutes(30).create();
-  _alert("✅ Dashboard: actualización cada 30 min activa.");
+  _alert("✅ Automatizaciones activas:\n• Doc se actualiza al editar cada fila\n• Dashboard cada 30 min");
 }); }
