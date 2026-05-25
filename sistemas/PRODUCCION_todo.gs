@@ -121,36 +121,42 @@ function _formatearEncabezado(hoja, color) {
   hoja.getRange(1,1,1,hoja.getLastColumn()).setWrap(false);
 }
 
-// Simple trigger — sin autorización, solo lee Sheets.
+// Simple trigger (no necesita autorización).
 function onEdit(e) {
   var sheet = e.range.getSheet();
   if (sheet.getName() !== CFG.HOJAS.ORDENES) return;
-  var fila = e.range.getRow();
-  if (fila < 2) return;
+  if (e.range.getRow() < 2) return;
   try { if (e.range.getColumn() === 30) actualizarDashboard(); } catch(_) {}
 }
 
-// Trigger instalable — con autorización completa, actualiza el Doc.
+// Trigger instalable — actualiza el Doc al editar (requiere PASO 3).
 function onEditInstalable(e) {
   var sheet = e.range.getSheet();
   if (sheet.getName() !== CFG.HOJAS.ORDENES) return;
   var fila = e.range.getRow();
   if (fila < 2) return;
-  try {
-    _actualizarDocFila(sheet, fila);
-  } catch(err) {
-    Logger.log("onEditInstalable error fila " + fila + ": " + err.message);
-  }
+  try { _sincronizarFila(sheet, fila); } catch(err) { Logger.log("Sync error: " + err.message); }
 }
 
-// Sincroniza el Doc de la fila seleccionada (botón de menú, siempre funciona).
+// Sincroniza el Doc de la fila activa desde el menú (siempre funciona).
 function sincronizarDocFila() { _run(function() {
   var hoja = _sh(CFG.HOJAS.ORDENES);
   var fila = hoja.getActiveRange().getRow();
-  if (fila < 2) { _alert("Selecciona una fila de ORDENES primero."); return; }
-  _actualizarDocFila(hoja, fila);
-  _alert("✅ Doc sincronizado.");
+  if (fila < 2) { _alert("Selecciona una fila con una orden primero."); return; }
+  var url = _sincronizarFila(hoja, fila);
+  _alert("✅ Doc actualizado.\n" + url);
 }); }
+
+// Núcleo: crea o actualiza el Doc de la fila y devuelve la URL.
+function _sincronizarFila(hoja, fila) {
+  var o       = _leerFila(hoja, fila);
+  if (!o.numero) throw new Error("La fila " + fila + " no tiene número de orden.");
+  var carpeta = _carpetaCliente(o.cliente || "Sin_Cliente");
+  var doc     = _construirDoc(o, carpeta);
+  var url     = doc.getUrl();
+  hoja.getRange(fila, 34).setValue(url);
+  return url;
+}
 
 // ── Órdenes ─────────────────────────────────────────────────
 // Columnas ORDENES:
@@ -188,14 +194,8 @@ function nuevaOrden() { _run(function() {
 
   var fila = hoja.getLastRow();
   hoja.setActiveRange(hoja.getRange(fila, 1));
-
-  // Crea el Doc automáticamente con los datos iniciales.
-  var o       = _leerFila(hoja, fila);
-  var carpeta = _carpetaCliente("Sin_Cliente");
-  var doc     = _construirDoc(o, carpeta);
-  hoja.getRange(fila, 34).setValue(doc.getUrl());
-
-  ui.alert("✅ " + numero + " creada con Doc listo.\nCompleta los datos — el Doc se sincroniza con el menú 🔄");
+  var url = _sincronizarFila(hoja, fila);
+  ui.alert("✅ " + numero + " creada.\nDoc listo — completa los datos y usa 🔄 Sincronizar para actualizar.\n\n" + url);
 }); }
 
 function filtrarPorCliente() { _run(function() {
@@ -249,63 +249,30 @@ function _leerFila(hoja, fila) {
 
 // ── Documentos ──────────────────────────────────────────────
 
-function generarDocOrden() { _run(function() {
-  var hoja = _sh(CFG.HOJAS.ORDENES);
-  var fila = hoja.getActiveRange().getRow();
-  if (fila < 2) { _alert("Selecciona una fila de ORDENES."); return; }
-
-  var o = _leerFila(hoja, fila);
-  if (!o.numero) { _alert("La fila no tiene número de orden."); return; }
-
-  var carpeta = _carpetaCliente(o.cliente || "Sin_Cliente");
-  var doc     = _construirDoc(o, carpeta);
-  var url     = doc.getUrl();
-
-  hoja.getRange(fila, 34).setValue(url);
-  _alert("✅ " + o.numero + "\n" + url);
-}); }
-
-// Actualiza el Doc existente de la fila (llamado desde onEditInstalable).
-function _actualizarDocFila(hoja, fila) {
-  var o    = _leerFila(hoja, fila);
-  var cell = hoja.getRange(fila, 34);
-
-  // Obtiene la URL desde el valor directo o desde fórmula HYPERLINK legacy.
-  var url = String(cell.getValue() || "");
-  if (!url.startsWith("http")) {
-    var fm = cell.getFormula();
-    var m2 = fm.match(/HYPERLINK\("([^"]+)"/);
-    if (m2) url = m2[1];
-  }
-  if (!url.startsWith("http")) return;
-
-  var match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
-  if (!match) return;
-  var doc  = DocumentApp.openById(match[1]);
-  var body = doc.getBody();
-  body.clear();
-  _escribirContenidoDoc(body, o);
-  doc.saveAndClose();
-}
-
 function _construirDoc(o, carpeta) {
   var titulo = o.numero + (o.descripcion ? " — " + o.descripcion : "");
-  var doc;
-  if (o.urlDoc) {
-    var m = String(o.urlDoc).match(/\/d\/([a-zA-Z0-9_-]+)/);
-    if (m) { try { doc = DocumentApp.openById(m[1]); doc.setName(titulo); } catch(_) { doc = null; } }
+
+  // Reutiliza el Doc existente si la URL ya está guardada en la fila.
+  var doc = null;
+  var urlExistente = String(o.urlDoc || "");
+  if (urlExistente.startsWith("http")) {
+    var m = urlExistente.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    if (m) { try { doc = DocumentApp.openById(m[1]); doc.setName(titulo); } catch(_) {} }
   }
+
+  // Si no hay Doc existente, crea uno nuevo (borra duplicados por nombre).
   if (!doc) {
     var prev = carpeta.getFilesByName(titulo);
     while (prev.hasNext()) prev.next().setTrashed(true);
     doc = DocumentApp.create(titulo);
+    DriveApp.getFileById(doc.getId()).moveTo(carpeta);
   }
+
   var body = doc.getBody();
   body.clear();
   body.setMarginTop(36).setMarginBottom(36).setMarginLeft(54).setMarginRight(54);
   _escribirContenidoDoc(body, o);
   doc.saveAndClose();
-  try { DriveApp.getFileById(doc.getId()).moveTo(carpeta); } catch(_) {}
   return doc;
 }
 
