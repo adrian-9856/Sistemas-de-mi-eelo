@@ -149,12 +149,23 @@ function sincronizarDocFila() { _run(function() {
 
 // Núcleo: crea o actualiza el Doc de la fila y devuelve la URL.
 function _sincronizarFila(hoja, fila) {
-  var o       = _leerFila(hoja, fila);
+  var o = _leerFila(hoja, fila);
   if (!o.numero) throw new Error("La fila " + fila + " no tiene número de orden.");
+
+  // Lee la URL real de la celda AH (col 34), incluso si es fórmula HYPERLINK.
+  var celdaUrl = hoja.getRange(fila, 34);
+  var urlReal  = String(celdaUrl.getValue() || "");
+  if (!urlReal.startsWith("http")) {
+    var formula = celdaUrl.getFormula();
+    var match   = formula.match(/HYPERLINK\("([^"]+)"/);
+    if (match) urlReal = match[1];
+  }
+  o.urlDoc = urlReal; // asegura que _construirDoc use la URL correcta
+
   var carpeta = _carpetaCliente(o.cliente || "Sin_Cliente");
   var doc     = _construirDoc(o, carpeta);
   var url     = doc.getUrl();
-  hoja.getRange(fila, 34).setValue(url);
+  celdaUrl.setValue(url); // guarda siempre como URL plana (no fórmula)
   return url;
 }
 
