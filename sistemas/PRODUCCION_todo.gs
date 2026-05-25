@@ -22,9 +22,12 @@ function _sh(nombre) {
   return h;
 }
 
-// Ejecuta fn mostrando cualquier error como alerta en lugar de stacktrace.
+// Ejecuta fn mostrando cualquier error como alerta (o en el log si no hay UI).
 function _run(fn) {
-  try { fn(); } catch(e) { SpreadsheetApp.getUi().alert("❌ " + e.message); }
+  try { fn(); } catch(e) {
+    try { SpreadsheetApp.getUi().alert("❌ " + e.message); }
+    catch(_) { Logger.log("❌ " + e.message); throw e; }
+  }
 }
 
 // ── Menú ────────────────────────────────────────────────────
