@@ -79,6 +79,8 @@ function onOpen() {
   var ui;
   try { ui = SpreadsheetApp.getUi(); } catch(_) { return; }
   ui.createMenu("👥 RRHH")
+    .addItem("🚀 INSTALACIÓN COMPLETA",                "instalarTodo")
+    .addSeparator()
     .addItem("🏗️  PASO 1 — Crear hojas del sistema",    "crearHojas")
     .addItem("📁  PASO 2 — Crear estructura en Drive",  "crearEstructuraDrive")
     .addItem("⚙️  PASO 3 — Activar automatizaciones",   "configurarTriggers")
@@ -93,7 +95,12 @@ function onOpen() {
     .addSeparator()
     .addItem("💰 Calcular facturación del mes",         "calcularFacturacionMes")
     .addItem("🧾 Generar recibos de pago",              "generarRecibosMes")
-    .addItem("📊 Generar reporte mensual",              "generarReporteMensual")
+    .addSeparator()
+    .addItem("📊 Reporte por día",                     "generarReportePorDia")
+    .addItem("📊 Reporte por semana",                  "generarReportePorSemana")
+    .addItem("📊 Reporte por mes",                     "generarReportePorMes")
+    .addItem("📊 Reporte por rango de fechas",         "generarReportePorRango")
+    .addItem("📊 Reporte completo (todos los datos)",  "generarReporteTodo")
     .addSeparator()
     .addItem("🔔 Recordatorio de pagos pendientes",     "enviarRecordatorioPagos")
     .addItem("📬 Resumen mensual al admin",             "enviarResumenMensual")
@@ -168,7 +175,8 @@ function crearHojas() { _run(function() {
   if (hA.getLastRow() === 0) {
     hA.appendRow([
       "Nombre","Creamos_ID","Fecha","Tipo",
-      "Horas_Trabajadas","Es_Dia_Estudio","Es_Terapia","Porcentaje_Pago","Horas_A_Pagar","Clave_Dia"
+      "Horas_Trabajadas","Es_Dia_Estudio","Es_Terapia","Porcentaje_Pago","Horas_A_Pagar","Clave_Dia",
+      "Hora_Entrada","Hora_Salida"
     ]);
     _fmtEnc(hA, "#1f54a8");
   }
@@ -674,13 +682,17 @@ function emparejarAsistencia() { _run(function() {
     var pct      = (esDiaEst==="Sí" || esTer==="Sí") ? 0 : 100;
     var hap      = Math.round(horas*(pct/100)*100)/100;
     var tipo2    = esDiaEst==="Sí"?"Día de Estudio":(esTer==="Sí"?"Terapia":"Normal");
-    filasAsist.push([g.nombre, id, g.ent[0], tipo2, horas, esDiaEst, esTer, pct, hap, clave]);
+    filasAsist.push([g.nombre, id, g.ent[0], tipo2, horas, esDiaEst, esTer, pct, hap, clave, g.ent[0], g.sal[g.sal.length-1]]);
   });
 
   filasAsist.sort(function(a,b){ return new Date(b[2])-new Date(a[2]); });
   var hA = _sh(CFG.HOJAS.ASISTENCIA);
   if (hA.getLastRow() > 1) hA.deleteRows(2, hA.getLastRow()-1);
-  if (filasAsist.length > 0) hA.getRange(2,1,filasAsist.length,10).setValues(filasAsist);
+  if (filasAsist.length > 0) {
+    hA.getRange(2,1,filasAsist.length,12).setValues(filasAsist);
+    hA.getRange("C2:C"+(filasAsist.length+1)).setNumberFormat("dd/MM/yyyy");
+    hA.getRange("K2:L"+(filasAsist.length+1)).setNumberFormat("HH:mm");
+  }
   _alert("✅ " + filasAsist.length + " pares entrada/salida procesados en ASISTENCIA.");
 }); }
 
@@ -1280,13 +1292,13 @@ function _getOCreate(padre, nombre) {
 // ── Triggers ──────────────────────────────────────────────────
 
 function configurarTriggers() { _run(function() {
-  var ss=SpreadsheetApp.getActiveSpreadsheet();
   ScriptApp.getProjectTriggers().forEach(function(t){ ScriptApp.deleteTrigger(t); });
-  ScriptApp.newTrigger("onEdit").forSpreadsheet(ss).onEdit().create();
-  _alert("✅ Trigger onEdit activado.\n\n" +
-    "Automatizaciones activas:\n" +
-    "• Cambiar Categoría (col K) → auto-llena Tarifa_Hora (col L)\n" +
-    "• Marcar Pagado (col R) → actualiza Dashboard");
+  ScriptApp.newTrigger("importarDesdeKobo").timeBased().everyHours(1).create();
+  _alert("✅ Automatizaciones activadas:\n\n" +
+    "• onEdit (automático) — Cambiar Categoría → auto-llena Tarifa\n" +
+    "• onEdit (automático) — Marcar Pagado → actualiza Dashboard\n" +
+    "• ⏰ Importación Kobo: cada hora automáticamente\n\n" +
+    "Los datos de Kobo se actualizarán solos cada hora.");
 }); }
 
 // ── Reinstalar ────────────────────────────────────────────────
@@ -1428,4 +1440,381 @@ function actualizarDashboard() { _run(function() {
   dash.getRange(5,1,1,2).setBackground("#e8eaf6").setFontWeight("bold");
   if(pend>0) dash.getRange(7,2).setBackground("#fce8e6").setFontColor("#c62828").setFontWeight("bold");
   dash.autoResizeColumns(1,2);
+}); }
+
+// ══════════════════════════════════════════════════════════════════
+// REPORTES — escritos como pestañas del Spreadsheet
+// Igual que codigo.gs: por día / semana / mes / rango / completo
+// Formato: Fecha | Día | 🟢 Entrada | 🔴 Salida | Tipo |
+//          Horas Trabajadas | Porcentaje | Horas a Pagar | Tarifa | Monto (Q)
+// Agrupado por participante con SUBTOTAL y resumen general al final.
+// ══════════════════════════════════════════════════════════════════
+
+function generarReportePorDia() { _run(function() {
+  var ui = SpreadsheetApp.getUi();
+  var r = ui.prompt("📊 Reporte por Día", "Fecha (dd/mm/yyyy):", ui.ButtonSet.OK_CANCEL);
+  if (r.getSelectedButton() !== ui.Button.OK) return;
+  var fecha = _parseFecha(r.getResponseText().trim());
+  if (!fecha) { ui.alert("Fecha inválida. Usa formato dd/mm/yyyy (ej. 15/04/2025)"); return; }
+  generarReporte("dia", fecha, null, null);
+}); }
+
+function generarReportePorSemana() { _run(function() {
+  var ui = SpreadsheetApp.getUi();
+  var r = ui.prompt("📊 Reporte por Semana",
+    "Fecha inicio de semana (dd/mm/yyyy):\n(el reporte incluye 7 días a partir de esa fecha)", ui.ButtonSet.OK_CANCEL);
+  if (r.getSelectedButton() !== ui.Button.OK) return;
+  var fecha = _parseFecha(r.getResponseText().trim());
+  if (!fecha) { ui.alert("Fecha inválida. Usa formato dd/mm/yyyy"); return; }
+  generarReporte("semana", fecha, null, null);
+}); }
+
+function generarReportePorMes() { _run(function() {
+  var ui = SpreadsheetApp.getUi();
+  var ahora = new Date();
+  var r = ui.prompt("📊 Reporte por Mes",
+    "Mes/Año (mm/yyyy):\n(ej. "+String(ahora.getMonth()+1).padStart(2,"0")+"/"+ahora.getFullYear()+")", ui.ButtonSet.OK_CANCEL);
+  if (r.getSelectedButton() !== ui.Button.OK) return;
+  var txt = r.getResponseText().trim();
+  var parts = txt.split("/");
+  if (parts.length < 2) { ui.alert("Formato inválido. Usa mm/yyyy"); return; }
+  var m = parseInt(parts[0]), y = parseInt(parts[1]);
+  if (isNaN(m)||isNaN(y)) { ui.alert("Mes/año inválidos."); return; }
+  var fecha = new Date(y, m-1, 1, 0, 0, 0, 0);
+  generarReporte("mes", fecha, null, null);
+}); }
+
+function generarReportePorRango() { _run(function() {
+  var ui = SpreadsheetApp.getUi();
+  var r1 = ui.prompt("📊 Reporte por Rango — Fecha inicio (1/2)", "Fecha inicio (dd/mm/yyyy):", ui.ButtonSet.OK_CANCEL);
+  if (r1.getSelectedButton() !== ui.Button.OK) return;
+  var inicio = _parseFecha(r1.getResponseText().trim());
+  if (!inicio) { ui.alert("Fecha inválida."); return; }
+  var r2 = ui.prompt("📊 Reporte por Rango — Fecha fin (2/2)", "Fecha fin (dd/mm/yyyy):", ui.ButtonSet.OK_CANCEL);
+  if (r2.getSelectedButton() !== ui.Button.OK) return;
+  var fin = _parseFecha(r2.getResponseText().trim());
+  if (!fin) { ui.alert("Fecha inválida."); return; }
+  fin.setHours(23,59,59,999);
+  generarReporte("rango", inicio, fin, null);
+}); }
+
+function generarReporteTodo() { _run(function() {
+  var ui = SpreadsheetApp.getUi();
+  var resp = ui.alert("📊 Reporte Completo",
+    "Se generará un reporte con TODOS los registros de ASISTENCIA.\n\n" +
+    "Si hay muchos datos, puede tardar unos segundos.\n\n¿Continuar?",
+    ui.ButtonSet.YES_NO);
+  if (resp !== ui.Button.YES) return;
+  generarReporte("todo", null, null, null);
+}); }
+
+// ── Motor de reportes ─────────────────────────────────────────
+
+function generarReporte(tipo, fechaInicio, fechaFin, filtroParticipante) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var hojaA = ss.getSheetByName(CFG.HOJAS.ASISTENCIA);
+  if (!hojaA) throw new Error("No existe ASISTENCIA. Ejecuta PASO 1 y 'Emparejar entradas/salidas' primero.");
+
+  var datos = hojaA.getDataRange().getValues();
+  if (datos.length < 2) throw new Error("ASISTENCIA está vacía. Importa datos desde Kobo y empareja primero.");
+
+  var partMap = _construirMapaTarifas();
+  var tz      = Session.getScriptTimeZone();
+
+  // Filtrar y agrupar por participante
+  var grupos = {}; // nombre → [ fila, ... ]
+  for (var i = 1; i < datos.length; i++) {
+    var f = datos[i];
+    var nombre = String(f[0]||"").trim();
+    if (!nombre) continue;
+    if (filtroParticipante && nombre !== filtroParticipante) continue;
+
+    var fecha = f[2] instanceof Date ? f[2] : new Date(f[2]);
+    if (isNaN(fecha)) continue;
+
+    if (!_validarEnRango(tipo, fecha, fechaInicio, fechaFin)) continue;
+    if (!grupos[nombre]) grupos[nombre] = [];
+    grupos[nombre].push(f);
+  }
+
+  var nombresOrdenados = Object.keys(grupos).sort();
+  if (nombresOrdenados.length === 0) {
+    _alert("No hay datos para el período seleccionado.\n\n" +
+      "Verifica que hayas emparejado la asistencia y que el rango de fechas sea correcto.");
+    return;
+  }
+
+  // Crear pestaña
+  var textoPeriodo = _obtenerTextoPeriodo(tipo, fechaInicio, fechaFin);
+  var sufijo = tipo === "dia" ? Utilities.formatDate(fechaInicio, tz, "ddMMyyyy") :
+               tipo === "mes" ? Utilities.formatDate(fechaInicio, tz, "MMyyyy") :
+               Utilities.formatDate(new Date(), tz, "ddMMyyyy_HHmm");
+  var nombreHoja = "Rep_" + tipo.substring(0,3).toUpperCase() + "_" + sufijo;
+
+  var hojaRep = ss.getSheetByName(nombreHoja);
+  if (hojaRep) {
+    hojaRep.clearContents();
+    hojaRep.clearFormats();
+  } else {
+    hojaRep = ss.insertSheet(nombreHoja);
+  }
+
+  var fila = 1;
+
+  // Título
+  hojaRep.getRange(fila,1,1,10).merge()
+    .setValue("📊 REPORTE RRHH — " + CFG.ORG + " — " + textoPeriodo)
+    .setBackground("#1a237e").setFontColor("#fff").setFontWeight("bold")
+    .setFontSize(13).setHorizontalAlignment("center");
+  fila++;
+
+  hojaRep.getRange(fila,1,1,10).merge()
+    .setValue("Tarifas: A=Q16.50 | B=Q15.75 | C=Q15.00 | D=Q14.00  ·  IVA 5% solo Pcv.  ·  " +
+              Utilities.formatDate(new Date(), tz, "dd/MM/yyyy HH:mm"))
+    .setFontSize(9).setFontColor("#555555").setHorizontalAlignment("center")
+    .setBackground("#e8eaf6").setFontStyle("italic");
+  fila++;
+  fila++; // fila vacía
+
+  // Encabezados de columnas
+  var HEADERS = ["Fecha","Día","🟢 Entrada","🔴 Salida","Tipo",
+                 "Horas Trab.","Porcentaje","Horas a Pagar","Tarifa (Q/hr)","Monto (Q)"];
+  hojaRep.getRange(fila,1,1,10).setValues([HEADERS])
+    .setBackground("#37474f").setFontColor("#fff").setFontWeight("bold")
+    .setHorizontalAlignment("center");
+  hojaRep.setFrozenRows(fila);
+  fila++;
+
+  var totPersonas = nombresOrdenados.length;
+  var totHorasTrab = 0, totHorasPagar = 0, totMonto = 0;
+
+  nombresOrdenados.forEach(function(nombre) {
+    var filas = grupos[nombre];
+    filas.sort(function(a,b){ return (a[2] instanceof Date ? a[2] : new Date(a[2])) -
+                                     (b[2] instanceof Date ? b[2] : new Date(b[2])); });
+
+    var tarifa   = partMap[nombre] ? partMap[nombre].tarifa    : CFG.CATEGORIAS.C;
+    var cat      = partMap[nombre] ? partMap[nombre].categoria : "";
+
+    // Fila de encabezado de participante
+    hojaRep.getRange(fila,1,1,10).merge()
+      .setValue("👤  " + nombre + (cat ? "   [Cat. " + cat + "  ·  Q" + tarifa.toFixed(2) + "/hr]" : ""))
+      .setBackground("#263238").setFontColor("#ffffff").setFontWeight("bold").setFontSize(10);
+    fila++;
+
+    var subTrab = 0, subPagar = 0, subMonto = 0;
+
+    filas.forEach(function(f) {
+      var fecha2   = f[2] instanceof Date ? f[2] : new Date(f[2]);
+      var tipo2    = String(f[3]||"Normal").trim();
+      var horasTrab= parseFloat(f[4])||0;
+      var esDiaEst = String(f[5]||"No");
+      var esTer    = String(f[6]||"No");
+      var pct      = parseFloat(f[7])||0;
+      var horasPag = parseFloat(f[8])||0;
+      var entRaw   = f[10];
+      var salRaw   = f[11];
+      var entDate  = entRaw instanceof Date ? entRaw : (entRaw ? new Date(entRaw) : null);
+      var salDate  = salRaw instanceof Date ? salRaw : (salRaw ? new Date(salRaw) : null);
+      var monto    = Math.round(horasPag * tarifa * 100) / 100;
+
+      var fechaStr = Utilities.formatDate(fecha2, tz, "dd/MM/yyyy");
+      var diaStr   = CFG.DIAS_SEMANA[fecha2.getDay()];
+      var entStr   = (entDate && !isNaN(entDate)) ? Utilities.formatDate(entDate, tz, "HH:mm") : "—";
+      var salStr   = (salDate && !isNaN(salDate)) ? Utilities.formatDate(salDate, tz, "HH:mm") : "—";
+
+      hojaRep.getRange(fila,1,1,10).setValues([[
+        fechaStr, diaStr, entStr, salStr, tipo2,
+        horasTrab, pct + "%", horasPag, tarifa, monto
+      ]]);
+
+      // Color según tipo
+      var bg = "#ffffff";
+      if (esTer === "Sí" || tipo2 === "Terapia")           bg = "#d9ead3"; // verde
+      else if (tipo2 === "Computación")                     bg = "#fff2cc"; // amarillo
+      else if (esDiaEst === "Sí" || tipo2 === "Día de Estudio") bg = "#fce8e6"; // rojo suave
+
+      if (bg !== "#ffffff") hojaRep.getRange(fila,1,1,10).setBackground(bg);
+
+      subTrab  += horasTrab;
+      subPagar += horasPag;
+      subMonto += monto;
+      fila++;
+    });
+
+    // Subtotal del participante
+    subTrab  = Math.round(subTrab  * 100) / 100;
+    subPagar = Math.round(subPagar * 100) / 100;
+    subMonto = Math.round(subMonto * 100) / 100;
+
+    hojaRep.getRange(fila,1,1,5).merge()
+      .setValue("SUBTOTAL  " + nombre);
+    hojaRep.getRange(fila,1,1,10).setBackground("#b0bec5").setFontWeight("bold");
+    hojaRep.getRange(fila,6).setValue(subTrab);
+    hojaRep.getRange(fila,8).setValue(subPagar);
+    hojaRep.getRange(fila,9).setValue(tarifa);
+    hojaRep.getRange(fila,10).setValue(subMonto);
+
+    totHorasTrab  += subTrab;
+    totHorasPagar += subPagar;
+    totMonto      += subMonto;
+    fila += 2; // subtotal + fila vacía
+  });
+
+  // Resumen general
+  fila++;
+  hojaRep.getRange(fila,1,1,10).merge()
+    .setValue("RESUMEN GENERAL")
+    .setBackground("#1a237e").setFontColor("#fff").setFontWeight("bold")
+    .setFontSize(11).setHorizontalAlignment("center");
+  fila++;
+
+  totHorasTrab  = Math.round(totHorasTrab  * 100) / 100;
+  totHorasPagar = Math.round(totHorasPagar * 100) / 100;
+  totMonto      = Math.round(totMonto      * 100) / 100;
+
+  var resumen = [
+    ["Total participantes",      totPersonas, "", "", "", "", "", "", "", ""],
+    ["Total horas trabajadas",   "",          "", "", "", totHorasTrab, "", "", "", ""],
+    ["Total horas a pagar",      "",          "", "", "", "", "", totHorasPagar, "", ""],
+    ["TOTAL MONTO (Q)",          "",          "", "", "", "", "", "", "", totMonto],
+  ];
+  hojaRep.getRange(fila,1,resumen.length,10).setValues(resumen)
+    .setBackground("#e8eaf6");
+  // Resaltar fila de total
+  hojaRep.getRange(fila + resumen.length - 1, 1, 1, 10)
+    .setBackground("#1565c0").setFontColor("#fff").setFontWeight("bold").setFontSize(12);
+  fila += resumen.length;
+
+  // Anchos de columna
+  hojaRep.setColumnWidth(1, 90);   // Fecha
+  hojaRep.setColumnWidth(2, 90);   // Día
+  hojaRep.setColumnWidth(3, 65);   // Entrada
+  hojaRep.setColumnWidth(4, 65);   // Salida
+  hojaRep.setColumnWidth(5, 140);  // Tipo
+  hojaRep.setColumnWidth(6, 80);   // Horas Trab
+  hojaRep.setColumnWidth(7, 80);   // Porcentaje
+  hojaRep.setColumnWidth(8, 90);   // Horas Pagar
+  hojaRep.setColumnWidth(9, 90);   // Tarifa
+  hojaRep.setColumnWidth(10, 90);  // Monto
+
+  ss.setActiveSheet(hojaRep);
+  _alert("✅ Reporte generado en pestaña: \"" + nombreHoja + "\"\n\n" +
+    "Período: " + textoPeriodo + "\n" +
+    "Participantes: " + totPersonas + "\n" +
+    "Horas a pagar: " + totHorasPagar + "\n" +
+    "Monto total: Q " + totMonto.toFixed(2));
+}
+
+// ── Helpers para reportes ─────────────────────────────────────
+
+function _parseFecha(str) {
+  var p = str.replace(/\s/g,"").split("/");
+  if (p.length < 3) return null;
+  var d = parseInt(p[0]), m = parseInt(p[1])-1, y = parseInt(p[2]);
+  if (isNaN(d)||isNaN(m)||isNaN(y)) return null;
+  var f = new Date(y, m, d, 0, 0, 0, 0);
+  return isNaN(f) ? null : f;
+}
+
+function _validarEnRango(tipo, fecha, fi, ff) {
+  if (tipo === "dia") {
+    return fi && fecha.getFullYear()===fi.getFullYear() &&
+           fecha.getMonth()===fi.getMonth() && fecha.getDate()===fi.getDate();
+  }
+  if (tipo === "semana") {
+    var finSem = new Date(fi); finSem.setDate(finSem.getDate()+6); finSem.setHours(23,59,59,999);
+    return fecha >= fi && fecha <= finSem;
+  }
+  if (tipo === "mes") {
+    return fecha.getFullYear()===fi.getFullYear() && fecha.getMonth()===fi.getMonth();
+  }
+  if (tipo === "rango") {
+    var fc = new Date(fecha); fc.setHours(0,0,0,0);
+    return fc >= fi && fc <= ff;
+  }
+  return true; // todo
+}
+
+function _obtenerTextoPeriodo(tipo, fi, ff) {
+  var tz = Session.getScriptTimeZone();
+  if (tipo === "dia") return Utilities.formatDate(fi, tz, "dd/MM/yyyy");
+  if (tipo === "semana") {
+    var fin = new Date(fi); fin.setDate(fin.getDate()+6);
+    return Utilities.formatDate(fi,tz,"dd/MM/yyyy") + " al " + Utilities.formatDate(fin,tz,"dd/MM/yyyy");
+  }
+  if (tipo === "mes") return Utilities.formatDate(fi, tz, "MMMM yyyy").toUpperCase();
+  if (tipo === "rango") return Utilities.formatDate(fi,tz,"dd/MM/yyyy") + " al " + Utilities.formatDate(ff,tz,"dd/MM/yyyy");
+  return "TODOS LOS REGISTROS";
+}
+
+function _construirMapaTarifas() {
+  var map = {};
+  var hojaP = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CFG.HOJAS.PARTICIPANTES);
+  if (!hojaP) return map;
+  var datos = hojaP.getDataRange().getValues();
+  for (var i = 1; i < datos.length; i++) {
+    var nombre = String(datos[i][1]||"").trim();
+    if (!nombre) continue;
+    var tarifa = parseFloat(datos[i][11]); // col L = Tarifa_Hora
+    if (isNaN(tarifa) || tarifa <= 0) {
+      var cat = String(datos[i][10]).trim().toUpperCase(); // col K = Categoria
+      tarifa = CFG.CATEGORIAS[cat] || CFG.CATEGORIAS.C;
+    }
+    var t = String(datos[i][12]).trim().toLowerCase(); // col M = Tiene_Factura
+    map[nombre] = {
+      tarifa:       tarifa,
+      categoria:    String(datos[i][10]).trim().toUpperCase(),
+      tieneFactura: t === "sí" || t === "si"
+    };
+  }
+  return map;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// INSTALACIÓN COMPLETA — wizard de 3 pasos
+// ══════════════════════════════════════════════════════════════════
+
+function instalarTodo() { _run(function() {
+  var ui = SpreadsheetApp.getUi();
+  var resp = ui.alert("🚀 INSTALACIÓN COMPLETA — RRHH " + CFG.ORG,
+    "Se ejecutarán todos los pasos automáticamente:\n\n" +
+    "PASO 1 — Crear hojas del sistema\n" +
+    "         (PARTICIPANTES, ASISTENCIA, FACTURACION, CLASIFICACION, DASHBOARD)\n\n" +
+    "PASO 2 — Crear estructura en Drive\n" +
+    "         (carpetas Docs_Proceso, Recibos, Reportes)\n\n" +
+    "PASO 3 — Activar automatizaciones\n" +
+    "         (importación Kobo cada hora)\n\n" +
+    "Si ya existen hojas o carpetas, NO se borran los datos.\n\n" +
+    "¿Continuar?", ui.ButtonSet.YES_NO);
+  if (resp !== ui.Button.YES) return;
+
+  SpreadsheetApp.getActiveSpreadsheet().toast("Paso 1/3: Creando hojas del sistema...", "🏗️", -1);
+  crearHojas();
+  Utilities.sleep(800);
+
+  SpreadsheetApp.getActiveSpreadsheet().toast("Paso 2/3: Creando estructura en Drive...", "📁", -1);
+  crearEstructuraDrive();
+  Utilities.sleep(800);
+
+  SpreadsheetApp.getActiveSpreadsheet().toast("Paso 3/3: Activando automatizaciones...", "⚙️", -1);
+  configurarTriggers();
+  Utilities.sleep(500);
+
+  SpreadsheetApp.getActiveSpreadsheet().toast("", "", 1);
+  _alert(
+    "✅ INSTALACIÓN COMPLETA — " + CFG.ORG + "\n\n" +
+    "El sistema RRHH está listo para usar.\n\n" +
+    "PRÓXIMOS PASOS:\n" +
+    "1. Agrega participantes en la hoja PARTICIPANTES\n" +
+    "   (Categoria A/B/C/D → tarifa se llena automático)\n\n" +
+    "2. Importar asistencia desde Kobo\n" +
+    "   (o espera — se importa automático cada hora)\n\n" +
+    "3. Normalizar nombres y datos Kobo\n\n" +
+    "4. Emparejar entradas/salidas → horas\n\n" +
+    "5. Calcular facturación del mes\n\n" +
+    "6. Generar reportes desde el menú 📊\n\n" +
+    "Tarifas: A=Q16.50 | B=Q15.75 | C=Q15.00 | D=Q14.00\n" +
+    "IVA 5%: solo participantes con Tiene_Factura=Sí"
+  );
 }); }
