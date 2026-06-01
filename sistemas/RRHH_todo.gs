@@ -99,23 +99,31 @@ function onOpen() {
   ui.createMenu("👥 RRHH")
     .addItem("🚀 Instalación completa",                "instalarTodo")
     .addSeparator()
+    // ── Participantes ──
     .addItem("➕ Nuevo participante",                   "nuevoParticipante")
-    .addItem("📋 Cargar lista oficial de participantes","cargarListaParticipantes")
+    .addItem("📋 Cargar lista oficial",                 "cargarListaParticipantes")
+    .addItem("👥 Directorio de participantes",          "generarDirectorioParticipantes")
     .addItem("📄 Generar DP (fila activa)",             "generarDpFilaActiva")
     .addItem("📄 Actualizar todos los DPs",             "actualizarTodosLosDps")
     .addSeparator()
+    // ── Kobo ──
     .addItem("📥 Importar asistencia desde Kobo",       "importarDesdeKobo")
     .addSeparator()
+    // ── Proceso mensual ──
+    .addItem("📅 Proceso mensual completo",             "procesarMesCompleto")
+    .addSeparator()
     .addItem("💰 Calcular facturación del mes",         "calcularFacturacionMes")
+    .addItem("📑 Resumen facturación en hoja",          "generarResumenFacturacionEnHoja")
     .addItem("🧾 Generar recibos de pago",              "generarRecibosMes")
     .addSeparator()
-    .addItem("👥 Directorio de participantes",          "generarDirectorioParticipantes")
+    // ── Reportes de asistencia ──
     .addItem("📊 Reporte por día",                     "generarReportePorDia")
     .addItem("📊 Reporte por semana",                  "generarReportePorSemana")
     .addItem("📊 Reporte por mes",                     "generarReportePorMes")
     .addItem("📊 Reporte por rango de fechas",         "generarReportePorRango")
     .addItem("📊 Reporte completo",                    "generarReporteTodo")
     .addSeparator()
+    // ── Seguimiento ──
     .addItem("🔄 Actualizar Dashboard",                 "actualizarDashboard")
     .addItem("🔔 Recordatorio de pagos pendientes",     "enviarRecordatorioPagos")
     .addItem("📬 Resumen mensual al admin",             "enviarResumenMensual")
@@ -1505,7 +1513,242 @@ function generarReporteMensual() { _run(function() {
   _alert("✅ Reporte generado:\n"+doc.getUrl());
 }); }
 
-// ── Drive ─────────────────────────────────────────────────────
+/*
+ * Escribe el resumen de facturación del mes en una hoja del Spreadsheet.
+ * Agrupa por categoría, muestra Q1+Q2, subtotales, total general.
+ * Nombre de hoja: "Fact_Enero_2025" etc.
+ */
+function generarResumenFacturacionEnHoja(mes, anio) { _run(function() {
+  var ahora     = new Date();
+  mes  = mes  || ahora.getMonth()+1;
+  anio = anio || ahora.getFullYear();
+  var nombreMes = CFG.MESES[mes-1];
+
+  var hojaF = _sh(CFG.HOJAS.FACTURACION);
+  var hojaP = _sh(CFG.HOJAS.PARTICIPANTES);
+  var datos  = hojaF.getDataRange().getValues();
+
+  // Mapa categoría por nombre
+  var catMap = {};
+  hojaP.getDataRange().getValues().slice(1).forEach(function(r){
+    var n = String(r[1]).trim();
+    if (n) catMap[n] = String(r[10]).trim().toUpperCase() || "?";
+  });
+
+  // Agrupar por nombre → {cat, tarifa, q1{h,base,iva,total,pagado}, q2{...}}
+  var personas = {};
+  datos.slice(1).forEach(function(f) {
+    if (f[2] !== nombreMes || Number(f[3]) !== anio) return;
+    var nombre = String(f[1]).trim();
+    if (!nombre) return;
+    if (!personas[nombre]) {
+      personas[nombre] = {
+        cat: catMap[nombre] || "?",
+        tarifa: parseFloat(f[8]) || 0,
+        q1: { h:0, base:0, iva:0, total:0, pagado:"No", urlRecibo:"" },
+        q2: { h:0, base:0, iva:0, total:0, pagado:"No", urlRecibo:"" }
+      };
+    }
+    var q = String(f[4]);
+    if (q === "1" || q === "2") {
+      var qd = personas[nombre]["q"+q];
+      qd.h       = parseFloat(f[7])  || 0;
+      qd.base    = parseFloat(f[9])  || 0;
+      qd.iva     = parseFloat(f[11]) || 0;
+      qd.total   = parseFloat(f[12]) || 0;
+      qd.pagado  = String(f[17]).trim() || "No";
+      qd.urlRecibo = String(f[20] || "");
+    }
+  });
+
+  if (!Object.keys(personas).length) {
+    _alert("⚠️ No hay datos de facturación para " + nombreMes + " " + anio + ".\nEjecuta primero 'Calcular facturación del mes'."); return;
+  }
+
+  // Crear/reemplazar hoja
+  var ss     = SpreadsheetApp.getActiveSpreadsheet();
+  var titulo = "Fact_" + nombreMes + "_" + anio;
+  var hR = ss.getSheetByName(titulo);
+  if (hR) ss.deleteSheet(hR);
+  hR = ss.insertSheet(titulo);
+
+  var filas = [], tipos = [];
+  function push(f, t) { filas.push(f); tipos.push(t); }
+
+  var cols = ["#","NOMBRE","CAT","TARIFA","HRS Q1","BASE Q1","IVA Q1","TOTAL Q1","PAG Q1",
+              "HRS Q2","BASE Q2","IVA Q2","TOTAL Q2","PAG Q2","TOTAL MES","ESTADO"];
+
+  push([CFG.ORG + " — Facturación " + nombreMes + " " + anio,
+        "","","","","","","","","","","","","","",""], "titulo");
+  push(["Generado: " + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm"),
+        "","","","","","","","","","","","","","",""], "sub");
+  push(cols, "enc");
+
+  var COLORES = { A:"#e6f4ea", B:"#e8f0fe", C:"#fef7e0", D:"#fce8e6", "?":"#f1f3f4" };
+  var TITULO_CAT = { A:"#34a853", B:"#4285f4", C:"#fbbc04", D:"#ea4335", "?":"#9aa0a6" };
+  var num = 1;
+  var totalBase=0, totalIVA=0, totalMes=0, pendientes=0;
+
+  ["A","B","C","D","?"].forEach(function(cat) {
+    var grupo = Object.keys(personas).filter(function(n){ return personas[n].cat === cat; });
+    if (!grupo.length) return;
+    grupo.sort(function(a,b){ return a.localeCompare(b,"es"); });
+
+    var tarifa = CFG.CATEGORIAS[cat] || 0;
+    push(["","▶  CATEGORÍA "+cat+(tarifa?" — Q"+tarifa.toFixed(2)+"/hr":""),
+          "","","","","","","","","","","","","",""], "cat_"+cat);
+
+    var catBase=0, catIVA=0, catTotal=0;
+    grupo.forEach(function(nombre) {
+      var p  = personas[nombre];
+      var q1 = p.q1, q2 = p.q2;
+      var totMes = q1.total + q2.total;
+      var pagado = (q1.pagado==="Sí" && q2.pagado==="Sí") ? "✓ Pagado" :
+                   (q1.pagado==="Sí" || q2.pagado==="Sí") ? "Parcial"  : "Pendiente";
+      catBase  += q1.base  + q2.base;
+      catIVA   += q1.iva   + q2.iva;
+      catTotal += totMes;
+      if (pagado !== "✓ Pagado") pendientes++;
+
+      push([num++, nombre, cat, "Q"+(p.tarifa||tarifa).toFixed(2),
+            q1.h||"", q1.base?"Q"+q1.base.toFixed(2):"", q1.iva?"Q"+q1.iva.toFixed(2):"—",
+            q1.total?"Q"+q1.total.toFixed(2):"", q1.pagado,
+            q2.h||"", q2.base?"Q"+q2.base.toFixed(2):"", q2.iva?"Q"+q2.iva.toFixed(2):"—",
+            q2.total?"Q"+q2.total.toFixed(2):"", q2.pagado,
+            "Q"+totMes.toFixed(2), pagado],
+           pagado==="✓ Pagado" ? "pagado" : pagado==="Parcial" ? "parcial" : "pendiente");
+    });
+
+    totalBase+=catBase; totalIVA+=catIVA; totalMes+=catTotal;
+    push(["","Subtotal Categoría "+cat,"","",
+          "","Q"+catBase.toFixed(2),"Q"+catIVA.toFixed(2),"","",
+          "","","","","","Q"+catTotal.toFixed(2),""], "subtotal_"+cat);
+    push(Array(16).fill(""), "vacio");
+  });
+
+  // Total general
+  push(["","TOTAL GENERAL","","",
+        "","Q"+totalBase.toFixed(2),"Q"+totalIVA.toFixed(2),"","",
+        "","","","","","Q"+totalMes.toFixed(2),
+        pendientes+" pendiente"+(pendientes!==1?"s":"")], "total");
+
+  hR.getRange(1, 1, filas.length, 16).setValues(filas);
+
+  // ── Formato ─────────────────────────────────────────────────
+  tipos.forEach(function(tipo, idx) {
+    var r = hR.getRange(idx+1, 1, 1, 16);
+    r.setFontFamily("Arial").setFontSize(10);
+    if (tipo === "titulo") {
+      r.merge().setFontSize(13).setFontWeight("bold")
+       .setBackground("#1a73e8").setFontColor("#ffffff").setHorizontalAlignment("center");
+    } else if (tipo === "sub") {
+      r.merge().setFontColor("#5f6368").setBackground("#f8f9fa").setHorizontalAlignment("center");
+    } else if (tipo === "enc") {
+      r.setFontWeight("bold").setBackground("#202124").setFontColor("#ffffff").setHorizontalAlignment("center");
+    } else if (tipo.indexOf("cat_") === 0) {
+      var c = tipo.split("_")[1];
+      r.setFontWeight("bold").setBackground(TITULO_CAT[c]||"#9aa0a6").setFontColor("#ffffff");
+    } else if (tipo === "pagado") {
+      r.setBackground("#e6f4ea");
+      hR.getRange(idx+1,16,1,1).setFontColor("#137333").setFontWeight("bold");
+    } else if (tipo === "parcial") {
+      r.setBackground("#fef7e0");
+      hR.getRange(idx+1,16,1,1).setFontColor("#b06000").setFontWeight("bold");
+    } else if (tipo === "pendiente") {
+      r.setBackground("#fff8f7");
+      hR.getRange(idx+1,16,1,1).setFontColor("#c5221f").setFontWeight("bold");
+    } else if (tipo.indexOf("subtotal") === 0) {
+      var c2 = tipo.split("_")[1];
+      r.setFontWeight("bold").setBackground(COLORES[c2]||"#f1f3f4").setFontStyle("italic");
+    } else if (tipo === "total") {
+      r.setFontWeight("bold").setFontSize(11).setBackground("#e8f0fe");
+    }
+  });
+  tipos.forEach(function(tipo, idx) {
+    if (tipo==="pagado"||tipo==="parcial"||tipo==="pendiente"||tipo==="enc") {
+      hR.getRange(idx+1,1,1,16).setBorder(null,null,true,null,null,null,"#dadce0",SpreadsheetApp.BorderStyle.SOLID);
+    }
+  });
+
+  // Anchos
+  [40,200,55,80,65,85,75,85,75,65,85,75,85,75,95,90].forEach(function(w,i){ hR.setColumnWidth(i+1,w); });
+  hR.setFrozenRows(3);
+  ss.setActiveSheet(hR);
+
+  _alert("✅ Resumen de facturación generado en hoja '" + titulo + "'\n\nTotal del mes: Q" + totalMes.toFixed(2) + "\nPagos pendientes: " + pendientes);
+}); }
+
+/*
+ * Proceso mensual completo en un solo clic:
+ *   1. Importar Kobo
+ *   2. Emparejar entradas/salidas
+ *   3. Calcular facturación del mes
+ *   4. Generar recibos de pago
+ *   5. Generar resumen en hoja
+ */
+function procesarMesCompleto() { _run(function() {
+  var ui = SpreadsheetApp.getUi();
+  var resp = ui.alert(
+    "Proceso mensual completo",
+    "Esto ejecutará en orden:\n\n" +
+    "1️⃣  Importar datos desde Kobo\n" +
+    "2️⃣  Emparejar entradas/salidas\n" +
+    "3️⃣  Calcular facturación del mes actual\n" +
+    "4️⃣  Generar recibos de pago\n" +
+    "5️⃣  Generar resumen de facturación en hoja\n\n" +
+    "¿Continuar?",
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (resp !== ui.Button.OK) return;
+
+  var log = [];
+  var ahora = new Date();
+  var mes  = ahora.getMonth()+1;
+  var anio = ahora.getFullYear();
+  var nombreMes = CFG.MESES[mes-1];
+
+  // Paso 1: Importar Kobo
+  try { importarDesdeKobo(); log.push("✅ 1️⃣  Kobo importado"); }
+  catch(e) { log.push("⚠️ 1️⃣  Kobo: " + e.message); }
+
+  // Paso 2: Emparejar
+  try { emparejarAsistencia(); log.push("✅ 2️⃣  Asistencia emparejada"); }
+  catch(e) { log.push("⚠️ 2️⃣  Emparejar: " + e.message); }
+
+  // Paso 3: Calcular facturación
+  try { _calcular(mes, anio); log.push("✅ 3️⃣  Facturación calculada — " + nombreMes + " " + anio); }
+  catch(e) { log.push("⚠️ 3️⃣  Facturación: " + e.message); }
+
+  // Paso 4: Recibos
+  try {
+    var hojaF = _sh(CFG.HOJAS.FACTURACION);
+    var datos = hojaF.getDataRange().getValues();
+    var carpeta = _carpetaRecibos(anio, nombreMes);
+    var generados = 0;
+    for (var i=1; i<datos.length; i++) {
+      var f = datos[i];
+      if (f[2] !== nombreMes || Number(f[3]) !== anio) continue;
+      if (!f[12] || parseFloat(f[12]) === 0) continue;
+      var urlActual = String(f[20]||"");
+      var doc = _crearOActualizarRecibo(f, carpeta, urlActual);
+      var urlNueva = doc.getUrl();
+      if (urlNueva !== urlActual) hojaF.getRange(i+1, 21).setValue(urlNueva);
+      generados++;
+    }
+    log.push("✅ 4️⃣  " + generados + " recibos generados");
+  } catch(e) { log.push("⚠️ 4️⃣  Recibos: " + e.message); }
+
+  // Paso 5: Resumen en hoja
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var titulo = "Fact_" + nombreMes + "_" + anio;
+    // Llamar directamente la lógica (sin _run para no anidar)
+    generarResumenFacturacionEnHoja(mes, anio);
+    log.push("✅ 5️⃣  Resumen generado en hoja '" + titulo + "'");
+  } catch(e) { log.push("⚠️ 5️⃣  Resumen: " + e.message); }
+
+  _alert("Proceso mensual — " + nombreMes + " " + anio + "\n\n" + log.join("\n"));
+}); }
 
 function crearEstructuraDrive() { _run(function() {
   var raiz     = _getOCreate(null, CFG.ORG+" · RRHH");
