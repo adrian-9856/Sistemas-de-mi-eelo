@@ -134,6 +134,7 @@ function onOpen() {
     .addItem("📅 Ver quincena actual",                   "verQuincenaActual")
     .addItem("✅ Cerrar quincena y crear siguiente",      "cerrarQuincenaYCrearSiguiente")
     .addItem("🗓️ Configurar nueva quincena",             "configurarNuevaQuincena")
+    .addItem("🔍 Reporte de quincena pasada",            "generarReporteQuincenaPasada")
     .addSeparator()
     // ── Reportes ──
     .addItem("📊 Reporte por rango de fechas",           "generarReportePorRango")
@@ -1906,6 +1907,46 @@ function actualizarQuincenaActual() {
     Logger.log("actualizarQuincenaActual error: " + e.message);
   }
 }
+
+/*
+ * Genera el reporte de quincena para cualquier período pasado.
+ * Pide fecha inicio y fin, calcula horas desde DatosKobo y muestra
+ * el resultado en el mismo formato de planilla.
+ */
+function generarReporteQuincenaPasada() { _run(function() {
+  var ui  = SpreadsheetApp.getUi();
+  var tz  = Session.getScriptTimeZone();
+
+  var r1 = ui.prompt("📅 Reporte de quincena pasada",
+    "Fecha INICIO del período (dd/mm/yyyy):", ui.ButtonSet.OK_CANCEL);
+  if (r1.getSelectedButton() !== ui.Button.OK) return;
+  var fi = _parseFecha(r1.getResponseText().trim());
+  if (!fi) { _alert("Fecha de inicio inválida. Usa dd/mm/yyyy (ej. 11/04/2026)"); return; }
+
+  var r2 = ui.prompt("📅 Reporte de quincena pasada",
+    "Fecha FIN del período (dd/mm/yyyy):", ui.ButtonSet.OK_CANCEL);
+  if (r2.getSelectedButton() !== ui.Button.OK) return;
+  var ff = _parseFecha(r2.getResponseText().trim());
+  if (!ff || ff < fi) { _alert("Fecha de fin inválida o anterior al inicio."); return; }
+
+  var label  = _labelPeriodo(fi, ff);
+  var tab    = "Q_" + Utilities.formatDate(fi, tz, "dd_MM") + "_" +
+               Utilities.formatDate(ff, tz, "dd_MM_yyyy") + "_hist";
+
+  // Leer horas a reponer previas si ya existía esta hoja
+  var prevReponer = _leerHorasReponerExistentes(tab);
+
+  var total  = _generarReporteQuincena(fi, ff, label, tab, prevReponer);
+  var ss     = SpreadsheetApp.getActiveSpreadsheet();
+  var hTab   = ss.getSheetByName(tab);
+  if (hTab) ss.setActiveSheet(hTab);
+
+  _alert("✅ Reporte generado: " + label + "\nTotal: Q" + total.toFixed(2) +
+         "\n\nHoja: '" + tab + "'\n\n" +
+         (total === 0
+           ? "⚠️ Total en cero — verifica que DatosKobo tenga registros para ese período."
+           : "Puedes editar la columna 'Horas a reponer' y el reporte se actualiza al guardar."));
+}); }
 
 /*
  * Cierra la quincena activa y abre la siguiente.
