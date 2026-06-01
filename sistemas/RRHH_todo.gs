@@ -90,8 +90,14 @@ function onOpen() {
     .addItem("📄 Actualizar todos los DPs",             "actualizarTodosLosDps")
     .addSeparator()
     .addItem("📥 Importar asistencia desde Kobo",       "importarDesdeKobo")
+    .addItem("🔄 Reimportar todo desde Kobo (borra todo)","reimportarTodoDesdeKobo")
     .addItem("🔗 Emparejar entradas/salidas → horas",   "emparejarAsistencia")
     .addItem("✨ Normalizar nombres y datos Kobo",       "normalizarTodo")
+    .addItem("📚 Configurar Días de Estudio",           "crearHojaDiasEstudio")
+    .addItem("🧘 Configurar Lista de Terapias",         "crearHojaListaTerapias")
+    .addItem("✏️  Cambiar Nombre de Participante",      "cambiarNombreParticipante")
+    .addItem("🔍 Diagnosticar Datos Kobo",              "diagnosticarDatosKobo")
+    .addItem("🔧 Reparar Datos Kobo",                   "repararDatosKobo")
     .addSeparator()
     .addItem("💰 Calcular facturación del mes",         "calcularFacturacionMes")
     .addItem("🧾 Generar recibos de pago",              "generarRecibosMes")
@@ -561,6 +567,39 @@ function importarDesdeKobo() { _run(function() {
   _normalizarAccionSilencioso(hoja);
   emparejarAsistencia();
   _alert("✅ " + filasNuevas.length + " registros nuevos importados.\nAsistencia emparejada.");
+}); }
+
+// Llamado por el trigger instalable onOpen (tiene permisos completos)
+function importarAlAbrir() { try { importarDesdeKobo(); } catch(_) {} }
+
+// Reimportación completa — borra DatosKobo y lo reconstruye desde cero
+function reimportarTodoDesdeKobo() { _run(function() {
+  var ui = SpreadsheetApp.getUi();
+  var resp = ui.alert("⚠️ REIMPORTACIÓN COMPLETA",
+    "Esto BORRARÁ la hoja DatosKobo y la reimportará desde cero desde Kobo.\n\n" +
+    "Usa esto solo si los datos están muy desordenados.\n\n¿Continuar?",
+    ui.ButtonSet.YES_NO);
+  if (resp !== ui.Button.YES) return;
+
+  var resKobo = UrlFetchApp.fetch(CFG.KOBO_URL_CSV, { muteHttpExceptions: true });
+  var code = resKobo.getResponseCode();
+  if (code === 503) { _alert("⏳ Kobo ocupado (503). Espera 2 min e intenta de nuevo."); return; }
+  if (code !== 200) throw new Error("Error Kobo HTTP " + code);
+
+  var datos = Utilities.parseCsv(resKobo.getContentText(), ";");
+  if (datos.length < 2) { _alert("Kobo no devolvió registros."); return; }
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var hOld = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
+  if (hOld) ss.deleteSheet(hOld);
+
+  var hoja = ss.insertSheet(CFG.HOJAS.DATOS_KOBO);
+  hoja.getRange(1,1,datos.length,datos[0].length).setValues(datos);
+  hoja.getRange(1,1,1,datos[0].length).setFontWeight("bold").setBackground("#4a86e8").setFontColor("#fff");
+  hoja.setFrozenRows(1);
+  _limpiarColumnasKobo(hoja, datos[0]);
+  _normalizarAccionSilencioso(hoja);
+  _alert("✅ Reimportación completa: " + (datos.length-1) + " registros.\n\nRecuerda ejecutar 'Emparejar entradas/salidas' para recalcular ASISTENCIA.");
 }); }
 
 function _buscarIndice(enc, clave) {
@@ -1292,13 +1331,20 @@ function _getOCreate(padre, nombre) {
 // ── Triggers ──────────────────────────────────────────────────
 
 function configurarTriggers() { _run(function() {
-  ScriptApp.getProjectTriggers().forEach(function(t){ ScriptApp.deleteTrigger(t); });
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  // Solo eliminar triggers de importación (no eliminar onEdit simple)
+  ScriptApp.getProjectTriggers().forEach(function(t){
+    var h = t.getHandlerFunction();
+    if (h === "importarDesdeKobo" || h === "importarAlAbrir") ScriptApp.deleteTrigger(t);
+  });
   ScriptApp.newTrigger("importarDesdeKobo").timeBased().everyHours(1).create();
+  ScriptApp.newTrigger("importarAlAbrir").forSpreadsheet(ss).onOpen().create();
   _alert("✅ Automatizaciones activadas:\n\n" +
     "• onEdit (automático) — Cambiar Categoría → auto-llena Tarifa\n" +
     "• onEdit (automático) — Marcar Pagado → actualiza Dashboard\n" +
-    "• ⏰ Importación Kobo: cada hora automáticamente\n\n" +
-    "Los datos de Kobo se actualizarán solos cada hora.");
+    "• ⏰ Importación Kobo: cada hora automáticamente\n" +
+    "• 🔄 Importación Kobo: al abrir la hoja\n\n" +
+    "Los datos de Kobo se actualizarán solos cada hora y al abrir.");
 }); }
 
 // ── Reinstalar ────────────────────────────────────────────────
@@ -1448,262 +1494,370 @@ function actualizarDashboard() { _run(function() {
 // Formato: Fecha | Día | 🟢 Entrada | 🔴 Salida | Tipo |
 //          Horas Trabajadas | Porcentaje | Horas a Pagar | Tarifa | Monto (Q)
 // Agrupado por participante con SUBTOTAL y resumen general al final.
+// Lee desde DatosKobo (como codigo.gs): empareja en tiempo real,
+// salidas estimadas, filtro por participante, opción nueva hoja.
 // ══════════════════════════════════════════════════════════════════
 
 function generarReportePorDia() { _run(function() {
   var ui = SpreadsheetApp.getUi();
-  var r = ui.prompt("📊 Reporte por Día", "Fecha (dd/mm/yyyy):", ui.ButtonSet.OK_CANCEL);
+  var r = ui.prompt("📅 Reporte por Día", "Fecha (dd/mm/yyyy):", ui.ButtonSet.OK_CANCEL);
   if (r.getSelectedButton() !== ui.Button.OK) return;
   var fecha = _parseFecha(r.getResponseText().trim());
   if (!fecha) { ui.alert("Fecha inválida. Usa formato dd/mm/yyyy (ej. 15/04/2025)"); return; }
-  generarReporte("dia", fecha, null, null);
+  var params = solicitarParametrosReporte();
+  if (!params) return;
+  generarReporte("dia", fecha, null, params.filtro, params.nuevaHoja);
 }); }
 
 function generarReportePorSemana() { _run(function() {
   var ui = SpreadsheetApp.getUi();
-  var r = ui.prompt("📊 Reporte por Semana",
-    "Fecha inicio de semana (dd/mm/yyyy):\n(el reporte incluye 7 días a partir de esa fecha)", ui.ButtonSet.OK_CANCEL);
+  var r = ui.prompt("📆 Reporte por Semana",
+    "Fecha inicio de semana (dd/mm/yyyy):", ui.ButtonSet.OK_CANCEL);
   if (r.getSelectedButton() !== ui.Button.OK) return;
   var fecha = _parseFecha(r.getResponseText().trim());
   if (!fecha) { ui.alert("Fecha inválida. Usa formato dd/mm/yyyy"); return; }
-  generarReporte("semana", fecha, null, null);
+  var params = solicitarParametrosReporte();
+  if (!params) return;
+  generarReporte("semana", fecha, null, params.filtro, params.nuevaHoja);
 }); }
 
 function generarReportePorMes() { _run(function() {
   var ui = SpreadsheetApp.getUi();
   var ahora = new Date();
-  var r = ui.prompt("📊 Reporte por Mes",
+  var r = ui.prompt("🗓️ Reporte por Mes",
     "Mes/Año (mm/yyyy):\n(ej. "+String(ahora.getMonth()+1).padStart(2,"0")+"/"+ahora.getFullYear()+")", ui.ButtonSet.OK_CANCEL);
   if (r.getSelectedButton() !== ui.Button.OK) return;
-  var txt = r.getResponseText().trim();
-  var parts = txt.split("/");
+  var parts = r.getResponseText().trim().split("/");
   if (parts.length < 2) { ui.alert("Formato inválido. Usa mm/yyyy"); return; }
   var m = parseInt(parts[0]), y = parseInt(parts[1]);
   if (isNaN(m)||isNaN(y)) { ui.alert("Mes/año inválidos."); return; }
-  var fecha = new Date(y, m-1, 1, 0, 0, 0, 0);
-  generarReporte("mes", fecha, null, null);
+  var params = solicitarParametrosReporte();
+  if (!params) return;
+  generarReporte("mes", new Date(y, m-1, 1, 0, 0, 0, 0), null, params.filtro, params.nuevaHoja);
 }); }
 
 function generarReportePorRango() { _run(function() {
   var ui = SpreadsheetApp.getUi();
-  var r1 = ui.prompt("📊 Reporte por Rango — Fecha inicio (1/2)", "Fecha inicio (dd/mm/yyyy):", ui.ButtonSet.OK_CANCEL);
+  var r1 = ui.prompt("📊 Reporte por Rango (1/2)", "Fecha inicio (dd/mm/yyyy):", ui.ButtonSet.OK_CANCEL);
   if (r1.getSelectedButton() !== ui.Button.OK) return;
   var inicio = _parseFecha(r1.getResponseText().trim());
   if (!inicio) { ui.alert("Fecha inválida."); return; }
-  var r2 = ui.prompt("📊 Reporte por Rango — Fecha fin (2/2)", "Fecha fin (dd/mm/yyyy):", ui.ButtonSet.OK_CANCEL);
+  var r2 = ui.prompt("📊 Reporte por Rango (2/2)", "Fecha fin (dd/mm/yyyy):", ui.ButtonSet.OK_CANCEL);
   if (r2.getSelectedButton() !== ui.Button.OK) return;
   var fin = _parseFecha(r2.getResponseText().trim());
   if (!fin) { ui.alert("Fecha inválida."); return; }
   fin.setHours(23,59,59,999);
-  generarReporte("rango", inicio, fin, null);
+  var params = solicitarParametrosReporte();
+  if (!params) return;
+  generarReporte("rango", inicio, fin, params.filtro, params.nuevaHoja);
 }); }
 
 function generarReporteTodo() { _run(function() {
-  var ui = SpreadsheetApp.getUi();
-  var resp = ui.alert("📊 Reporte Completo",
-    "Se generará un reporte con TODOS los registros de ASISTENCIA.\n\n" +
-    "Si hay muchos datos, puede tardar unos segundos.\n\n¿Continuar?",
-    ui.ButtonSet.YES_NO);
-  if (resp !== ui.Button.YES) return;
-  generarReporte("todo", null, null, null);
+  var params = solicitarParametrosReporte();
+  if (!params) return;
+  generarReporte("todo", null, null, params.filtro, params.nuevaHoja);
 }); }
 
-// ── Motor de reportes ─────────────────────────────────────────
+// ── Solicitar filtro + opción de hoja ────────────────────────
 
-function generarReporte(tipo, fechaInicio, fechaFin, filtroParticipante) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var hojaA = ss.getSheetByName(CFG.HOJAS.ASISTENCIA);
-  if (!hojaA) throw new Error("No existe ASISTENCIA. Ejecuta PASO 1 y 'Emparejar entradas/salidas' primero.");
+function solicitarParametrosReporte() {
+  var ui = SpreadsheetApp.getUi();
+  var lista = _obtenerListaParticipantesKobo();
+  var txt = lista.slice(0,15).join("\n");
+  if (lista.length > 15) txt += "\n... (" + (lista.length-15) + " más)";
 
-  var datos = hojaA.getDataRange().getValues();
-  if (datos.length < 2) throw new Error("ASISTENCIA está vacía. Importa datos desde Kobo y empareja primero.");
+  var rP = ui.prompt("👤 Filtro por participante",
+    "Escribe el nombre EXACTO del participante para filtrar.\nDeja VACÍO para incluir TODOS.\n\n" +
+    "Participantes disponibles:\n" + (txt || "(ninguno — importa Kobo primero)"),
+    ui.ButtonSet.OK_CANCEL);
+  if (rP.getSelectedButton() !== ui.Button.OK) return null;
+  var filtro = rP.getResponseText().trim() || null;
 
-  var partMap = _construirMapaTarifas();
-  var tz      = Session.getScriptTimeZone();
+  var rH = ui.alert("📄 ¿Crear nueva pestaña?",
+    "SÍ → nueva pestaña (Rep_XXX_fecha)\nNO → sobreescribir pestaña 'Reporte_Fijo'",
+    ui.ButtonSet.YES_NO);
 
-  // Filtrar y agrupar por participante
-  var grupos = {}; // nombre → [ fila, ... ]
-  for (var i = 1; i < datos.length; i++) {
-    var f = datos[i];
-    var nombre = String(f[0]||"").trim();
-    if (!nombre) continue;
-    if (filtroParticipante && nombre !== filtroParticipante) continue;
+  return { filtro: filtro, nuevaHoja: rH === ui.Button.YES };
+}
 
-    var fecha = f[2] instanceof Date ? f[2] : new Date(f[2]);
-    if (isNaN(fecha)) continue;
-
-    if (!_validarEnRango(tipo, fecha, fechaInicio, fechaFin)) continue;
-    if (!grupos[nombre]) grupos[nombre] = [];
-    grupos[nombre].push(f);
+function _obtenerListaParticipantesKobo() {
+  var hojaK = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CFG.HOJAS.DATOS_KOBO);
+  if (!hojaK) return [];
+  var datos = hojaK.getDataRange().getValues();
+  var colsP = _buscarColsParticipante(datos[0]);
+  if (colsP.col1 === -1) return [];
+  var mapeo = cargarMapeoNombres();
+  var names = {};
+  for (var f = 1; f < datos.length; f++) {
+    var n = _nombreDeFila(datos[f], colsP);
+    if (n) names[normalizarNombre(n, mapeo)] = true;
   }
+  return Object.keys(names).sort();
+}
 
-  var nombresOrdenados = Object.keys(grupos).sort();
-  if (nombresOrdenados.length === 0) {
-    _alert("No hay datos para el período seleccionado.\n\n" +
-      "Verifica que hayas emparejado la asistencia y que el rango de fechas sea correcto.");
+// ── Motor de reportes — lee desde DatosKobo ──────────────────
+
+function generarReporte(tipo, fechaInicio, fechaFin, filtroParticipante, nuevaHoja) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var hojaKobo = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
+  if (!hojaKobo) {
+    _alert("No existe DatosKobo.\nEjecuta primero '📥 Importar asistencia desde Kobo'.");
     return;
   }
 
-  // Crear pestaña
-  var textoPeriodo = _obtenerTextoPeriodo(tipo, fechaInicio, fechaFin);
-  var sufijo = tipo === "dia" ? Utilities.formatDate(fechaInicio, tz, "ddMMyyyy") :
-               tipo === "mes" ? Utilities.formatDate(fechaInicio, tz, "MMyyyy") :
-               Utilities.formatDate(new Date(), tz, "ddMMyyyy_HHmm");
-  var nombreHoja = "Rep_" + tipo.substring(0,3).toUpperCase() + "_" + sufijo;
+  var datos = hojaKobo.getDataRange().getValues();
+  var cols = detectarColumnas(datos[0], datos.slice(1));
 
-  var hojaRep = ss.getSheetByName(nombreHoja);
-  if (hojaRep) {
-    hojaRep.clearContents();
-    hojaRep.clearFormats();
-  } else {
-    hojaRep = ss.insertSheet(nombreHoja);
+  if (cols.start === undefined || cols.participante === undefined) {
+    _alert("ERROR: No se detectaron columnas start/participante.\nUsa '🔍 Diagnosticar Datos Kobo' para más información.");
+    return;
+  }
+  if (cols.accionUnificada === undefined && cols.ingreso === undefined) {
+    _alert("ERROR: No se detectó columna de Entrada/Salida.\nUsa '🔍 Diagnosticar Datos Kobo'.");
+    return;
   }
 
-  var fila = 1;
+  var diasEstudioMapa = obtenerDiasEstudio();
+  var listaTerapias   = obtenerListaTerapias();
+  var mapeoNombres    = cargarMapeoNombres();
+  var partMap         = _construirMapaTarifas();
+  var tz              = Session.getScriptTimeZone();
 
-  // Título
-  hojaRep.getRange(fila,1,1,10).merge()
-    .setValue("📊 REPORTE RRHH — " + CFG.ORG + " — " + textoPeriodo)
-    .setBackground("#1a237e").setFontColor("#fff").setFontWeight("bold")
-    .setFontSize(13).setHorizontalAlignment("center");
-  fila++;
+  // Agrupar registros por participante (dedup UUID + clave)
+  var uuidVistos = {}, regVistos = {}, regPorEmp = {};
+  for (var f = 1; f < datos.length; f++) {
+    var fila = datos[f];
 
-  hojaRep.getRange(fila,1,1,10).merge()
-    .setValue("Tarifas: A=Q16.50 | B=Q15.75 | C=Q15.00 | D=Q14.00  ·  IVA 5% solo Pcv.  ·  " +
-              Utilities.formatDate(new Date(), tz, "dd/MM/yyyy HH:mm"))
-    .setFontSize(9).setFontColor("#555555").setHorizontalAlignment("center")
-    .setBackground("#e8eaf6").setFontStyle("italic");
-  fila++;
-  fila++; // fila vacía
+    if (cols.uuid !== undefined) {
+      var uid = String(fila[cols.uuid]||"").trim();
+      if (uid) { if (uuidVistos[uid]) continue; uuidVistos[uid] = true; }
+    }
 
-  // Encabezados de columnas
-  var HEADERS = ["Fecha","Día","🟢 Entrada","🔴 Salida","Tipo",
-                 "Horas Trab.","Porcentaje","Horas a Pagar","Tarifa (Q/hr)","Monto (Q)"];
-  hojaRep.getRange(fila,1,1,10).setValues([HEADERS])
-    .setBackground("#37474f").setFontColor("#fff").setFontWeight("bold")
-    .setHorizontalAlignment("center");
-  hojaRep.setFrozenRows(fila);
-  fila++;
+    var nombreRaw = obtenerParticipanteFila(fila, cols);
+    if (!nombreRaw) continue;
+    var emp = normalizarNombre(nombreRaw, mapeoNombres);
+    if (filtroParticipante && emp.toLowerCase() !== filtroParticipante.toLowerCase()) continue;
 
-  var totPersonas = nombresOrdenados.length;
-  var totHorasTrab = 0, totHorasPagar = 0, totMonto = 0;
+    var tipoReg = obtenerTipoRegistro(fila, cols);
+    if (!tipoReg.esIngreso && !tipoReg.esEgreso) continue;
 
-  nombresOrdenados.forEach(function(nombre) {
-    var filas = grupos[nombre];
-    filas.sort(function(a,b){ return (a[2] instanceof Date ? a[2] : new Date(a[2])) -
-                                     (b[2] instanceof Date ? b[2] : new Date(b[2])); });
+    var tsRaw = fila[cols.start];
+    if (!tsRaw) continue;
+    var ts = tsRaw instanceof Date ? tsRaw : new Date(tsRaw);
+    if (isNaN(ts)) continue;
 
-    var tarifa   = partMap[nombre] ? partMap[nombre].tarifa    : CFG.CATEGORIAS.C;
-    var cat      = partMap[nombre] ? partMap[nombre].categoria : "";
+    // Para salidas: usar 'end' si disponible y razonable (< 24 h)
+    if (tipoReg.esEgreso && cols.end !== undefined && fila[cols.end]) {
+      var tsEnd = fila[cols.end] instanceof Date ? fila[cols.end] : new Date(fila[cols.end]);
+      if (!isNaN(tsEnd) && tsEnd > ts && (tsEnd - ts) < 86400000) ts = tsEnd;
+    }
 
-    // Fila de encabezado de participante
-    hojaRep.getRange(fila,1,1,10).merge()
-      .setValue("👤  " + nombre + (cat ? "   [Cat. " + cat + "  ·  Q" + tarifa.toFixed(2) + "/hr]" : ""))
-      .setBackground("#263238").setFontColor("#ffffff").setFontWeight("bold").setFontSize(10);
-    fila++;
+    var claveReg = emp + "|" + ts.getTime() + "|" + (tipoReg.esIngreso ? "E" : "S");
+    if (regVistos[claveReg]) continue; regVistos[claveReg] = true;
 
-    var subTrab = 0, subPagar = 0, subMonto = 0;
+    if (!_validarEnRango(tipo, ts, fechaInicio, fechaFin)) continue;
 
-    filas.forEach(function(f) {
-      var fecha2   = f[2] instanceof Date ? f[2] : new Date(f[2]);
-      var tipo2    = String(f[3]||"Normal").trim();
-      var horasTrab= parseFloat(f[4])||0;
-      var esDiaEst = String(f[5]||"No");
-      var esTer    = String(f[6]||"No");
-      var pct      = parseFloat(f[7])||0;
-      var horasPag = parseFloat(f[8])||0;
-      var entRaw   = f[10];
-      var salRaw   = f[11];
-      var entDate  = entRaw instanceof Date ? entRaw : (entRaw ? new Date(entRaw) : null);
-      var salDate  = salRaw instanceof Date ? salRaw : (salRaw ? new Date(salRaw) : null);
-      var monto    = Math.round(horasPag * tarifa * 100) / 100;
-
-      var fechaStr = Utilities.formatDate(fecha2, tz, "dd/MM/yyyy");
-      var diaStr   = CFG.DIAS_SEMANA[fecha2.getDay()];
-      var entStr   = (entDate && !isNaN(entDate)) ? Utilities.formatDate(entDate, tz, "HH:mm") : "—";
-      var salStr   = (salDate && !isNaN(salDate)) ? Utilities.formatDate(salDate, tz, "HH:mm") : "—";
-
-      hojaRep.getRange(fila,1,1,10).setValues([[
-        fechaStr, diaStr, entStr, salStr, tipo2,
-        horasTrab, pct + "%", horasPag, tarifa, monto
-      ]]);
-
-      // Color según tipo
-      var bg = "#ffffff";
-      if (esTer === "Sí" || tipo2 === "Terapia")           bg = "#d9ead3"; // verde
-      else if (tipo2 === "Computación")                     bg = "#fff2cc"; // amarillo
-      else if (esDiaEst === "Sí" || tipo2 === "Día de Estudio") bg = "#fce8e6"; // rojo suave
-
-      if (bg !== "#ffffff") hojaRep.getRange(fila,1,1,10).setBackground(bg);
-
-      subTrab  += horasTrab;
-      subPagar += horasPag;
-      subMonto += monto;
-      fila++;
+    if (!regPorEmp[emp]) regPorEmp[emp] = [];
+    regPorEmp[emp].push({
+      fecha: ts,
+      esIngreso:    tipoReg.esIngreso,
+      esEgreso:     tipoReg.esEgreso,
+      esTerapia:    tipoReg.esTerapia,
+      esPermiso:    tipoReg.esPermiso,
+      esComputacion:tipoReg.esComputacion
     });
+  }
+
+  var listaEmps = Object.keys(regPorEmp).sort();
+  if (listaEmps.length === 0) {
+    _alert("No hay datos para el período seleccionado.\n\n" +
+      "Verifica que:\n• Hayas importado datos de Kobo\n• El período tenga registros\n• El nombre del filtro sea exacto");
+    return;
+  }
+
+  // Crear / limpiar pestaña
+  var hoja;
+  if (nuevaHoja === false) {
+    var nh = ss.getSheetByName("Reporte_Fijo");
+    hoja = nh || ss.insertSheet("Reporte_Fijo");
+    hoja.clearContents(); hoja.clearFormats();
+  } else {
+    hoja = ss.insertSheet("Rep_" + tipo.substring(0,3).toUpperCase() + "_" +
+                          Utilities.formatDate(new Date(), tz, "ddMM_HHmm"));
+  }
+
+  var NCOLS = 10;
+  var HDRS = ["Fecha","Día","🟢 Entrada","🔴 Salida","Tipo","Horas Trabajadas","Porcentaje","Horas a Pagar","Tarifa Q/hr","Monto (Q)"];
+  hoja.getRange(1,1,1,NCOLS).setValues([HDRS])
+    .setFontWeight("bold").setBackground("#1f54a8").setFontColor("#fff").setHorizontalAlignment("center");
+  hoja.setFrozenRows(1);
+
+  var filaActual = 2;
+  var textoPeriodo = _obtenerTextoPeriodo(tipo, fechaInicio, fechaFin);
+  hoja.getRange(filaActual,1,1,NCOLS).merge()
+    .setValue("Período: " + textoPeriodo + (filtroParticipante ? " | " + filtroParticipante : " | Todos los participantes"))
+    .setFontWeight("bold").setFontSize(11).setHorizontalAlignment("center").setBackground("#e8eaf6");
+  filaActual += 2;
+
+  var totGen = { horas: 0, pagar: 0, terapia: 0, monto: 0 };
+
+  listaEmps.forEach(function(empId) {
+    var registros = regPorEmp[empId];
+    registros.sort(function(a,b){ return a.fecha - b.fecha; });
+
+    var tarifa = partMap[empId] ? partMap[empId].tarifa    : CFG.CATEGORIAS.C;
+    var cat    = partMap[empId] ? partMap[empId].categoria : "";
+
+    filaActual++;
+    hoja.getRange(filaActual,1,1,NCOLS).merge()
+      .setValue("👤  " + empId + (cat ? "   [Cat. " + cat + " · Q" + tarifa.toFixed(2) + "/hr]" : ""))
+      .setFontWeight("bold").setBackground("#e3f2fd");
+    filaActual++;
+
+    var statsEmp = { horas: 0, pagar: 0, terapia: 0, monto: 0 };
+
+    function _addFila(fRef, fStart, fEnd, tipoLbl, hrsV, porcV) {
+      var hPagar = hrsV * porcV / 100;
+      var monto  = Math.round(hPagar * tarifa * 100) / 100;
+      _escribirFilaReporte(hoja, filaActual++, fRef, fStart, fEnd, tipoLbl, hrsV, porcV, tarifa, monto);
+      statsEmp.horas += hrsV;
+      statsEmp.pagar += hPagar;
+      statsEmp.monto += monto;
+      if (tipoLbl.indexOf("Terapia") !== -1) statsEmp.terapia += hrsV;
+    }
+
+    var currentIngreso = null, lastEgreso = null, fechaAnt = null;
+
+    for (var i = 0; i < registros.length; i++) {
+      var reg = registros[i];
+
+      // Resetear al cambiar de día
+      if (fechaAnt && !_esMismaFecha(fechaAnt, reg.fecha)) {
+        if (currentIngreso && currentIngreso.fecha.getHours() < 17) {
+          var sEst = new Date(currentIngreso.fecha.getTime() + CFG.HORAS_JORNADA_NORMAL * 3600000);
+          var isDiaEst = esDiaDeEstudio(empId, currentIngreso.fecha, diasEstudioMapa);
+          _addFila(currentIngreso.fecha, currentIngreso.fecha, sEst,
+            (isDiaEst ? "Día de Estudio (Est.)" : "Normal (Estimado)") + "*",
+            CFG.HORAS_JORNADA_NORMAL, isDiaEst ? 0 : 100);
+          currentIngreso = null;
+        }
+        lastEgreso = null;
+      }
+      fechaAnt = reg.fecha;
+
+      if (reg.esIngreso) {
+        if (currentIngreso === null && lastEgreso === null && reg.fecha.getHours() >= 17) continue;
+        if (currentIngreso && _esMismaFecha(currentIngreso.fecha, reg.fecha)) continue;
+        currentIngreso = reg; lastEgreso = null;
+      } else if (reg.esEgreso && currentIngreso) {
+        var horas  = (reg.fecha - currentIngreso.fecha) / 3600000;
+        var isDiaEst2 = esDiaDeEstudio(empId, currentIngreso.fecha, diasEstudioMapa);
+        var tipoLbl, porc;
+        if      (isDiaEst2)      { tipoLbl = "Día de Estudio"; porc = 0; }
+        else if (reg.esPermiso)  { tipoLbl = "Permiso"; porc = 0; }
+        else if (reg.esTerapia || listaTerapias[empId]) { tipoLbl = "Terapia"; porc = 100; }
+        else if (reg.esComputacion) { tipoLbl = "Computación"; porc = 50; }
+        else                     { tipoLbl = "Normal"; porc = 100; }
+        _addFila(currentIngreso.fecha, currentIngreso.fecha, reg.fecha, tipoLbl, horas, porc);
+        currentIngreso = null; lastEgreso = reg;
+      }
+    }
+
+    // Ingreso sin salida al final del set
+    if (currentIngreso && currentIngreso.fecha.getHours() < 17) {
+      var sEst2 = new Date(currentIngreso.fecha.getTime() + CFG.HORAS_JORNADA_NORMAL * 3600000);
+      var isDiaEstF = esDiaDeEstudio(empId, currentIngreso.fecha, diasEstudioMapa);
+      _addFila(currentIngreso.fecha, currentIngreso.fecha, sEst2,
+        (isDiaEstF ? "Día de Estudio (Est.)" : "Normal (Estimado)") + "*",
+        CFG.HORAS_JORNADA_NORMAL, isDiaEstF ? 0 : 100);
+    }
 
     // Subtotal del participante
-    subTrab  = Math.round(subTrab  * 100) / 100;
-    subPagar = Math.round(subPagar * 100) / 100;
-    subMonto = Math.round(subMonto * 100) / 100;
+    hoja.getRange(filaActual,1,1,5).merge()
+      .setValue("SUBTOTAL  " + empId).setFontWeight("bold").setHorizontalAlignment("right").setBackground("#f5f5f5");
+    hoja.getRange(filaActual,6).setValue(Math.round(statsEmp.horas*100)/100).setFontWeight("bold").setBackground("#f5f5f5").setHorizontalAlignment("center");
+    hoja.getRange(filaActual,8).setValue(Math.round(statsEmp.pagar*100)/100).setFontWeight("bold").setBackground("#f5f5f5").setHorizontalAlignment("center");
+    hoja.getRange(filaActual,9).setValue(tarifa).setFontWeight("bold").setBackground("#f5f5f5").setHorizontalAlignment("center");
+    hoja.getRange(filaActual,10).setValue(Math.round(statsEmp.monto*100)/100).setFontWeight("bold").setBackground("#fff9c4").setHorizontalAlignment("center");
+    filaActual++;
 
-    hojaRep.getRange(fila,1,1,5).merge()
-      .setValue("SUBTOTAL  " + nombre);
-    hojaRep.getRange(fila,1,1,10).setBackground("#b0bec5").setFontWeight("bold");
-    hojaRep.getRange(fila,6).setValue(subTrab);
-    hojaRep.getRange(fila,8).setValue(subPagar);
-    hojaRep.getRange(fila,9).setValue(tarifa);
-    hojaRep.getRange(fila,10).setValue(subMonto);
+    if (statsEmp.terapia > 0) {
+      hoja.getRange(filaActual,1,1,NCOLS).merge()
+        .setValue("🧘 Total Terapia: " + statsEmp.terapia.toFixed(2) + " hrs")
+        .setFontStyle("italic").setFontSize(9).setFontColor("#00796b");
+      filaActual++;
+    }
+    filaActual++;
 
-    totHorasTrab  += subTrab;
-    totHorasPagar += subPagar;
-    totMonto      += subMonto;
-    fila += 2; // subtotal + fila vacía
+    totGen.horas  += statsEmp.horas;
+    totGen.pagar  += statsEmp.pagar;
+    totGen.terapia += statsEmp.terapia;
+    totGen.monto  += statsEmp.monto;
   });
 
   // Resumen general
-  fila++;
-  hojaRep.getRange(fila,1,1,10).merge()
+  filaActual++;
+  hoja.getRange(filaActual,1,1,NCOLS).merge()
     .setValue("RESUMEN GENERAL")
-    .setBackground("#1a237e").setFontColor("#fff").setFontWeight("bold")
-    .setFontSize(11).setHorizontalAlignment("center");
-  fila++;
+    .setFontWeight("bold").setFontSize(12).setHorizontalAlignment("center").setBackground("#cfd8dc");
+  filaActual++;
 
-  totHorasTrab  = Math.round(totHorasTrab  * 100) / 100;
-  totHorasPagar = Math.round(totHorasPagar * 100) / 100;
-  totMonto      = Math.round(totMonto      * 100) / 100;
-
-  var resumen = [
-    ["Total participantes",      totPersonas, "", "", "", "", "", "", "", ""],
-    ["Total horas trabajadas",   "",          "", "", "", totHorasTrab, "", "", "", ""],
-    ["Total horas a pagar",      "",          "", "", "", "", "", totHorasPagar, "", ""],
-    ["TOTAL MONTO (Q)",          "",          "", "", "", "", "", "", "", totMonto],
+  var tablaRes = [
+    ["Total Personas:", listaEmps.length, "Total Horas Lab.:", Math.round(totGen.horas*100)/100],
+    ["Total Terapias:", Math.round(totGen.terapia*100)/100, "Total Horas a Pagar:", Math.round(totGen.pagar*100)/100],
+    ["", "", "TOTAL MONTO (Q):", Math.round(totGen.monto*100)/100]
   ];
-  hojaRep.getRange(fila,1,resumen.length,10).setValues(resumen)
-    .setBackground("#e8eaf6");
-  // Resaltar fila de total
-  hojaRep.getRange(fila + resumen.length - 1, 1, 1, 10)
-    .setBackground("#1565c0").setFontColor("#fff").setFontWeight("bold").setFontSize(12);
-  fila += resumen.length;
+  hoja.getRange(filaActual,1,3,4).setValues(tablaRes);
+  hoja.getRange(filaActual,3,3,1).setFontWeight("bold");
+  hoja.getRange(filaActual+2,3,1,2).setBackground("#fff9c4").setFontWeight("bold").setFontSize(12);
+  filaActual += 5;
+
+  hoja.getRange(filaActual,1,1,NCOLS).merge()
+    .setValue("⚠️ * = Salida estimada (" + CFG.HORAS_JORNADA_NORMAL + " hrs) | " +
+              "🟢 Verde = Terapia | 🟡 Amarillo = Computación (50%) | 🔴 Rojo = Permiso/Estudio (0%) | 🟣 Morado = Día de Estudio")
+    .setFontSize(8).setFontStyle("italic").setFontColor("#d32f2f");
 
   // Anchos de columna
-  hojaRep.setColumnWidth(1, 90);   // Fecha
-  hojaRep.setColumnWidth(2, 90);   // Día
-  hojaRep.setColumnWidth(3, 65);   // Entrada
-  hojaRep.setColumnWidth(4, 65);   // Salida
-  hojaRep.setColumnWidth(5, 140);  // Tipo
-  hojaRep.setColumnWidth(6, 80);   // Horas Trab
-  hojaRep.setColumnWidth(7, 80);   // Porcentaje
-  hojaRep.setColumnWidth(8, 90);   // Horas Pagar
-  hojaRep.setColumnWidth(9, 90);   // Tarifa
-  hojaRep.setColumnWidth(10, 90);  // Monto
+  hoja.setColumnWidth(1,85); hoja.setColumnWidth(2,85);
+  hoja.setColumnWidth(3,70); hoja.setColumnWidth(4,70);
+  hoja.setColumnWidth(5,140); hoja.setColumnWidth(6,80);
+  hoja.setColumnWidth(7,80); hoja.setColumnWidth(8,80);
+  hoja.setColumnWidth(9,80); hoja.setColumnWidth(10,90);
 
-  ss.setActiveSheet(hojaRep);
-  _alert("✅ Reporte generado en pestaña: \"" + nombreHoja + "\"\n\n" +
-    "Período: " + textoPeriodo + "\n" +
-    "Participantes: " + totPersonas + "\n" +
-    "Horas a pagar: " + totHorasPagar + "\n" +
-    "Monto total: Q " + totMonto.toFixed(2));
+  ss.setActiveSheet(hoja);
+  _alert("✅ Reporte generado: " + hoja.getName() +
+    "\nParticipantes: " + listaEmps.length +
+    "\nHoras a pagar: " + Math.round(totGen.pagar*100)/100 +
+    "\nMonto total: Q " + Math.round(totGen.monto*100)/100);
+}
+
+// ── Auxiliar: escribir una fila en el reporte ─────────────────
+
+function _escribirFilaReporte(hoja, fila, fechaRef, start, end, tipo, horas, porc, tarifa, monto) {
+  var tz = Session.getScriptTimeZone();
+  hoja.getRange(fila,1,1,10).setValues([[
+    Utilities.formatDate(fechaRef, tz, "dd/MM/yyyy"),
+    CFG.DIAS_SEMANA[fechaRef.getDay()],
+    Utilities.formatDate(start, tz, "HH:mm"),
+    Utilities.formatDate(end, tz, "HH:mm"),
+    tipo,
+    horas.toFixed(2),
+    porc + "%",
+    (horas * porc / 100).toFixed(2),
+    tarifa.toFixed(2),
+    monto.toFixed(2)
+  ]]).setHorizontalAlignment("center").setFontSize(9);
+
+  var color = "#ffffff";
+  if      (tipo.indexOf("Terapia")  !== -1)                  color = "#e0f2f1";
+  else if (tipo.indexOf("Comput")   !== -1)                  color = "#fff9c4";
+  else if (tipo.indexOf("Permiso")  !== -1 || porc === 0)    color = "#ffebee";
+  else if (tipo.indexOf("Estudio")  !== -1)                  color = "#f3e5f5";
+  if (color !== "#ffffff") hoja.getRange(fila,1,1,10).setBackground(color);
+}
+
+function _esMismaFecha(d1, d2) {
+  return d1.getFullYear()===d2.getFullYear() && d1.getMonth()===d2.getMonth() && d1.getDate()===d2.getDate();
 }
 
 // ── Helpers para reportes ─────────────────────────────────────
@@ -1778,43 +1932,339 @@ function _construirMapaTarifas() {
 function instalarTodo() { _run(function() {
   var ui = SpreadsheetApp.getUi();
   var resp = ui.alert("🚀 INSTALACIÓN COMPLETA — RRHH " + CFG.ORG,
-    "Se ejecutarán todos los pasos automáticamente:\n\n" +
-    "PASO 1 — Crear hojas del sistema\n" +
-    "         (PARTICIPANTES, ASISTENCIA, FACTURACION, CLASIFICACION, DASHBOARD)\n\n" +
-    "PASO 2 — Crear estructura en Drive\n" +
-    "         (carpetas Docs_Proceso, Recibos, Reportes)\n\n" +
-    "PASO 3 — Activar automatizaciones\n" +
-    "         (importación Kobo cada hora)\n\n" +
-    "Si ya existen hojas o carpetas, NO se borran los datos.\n\n" +
-    "¿Continuar?", ui.ButtonSet.YES_NO);
+    "Se ejecutarán 6 pasos automáticamente:\n\n" +
+    "1 — Crear hojas del sistema (PARTICIPANTES, ASISTENCIA, FACTURACION…)\n" +
+    "2 — Importar datos desde Kobo\n" +
+    "3 — Crear estructura en Drive (Docs_Proceso, Recibos, Reportes)\n" +
+    "4 — Crear hoja Días de Estudio\n" +
+    "5 — Crear hoja Lista de Terapias\n" +
+    "6 — Activar automatizaciones (Kobo cada hora + al abrir)\n\n" +
+    "Los datos existentes NO se borran.\n\n¿Continuar?",
+    ui.ButtonSet.YES_NO);
   if (resp !== ui.Button.YES) return;
 
-  SpreadsheetApp.getActiveSpreadsheet().toast("Paso 1/3: Creando hojas del sistema...", "🏗️", -1);
-  crearHojas();
-  Utilities.sleep(800);
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var log = [], errores = [];
 
-  SpreadsheetApp.getActiveSpreadsheet().toast("Paso 2/3: Creando estructura en Drive...", "📁", -1);
-  crearEstructuraDrive();
-  Utilities.sleep(800);
-
-  SpreadsheetApp.getActiveSpreadsheet().toast("Paso 3/3: Activando automatizaciones...", "⚙️", -1);
-  configurarTriggers();
+  // PASO 1
+  try {
+    ss.toast("Paso 1/6: Creando hojas del sistema...", "🚀", -1);
+    crearHojas();
+    log.push("✅ Paso 1: Hojas del sistema creadas/verificadas");
+  } catch(e) { errores.push("❌ Paso 1: " + e.message); }
   Utilities.sleep(500);
 
-  SpreadsheetApp.getActiveSpreadsheet().toast("", "", 1);
-  _alert(
-    "✅ INSTALACIÓN COMPLETA — " + CFG.ORG + "\n\n" +
-    "El sistema RRHH está listo para usar.\n\n" +
-    "PRÓXIMOS PASOS:\n" +
-    "1. Agrega participantes en la hoja PARTICIPANTES\n" +
-    "   (Categoria A/B/C/D → tarifa se llena automático)\n\n" +
-    "2. Importar asistencia desde Kobo\n" +
-    "   (o espera — se importa automático cada hora)\n\n" +
-    "3. Normalizar nombres y datos Kobo\n\n" +
-    "4. Emparejar entradas/salidas → horas\n\n" +
-    "5. Calcular facturación del mes\n\n" +
-    "6. Generar reportes desde el menú 📊\n\n" +
-    "Tarifas: A=Q16.50 | B=Q15.75 | C=Q15.00 | D=Q14.00\n" +
-    "IVA 5%: solo participantes con Tiene_Factura=Sí"
-  );
+  // PASO 2: Importar Kobo
+  try {
+    ss.toast("Paso 2/6: Importando datos de Kobo...", "🚀", -1);
+    var res = UrlFetchApp.fetch(CFG.KOBO_URL_CSV, { muteHttpExceptions: true });
+    var code = res.getResponseCode();
+    if (code === 200) {
+      var datos = Utilities.parseCsv(res.getContentText(), ";");
+      if (datos.length > 1) {
+        var hK = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO) || ss.insertSheet(CFG.HOJAS.DATOS_KOBO);
+        hK.clearContents();
+        hK.getRange(1,1,datos.length,datos[0].length).setValues(datos);
+        hK.getRange(1,1,1,datos[0].length).setFontWeight("bold").setBackground("#4a86e8").setFontColor("#fff");
+        hK.setFrozenRows(1);
+        _limpiarColumnasKobo(hK, datos[0]);
+        _normalizarAccionSilencioso(hK);
+        log.push("✅ Paso 2: " + (datos.length-1) + " registros importados desde Kobo");
+      } else { log.push("⚠️ Paso 2: Kobo sin registros"); }
+    } else if (code === 503) {
+      log.push("⏳ Paso 2: Kobo ocupado (503) — ejecuta manualmente después");
+    } else {
+      errores.push("❌ Paso 2: Error Kobo HTTP " + code);
+    }
+  } catch(e) { errores.push("❌ Paso 2: " + e.message); }
+  Utilities.sleep(500);
+
+  // PASO 3: Drive
+  try {
+    ss.toast("Paso 3/6: Creando estructura en Drive...", "🚀", -1);
+    crearEstructuraDrive();
+    log.push("✅ Paso 3: Estructura Drive creada/verificada");
+  } catch(e) { errores.push("❌ Paso 3: " + e.message); }
+  Utilities.sleep(500);
+
+  // PASO 4: DiasEstudio
+  try {
+    ss.toast("Paso 4/6: Configurando Días de Estudio...", "🚀", -1);
+    if (!ss.getSheetByName("DiasEstudio")) { crearHojaDiasEstudio(); log.push("✅ Paso 4: Hoja DiasEstudio creada"); }
+    else { log.push("ℹ️ Paso 4: Hoja DiasEstudio ya existe"); }
+  } catch(e) { errores.push("❌ Paso 4: " + e.message); }
+  Utilities.sleep(300);
+
+  // PASO 5: ListaTerapias
+  try {
+    ss.toast("Paso 5/6: Configurando Lista de Terapias...", "🚀", -1);
+    if (!ss.getSheetByName("ListaTerapias")) { crearHojaListaTerapias(); log.push("✅ Paso 5: Hoja ListaTerapias creada"); }
+    else { log.push("ℹ️ Paso 5: Hoja ListaTerapias ya existe"); }
+  } catch(e) { errores.push("❌ Paso 5: " + e.message); }
+  Utilities.sleep(300);
+
+  // PASO 6: Triggers
+  try {
+    ss.toast("Paso 6/6: Activando automatizaciones...", "🚀", -1);
+    configurarTriggers();
+    log.push("✅ Paso 6: Triggers activados (cada hora + al abrir)");
+  } catch(e) { errores.push("❌ Paso 6: " + e.message); }
+
+  ss.toast("", "", 1);
+  var resumen = "🚀 INSTALACIÓN COMPLETA — " + CFG.ORG + "\n\n";
+  resumen += log.join("\n");
+  if (errores.length) resumen += "\n\n--- PROBLEMAS ---\n" + errores.join("\n");
+  resumen += "\n\n--- HOJAS DEL SISTEMA ---\n";
+  resumen += "• PARTICIPANTES — agrega personas aquí (Categoría A/B/C/D)\n";
+  resumen += "• ASISTENCIA — horas calculadas al emparejar\n";
+  resumen += "• FACTURACION — pagos por quincena\n";
+  resumen += "• DatosKobo — datos crudos de Kobo\n";
+  resumen += "• DiasEstudio — marca días que no pagan\n";
+  resumen += "• ListaTerapias — marca quién va a terapia\n";
+  resumen += "\nTarifas: A=Q16.50 | B=Q15.75 | C=Q15.00 | D=Q14.00\n";
+  resumen += "IVA 5%: solo participantes con Tiene_Factura=Sí\n";
+  resumen += "\nYa puedes generar reportes desde el menú 📊";
+  _alert(resumen);
+}); }
+
+// ══════════════════════════════════════════════════════════════════
+// HOJAS DE APOYO — DiasEstudio y ListaTerapias
+// ══════════════════════════════════════════════════════════════════
+
+function crearHojaDiasEstudio() { _run(function() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var hoja = ss.getSheetByName("DiasEstudio");
+  if (!hoja) {
+    hoja = ss.insertSheet("DiasEstudio");
+    var enc = ["Participante","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo","Fecha_Inicio","Fecha_Fin"];
+    hoja.getRange(1,1,1,enc.length).setValues([enc])
+      .setFontWeight("bold").setBackground("#7b1fa2").setFontColor("#fff").setHorizontalAlignment("center");
+    hoja.setFrozenRows(1);
+
+    // Pre-llenar con participantes desde DatosKobo
+    var hojaK = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
+    if (hojaK) {
+      var datos = hojaK.getDataRange().getValues();
+      var colsP = _buscarColsParticipante(datos[0]);
+      if (colsP.col1 !== -1) {
+        var mapeo = cargarMapeoNombres();
+        var partics = {};
+        for (var f=1; f<datos.length; f++) {
+          var n = _nombreDeFila(datos[f], colsP);
+          if (n) partics[normalizarNombre(n, mapeo)] = true;
+        }
+        var lista = Object.keys(partics).sort();
+        for (var p=0; p<lista.length; p++) hoja.getRange(p+2,1).setValue(lista[p]);
+      }
+    }
+
+    var vXO = SpreadsheetApp.newDataValidation().requireValueInList(["X",""],true).build();
+    hoja.getRange(2,2,200,7).setDataValidation(vXO).setHorizontalAlignment("center");
+    hoja.setColumnWidth(1,220); hoja.setColumnWidth(9,100); hoja.setColumnWidth(10,100);
+    for (var c=2;c<=8;c++) hoja.setColumnWidth(c,80);
+  }
+  hoja.activate();
+  _alert("📚 HOJA DÍAS DE ESTUDIO\n\nMarca con X los días que cada participante estudia (0% de pago).\n\n" +
+    "Columnas I y J: Fecha_Inicio y Fecha_Fin (opcionales) para limitar el período de vigencia.");
+}); }
+
+function crearHojaListaTerapias() { _run(function() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var hoja = ss.getSheetByName("ListaTerapias");
+  if (!hoja) {
+    hoja = ss.insertSheet("ListaTerapias");
+    hoja.getRange(1,1,1,3).setValues([["Participante","Recibe Terapia (X)","Notas"]])
+      .setFontWeight("bold").setBackground("#00897b").setFontColor("#fff").setHorizontalAlignment("center");
+    hoja.setFrozenRows(1);
+
+    // Pre-llenar con participantes desde DatosKobo
+    var hojaK = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
+    if (hojaK) {
+      var datos = hojaK.getDataRange().getValues();
+      var colsP = _buscarColsParticipante(datos[0]);
+      if (colsP.col1 !== -1) {
+        var mapeo = cargarMapeoNombres();
+        var partics = {};
+        for (var f=1; f<datos.length; f++) {
+          var n = _nombreDeFila(datos[f], colsP);
+          if (n) partics[normalizarNombre(n, mapeo)] = true;
+        }
+        var lista = Object.keys(partics).sort();
+        for (var p=0; p<lista.length; p++) hoja.getRange(p+2,1).setValue(lista[p]);
+      }
+    }
+
+    var vX = SpreadsheetApp.newDataValidation().requireValueInList(["X",""],true).build();
+    hoja.getRange(2,2,200,1).setDataValidation(vX).setHorizontalAlignment("center");
+    hoja.setColumnWidth(1,250); hoja.setColumnWidth(2,140); hoja.setColumnWidth(3,300);
+  }
+  hoja.activate();
+  _alert("🧘 HOJA LISTA DE TERAPIAS\n\nMarca con X a las personas que reciben terapia.\nLos registros de tipo 'Terapia' se contabilizan al 100% del pago.");
+}); }
+
+// ══════════════════════════════════════════════════════════════════
+// DIAGNÓSTICO, REPARACIÓN Y CAMBIO DE NOMBRE
+// ══════════════════════════════════════════════════════════════════
+
+function diagnosticarDatosKobo() { _run(function() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var hojaK = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
+  if (!hojaK) { _alert("No existe DatosKobo. Importa primero desde Kobo."); return; }
+
+  var datos = hojaK.getDataRange().getValues();
+  var enc = datos[0];
+  var cols = detectarColumnas(enc, datos.slice(1));
+
+  var listaEnc = "";
+  for (var i=0; i<enc.length; i++) listaEnc += "Col "+i+": \""+enc[i]+"\"\n";
+
+  var det = "\n--- COLUMNAS DETECTADAS ---\n";
+  det += "start: "         + (cols.start          !== undefined ? "Col "+cols.start : "❌ NO ENCONTRADA") + "\n";
+  det += "end: "           + (cols.end             !== undefined ? "Col "+cols.end   : "no (opcional)")  + "\n";
+  det += "participante: "  + (cols.participante    !== undefined ? "Col "+cols.participante+" (\""+enc[cols.participante]+"\")" : "❌ NO ENCONTRADA") + "\n";
+  if (cols.participante2 !== undefined) det += "participante2: Col "+cols.participante2+" (\""+enc[cols.participante2]+"\")\n";
+  det += "acción: "        + (cols.accionUnificada !== undefined ? "Col "+cols.accionUnificada+" (\""+enc[cols.accionUnificada]+"\")": "❌ NO ENCONTRADA") + "\n";
+  det += "uuid: "          + (cols.uuid            !== undefined ? "Col "+cols.uuid : "no") + "\n";
+
+  var conteo = { entrada:0, salida:0, sinTipo:0, terapia:0, computacion:0, permiso:0 };
+  for (var f=1; f<datos.length; f++) {
+    var t = obtenerTipoRegistro(datos[f], cols);
+    if (t.esIngreso) conteo.entrada++;
+    else if (t.esEgreso) conteo.salida++;
+    else conteo.sinTipo++;
+    if (t.esTerapia) conteo.terapia++;
+    if (t.esComputacion) conteo.computacion++;
+    if (t.esPermiso) conteo.permiso++;
+  }
+
+  var resumen = "\n--- RESUMEN ---\n";
+  resumen += "Total filas: "+(datos.length-1)+"\n🟢 Entradas: "+conteo.entrada+"\n🔴 Salidas: "+conteo.salida;
+  resumen += "\n🧘 Terapias: "+conteo.terapia+"\n💻 Computación: "+conteo.computacion+"\n📝 Permisos: "+conteo.permiso;
+  if (conteo.sinTipo>0) resumen += "\n⚠️ Sin tipo: "+conteo.sinTipo;
+  resumen += (conteo.entrada===0 && conteo.salida===0)
+    ? "\n\n❌ PROBLEMA: No se detectaron entradas ni salidas.\nRevisa la columna de acción en DatosKobo."
+    : "\n\n✅ Datos listos para generar reportes.";
+
+  SpreadsheetApp.getUi().alert(listaEnc + det + resumen);
+}); }
+
+function repararDatosKobo() { _run(function() {
+  var ui = SpreadsheetApp.getUi();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var hojaK = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
+  if (!hojaK) { _alert("No existe DatosKobo."); return; }
+
+  var datos = hojaK.getDataRange().getValues();
+  var cols = detectarColumnas(datos[0], datos.slice(1));
+  var mapeoN = cargarMapeoNombres();
+
+  // Fase 1: detectar problemas
+  var desconocidos = {}, nombresANorm = 0;
+  if (cols.accionUnificada !== undefined) {
+    for (var f=1; f<datos.length; f++) {
+      var t = obtenerTipoRegistro(datos[f], cols);
+      if (!t.esIngreso && !t.esEgreso) {
+        var v = String(datos[f][cols.accionUnificada]||"").trim();
+        if (v) desconocidos[v] = (desconocidos[v]||0)+1;
+      }
+    }
+  }
+  if (Object.keys(mapeoN).length && cols.participante !== undefined) {
+    for (var f=1; f<datos.length; f++) {
+      var n = String(datos[f][cols.participante]||"").trim();
+      if (n && mapeoN[n] && mapeoN[n]!==n) nombresANorm++;
+    }
+  }
+
+  var CONOCIDOS = [
+    {k:"ingreso",c:"🟢 Entrada"},{k:"entrada",c:"🟢 Entrada"},
+    {k:"egreso",c:"🔴 Salida"},{k:"salida",c:"🔴 Salida"},
+    {k:"terapia",c:"🔴 Salida"},{k:"permiso",c:"🔴 Salida"},{k:"comput",c:"🔴 Salida"}
+  ];
+  var correcciones = {};
+  Object.keys(desconocidos).forEach(function(v) {
+    var vL = v.toLowerCase();
+    for (var k=0; k<CONOCIDOS.length; k++) {
+      if (vL.indexOf(CONOCIDOS[k].k.substring(0,4)) !== -1) { correcciones[v]=CONOCIDOS[k].c; break; }
+    }
+  });
+
+  var msg = "🔧 REPARAR DATOS KOBO\n\n";
+  if (!Object.keys(desconocidos).length) msg += "✅ Sin valores desconocidos en Entrada/Salida.\n";
+  else {
+    msg += "⚠️ Valores no reconocidos:\n";
+    Object.keys(desconocidos).forEach(function(v){ msg += "• \""+v+"\" ("+desconocidos[v]+"x)"+( correcciones[v]?" → "+correcciones[v]:" → sin corrección")+"\n"; });
+  }
+  msg += nombresANorm>0 ? "\n📋 Nombres a normalizar en DatosKobo: "+nombresANorm+" celdas\n" : "\n✅ Nombres ya normalizados.\n";
+
+  if (!Object.keys(desconocidos).length && !nombresANorm) { ui.alert(msg+"\nNo hay nada que reparar."); return; }
+
+  if (ui.alert("🔧 Reparar Datos", msg+"\n¿Aplicar correcciones?", ui.ButtonSet.YES_NO) !== ui.Button.YES) return;
+
+  var cam1=0, cam2=0;
+  if (cols.accionUnificada !== undefined) {
+    for (var f=1; f<datos.length; f++) {
+      var v = String(datos[f][cols.accionUnificada]||"").trim();
+      if (v && correcciones[v]) { hojaK.getRange(f+1,cols.accionUnificada+1).setValue(correcciones[v]); cam1++; }
+    }
+  }
+  datos = hojaK.getDataRange().getValues();
+  if (Object.keys(mapeoN).length && cols.participante !== undefined) {
+    for (var f=1; f<datos.length; f++) {
+      var n = String(datos[f][cols.participante]||"").trim();
+      if (n && mapeoN[n] && mapeoN[n]!==n) { hojaK.getRange(f+1,cols.participante+1).setValue(mapeoN[n]); cam2++; }
+    }
+  }
+  ui.alert("✅ REPARACIÓN COMPLETADA\n\nEntrada/Salida corregidos: "+cam1+"\nNombres normalizados: "+cam2);
+}); }
+
+function cambiarNombreParticipante() { _run(function() {
+  var ui = SpreadsheetApp.getUi();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var hNC = ss.getSheetByName("NombresCanonicos");
+  if (!hNC) { ui.alert("No existe NombresCanonicos.\nEjecuta 'Normalizar nombres' primero."); return; }
+
+  var datosNC = hNC.getDataRange().getValues();
+  var canonicos = {};
+  for (var f=1; f<datosNC.length; f++) {
+    var c = String(datosNC[f][1]||"").trim(); if (c) canonicos[c]=true;
+  }
+  var lista = Object.keys(canonicos).sort();
+
+  var r1 = ui.prompt("✏️ Cambiar Nombre (1/2)",
+    "Participantes actuales:\n"+lista.slice(0,20).join("\n")+(lista.length>20?"\n... ("+(lista.length-20)+" más)":"")+
+    "\n\nEscribe el nombre ACTUAL (exacto):", ui.ButtonSet.OK_CANCEL);
+  if (r1.getSelectedButton() !== ui.Button.OK) return;
+  var nombreActual = r1.getResponseText().trim();
+  if (!canonicos[nombreActual]) {
+    var sug = lista.filter(function(n){ return n.toLowerCase().indexOf(nombreActual.toLowerCase())!==-1; });
+    ui.alert("No se encontró \""+nombreActual+"\"."+(sug.length?" Sugerencias:\n"+sug.slice(0,5).join("\n"):""));
+    return;
+  }
+
+  var r2 = ui.prompt("✏️ Cambiar Nombre (2/2)",
+    "Nombre actual:\n\""+nombreActual+"\"\n\n¿Nuevo nombre? (formato: Nombre Completo (CÓDIGO))", ui.ButtonSet.OK_CANCEL);
+  if (r2.getSelectedButton() !== ui.Button.OK) return;
+  var nombreNuevo = r2.getResponseText().trim();
+  if (!nombreNuevo || nombreNuevo===nombreActual) return;
+
+  var cam1=0, cam2=0, cam3=0;
+  for (var f=1; f<datosNC.length; f++) {
+    if (String(datosNC[f][1]||"").trim()===nombreActual) { hNC.getRange(f+1,2).setValue(nombreNuevo); cam1++; }
+  }
+  ["DiasEstudio","ListaTerapias"].forEach(function(nm) {
+    var h=ss.getSheetByName(nm); if(!h)return;
+    var d=h.getDataRange().getValues();
+    for (var f=1; f<d.length; f++) {
+      if (String(d[f][0]||"").trim()===nombreActual) {
+        h.getRange(f+1,1).setValue(nombreNuevo);
+        nm==="DiasEstudio"?cam2++:cam3++;
+      }
+    }
+  });
+
+  ui.alert("✅ NOMBRE CAMBIADO\n\""+nombreActual+"\"\n→ \""+nombreNuevo+"\"\n\n"+
+    "NombresCanonicos: "+cam1+" fila(s)\n"+
+    (cam2?"DiasEstudio: "+cam2+" fila(s)\n":"")+
+    (cam3?"ListaTerapias: "+cam3+" fila(s)\n":""));
 }); }
