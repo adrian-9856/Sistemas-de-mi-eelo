@@ -100,6 +100,7 @@ function onOpen() {
     .addItem("🚀 Instalación completa",                "instalarTodo")
     .addSeparator()
     .addItem("➕ Nuevo participante",                   "nuevoParticipante")
+    .addItem("📋 Cargar lista oficial de participantes","cargarListaParticipantes")
     .addItem("📄 Generar DP (fila activa)",             "generarDpFilaActiva")
     .addItem("📄 Actualizar todos los DPs",             "actualizarTodosLosDps")
     .addSeparator()
@@ -108,6 +109,7 @@ function onOpen() {
     .addItem("💰 Calcular facturación del mes",         "calcularFacturacionMes")
     .addItem("🧾 Generar recibos de pago",              "generarRecibosMes")
     .addSeparator()
+    .addItem("👥 Directorio de participantes",          "generarDirectorioParticipantes")
     .addItem("📊 Reporte por día",                     "generarReportePorDia")
     .addItem("📊 Reporte por semana",                  "generarReportePorSemana")
     .addItem("📊 Reporte por mes",                     "generarReportePorMes")
@@ -298,6 +300,215 @@ function actualizarTodosLosDps() { _run(function() {
   var msg = "✅ " + n + " DPs actualizados.";
   if (errs.length) msg += "\n\n⚠️ Errores:\n" + errs.join("\n");
   _alert(msg);
+}); }
+
+// ── Lista oficial de participantes ────────────────────────────────
+
+// Lista maestra: [Nombre, Categoria].  Editar aquí para actualizar.
+var LISTA_OFICIAL = [
+  ["ANGELICA VELIZ",               "A"],
+  ["EMILY ZACARÍAS",               "B"],
+  ["JUANA VICENTE",                "B"],
+  ["KARIN BALCARCEL",              "B"],
+  ["SARA RAYMUNDO",                "B"],
+  ["SINDY LAZARO",                 "B"],
+  ["SINDY VELIZ",                  "B"],
+  ["ANAID MATEO",                  "C"],
+  ["ERICKA VASQUEZ",               "C"],
+  ["HEIDY LÁZARO",                 "C"],
+  ["HELEN RODAS",                  "C"],
+  ["LAURA GONZALEZ",               "C"],
+  ["LETICIA SUMALÉ",               "C"],
+  ["MARIA AUDELIA VELASQUEZ",      "C"],
+  ["MARIA DEL CARMEN BORRAYO",     "C"],
+  ["MAYRA LORENA CIFUENTES",       "C"],
+  ["JEANNETTE SAQUIC",             "C"],
+  ["SARAÍ PIVARAL",                "C"],
+  ["SANDRA ARACELY VICENTE",       "C"],
+  ["VILMA ELIZABETH LOPEZ",        "C"],
+  ["ANGÉLICA MARIBEL CUXE",        "D"],
+  ["BRENDA AZUCENA DEL CID URREA", "D"],
+  ["ELENDY NICOLE PEDROZA",        "D"],
+  ["ALICIA LÓPEZ REYNOSO",         "D"],
+  ["ANA REBECA LARIOS PEREZ",      "D"],
+  ["JEIMY SUCELI BARRIENTOS",      "D"],
+  ["MARÍA AIDÉ ALVARADO CORTÉZ",   "D"],
+  ["MIRNA LETICIA RODRIGUEZ",      "D"],
+  ["OTILIA TURUY PAZ",             "D"]
+];
+
+/*
+ * Carga la lista oficial en PARTICIPANTES.
+ * Solo agrega filas nuevas; no sobreescribe existentes.
+ */
+function cargarListaParticipantes() { _run(function() {
+  var hP = _sh(CFG.HOJAS.PARTICIPANTES);
+
+  // índice de nombres ya existentes (normalizados)
+  var existentes = {};
+  var lastRow = hP.getLastRow();
+  if (lastRow > 1) {
+    hP.getRange(2, 2, lastRow - 1, 1).getValues().forEach(function(r) {
+      if (r[0]) existentes[limpiarNombre(String(r[0]))] = true;
+    });
+  }
+
+  var agregados = 0, omitidos = 0;
+  LISTA_OFICIAL.forEach(function(item) {
+    var nombre = item[0], cat = item[1];
+    if (existentes[limpiarNombre(nombre)]) { omitidos++; return; }
+    var tarifa = CFG.CATEGORIAS[cat] || 0;
+    hP.appendRow([
+      "",       // Creamos_ID
+      nombre,   // Nombre
+      CFG.ORG,  // Proyecto
+      "","",    // Division, Programa
+      "Activo", // Estado
+      "","","","", // Etapa, Educacion, Apoyo, Inclusion
+      cat,      // Categoria
+      tarifa,   // Tarifa_Hora
+      "No",     // Tiene_Factura
+      "","","","","","",""  // DPI…URL_Doc_Proceso
+    ]);
+    existentes[limpiarNombre(nombre)] = true;
+    agregados++;
+  });
+
+  _alert(
+    "✅ Lista cargada en PARTICIPANTES.\n" +
+    "  Nuevos: " + agregados + "\n" +
+    "  Ya existían: " + omitidos
+  );
+}); }
+
+/*
+ * Genera (o actualiza) una hoja "Directorio" con todos los participantes
+ * agrupados por categoría, con tarifa y estado.
+ */
+function generarDirectorioParticipantes() { _run(function() {
+  var ss  = SpreadsheetApp.getActiveSpreadsheet();
+  var hP  = _sh(CFG.HOJAS.PARTICIPANTES);
+  var lastRow = hP.getLastRow();
+  if (lastRow < 2) { _alert("No hay participantes en PARTICIPANTES."); return; }
+
+  var datos = hP.getRange(2, 1, lastRow - 1, 13).getValues();
+
+  // Agrupar por categoría
+  var porCat = { A: [], B: [], C: [], D: [] };
+  datos.forEach(function(r) {
+    var nombre  = String(r[1]).trim();
+    var cat     = String(r[10]).trim().toUpperCase();
+    var tarifa  = parseFloat(r[11]) || CFG.CATEGORIAS[cat] || 0;
+    var estado  = String(r[5]).trim() || "Activo";
+    if (!nombre || !porCat[cat]) return;
+    porCat[cat].push({ nombre: nombre, tarifa: tarifa, estado: estado });
+  });
+
+  // Recrear hoja Directorio
+  var HOJA = "Directorio";
+  var hD = ss.getSheetByName(HOJA);
+  if (hD) ss.deleteSheet(hD);
+  hD = ss.insertSheet(HOJA);
+
+  var filas = [], tipos = [];
+
+  function push(fila, tipo) { filas.push(fila); tipos.push(tipo); }
+
+  var ahora = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm");
+  push(["DIRECTORIO DE PARTICIPANTES — " + CFG.ORG, "", "", "", ""], "titulo");
+  push(["Actualizado: " + ahora,                      "", "", "", ""], "sub");
+  push(["", "", "", "", ""],                                           "vacio");
+
+  // encabezado de columnas
+  push(["#", "NOMBRE", "CATEGORÍA", "TARIFA Q/HR", "ESTADO"], "enc");
+
+  var num = 1;
+  var COLORES_CAT = { A: "#e6f4ea", B: "#e8f0fe", C: "#fef7e0", D: "#fce8e6" };
+  var TITULO_CAT  = { A: "#34a853", B: "#4285f4", C: "#fbbc04", D: "#ea4335" };
+
+  ["A","B","C","D"].forEach(function(cat) {
+    var lista = (porCat[cat] || []).slice().sort(function(a,b){ return a.nombre.localeCompare(b.nombre,"es"); });
+    if (!lista.length) return;
+    var tarifa = CFG.CATEGORIAS[cat];
+
+    push(["▶  CATEGORÍA " + cat, "Q" + tarifa.toFixed(2) + " / hora",
+          lista.length + " participante" + (lista.length > 1 ? "s" : ""),
+          "", ""], "cat_" + cat);
+
+    lista.forEach(function(p) {
+      push([num++, p.nombre, cat, "Q" + tarifa.toFixed(2), p.estado],
+           p.estado === "Activo" ? "activo" : "inactivo");
+    });
+
+    push(["", "Subtotal categoría " + cat + ": " + lista.length, "", "", ""], "subtotal");
+    push(["", "", "", "", ""], "vacio");
+  });
+
+  // Total general
+  var totalActivos = Object.keys(porCat).reduce(function(s, c) {
+    return s + porCat[c].filter(function(p){ return p.estado === "Activo"; }).length;
+  }, 0);
+  push(["", "TOTAL ACTIVOS: " + totalActivos, "", "", ""], "total");
+
+  hD.getRange(1, 1, filas.length, 5).setValues(filas);
+
+  // ── Formato ──────────────────────────────────────────────────
+  tipos.forEach(function(tipo, idx) {
+    var r = hD.getRange(idx + 1, 1, 1, 5);
+    r.setFontFamily("Arial").setFontSize(10);
+
+    if (tipo === "titulo") {
+      r.merge().setFontSize(14).setFontWeight("bold")
+       .setBackground("#1a73e8").setFontColor("#ffffff")
+       .setHorizontalAlignment("center");
+
+    } else if (tipo === "sub") {
+      r.merge().setFontColor("#5f6368").setHorizontalAlignment("center")
+       .setBackground("#f8f9fa");
+
+    } else if (tipo === "enc") {
+      r.setFontWeight("bold").setBackground("#202124").setFontColor("#ffffff")
+       .setHorizontalAlignment("center");
+
+    } else if (tipo.indexOf("cat_") === 0) {
+      var c = tipo.split("_")[1];
+      r.setFontWeight("bold").setFontSize(11)
+       .setBackground(TITULO_CAT[c]).setFontColor("#ffffff");
+
+    } else if (tipo === "activo") {
+      r.setBackground("#ffffff");
+      hD.getRange(idx + 1, 5, 1, 1).setFontColor("#137333").setFontWeight("bold");
+
+    } else if (tipo === "inactivo") {
+      r.setBackground("#f1f3f4").setFontColor("#9aa0a6");
+
+    } else if (tipo === "subtotal") {
+      hD.getRange(idx + 1, 2, 1, 1).setFontStyle("italic").setFontColor("#5f6368");
+
+    } else if (tipo === "total") {
+      r.setFontWeight("bold").setBackground("#e8f0fe");
+    }
+  });
+
+  // bordes en filas de datos y encabezado
+  tipos.forEach(function(tipo, idx) {
+    if (tipo === "activo" || tipo === "inactivo" || tipo === "enc") {
+      hD.getRange(idx + 1, 1, 1, 5)
+        .setBorder(null, null, true, null, null, null, "#dadce0", SpreadsheetApp.BorderStyle.SOLID);
+    }
+  });
+
+  // anchos de columna
+  hD.setColumnWidth(1, 45);
+  hD.setColumnWidth(2, 260);
+  hD.setColumnWidth(3, 100);
+  hD.setColumnWidth(4, 110);
+  hD.setColumnWidth(5, 90);
+  hD.setFrozenRows(4);
+
+  // Activar la hoja
+  ss.setActiveSheet(hD);
+  _alert("✅ Directorio generado con " + (num - 1) + " participantes.");
 }); }
 
 function _sincronizarDP(hP, fila) {
