@@ -18,7 +18,7 @@ const CFG = {
     FACTURACION:   "FACTURACION",
     DASHBOARD:     "DASHBOARD",
     DATOS_KOBO:    "DatosKobo",
-    CLASIFICACION: "CLASIFICACION",
+    CLASIFICACION: "CLASIFICACION",  // mantenida solo para borrado en reinstalar
     PERIODOS:      "PERIODOS",
   },
   MESES: ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
@@ -175,19 +175,7 @@ function onEdit(e) {
 function crearHojas() { _run(function() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
 
-  // CLASIFICACION — referencia de categorías y tarifas
-  var hCl = ss.getSheetByName(CFG.HOJAS.CLASIFICACION) || ss.insertSheet(CFG.HOJAS.CLASIFICACION);
-  if (hCl.getLastRow() === 0) {
-    hCl.getRange(1,1,1,3).setValues([["Categoría","Tarifa_Hora (Q/hr)","Descripción"]]);
-    hCl.getRange(2,1,4,3).setValues([
-      ["A", 16.50, "Categoría A — Mayor antigüedad/responsabilidad"],
-      ["B", 15.75, "Categoría B"],
-      ["C", 15.00, "Categoría C"],
-      ["D", 14.00, "Categoría D — Ingreso reciente"],
-    ]);
-    _fmtEnc(hCl, "#ff6f00");
-    hCl.getRange("B2:B5").setNumberFormat("Q#,##0.00");
-  }
+  // (CLASIFICACION eliminada — la info de categorías está en el Directorio)
 
   // PARTICIPANTES — 20 cols (A–T)
   var hP = ss.getSheetByName(CFG.HOJAS.PARTICIPANTES) || ss.insertSheet(CFG.HOJAS.PARTICIPANTES);
@@ -251,7 +239,6 @@ function crearHojas() { _run(function() {
   ss.setActiveSheet(hP);
   _alert(
     "✅ Hojas creadas:\n" +
-    "• CLASIFICACION (categorías A/B/C/D)\n" +
     "• PARTICIPANTES (20 cols — incl. Categoría, Tarifa, Tiene_Factura)\n" +
     "• ASISTENCIA\n" +
     "• FACTURACION (21 cols — incl. Horas_A_Reponer, Tarifa por participante)\n" +
@@ -2437,7 +2424,7 @@ function configurarTriggers() { _run(function() {
 function reinstalarSistema() { _run(function() {
   var ui=SpreadsheetApp.getUi();
   var resp=ui.alert("⚠️  Reinstalar sistema RRHH — BORRADO COMPLETO",
-    "Elimina TODO:\n• Hojas PARTICIPANTES, CLASIFICACION, ASISTENCIA, FACTURACION,\n" +
+    "Elimina TODO:\n• Hojas PARTICIPANTES, ASISTENCIA, FACTURACION,\n" +
     "  DASHBOARD, DatosKobo, NombresCanonicos, DiasEstudio, ListaTerapias\n" +
     "• Carpeta «"+CFG.ORG+" · RRHH» con Docs de Proceso, Recibos y Reportes\n\n" +
     "Esta acción NO se puede deshacer.\n¿Continuar?", ui.ButtonSet.YES_NO);
