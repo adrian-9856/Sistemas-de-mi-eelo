@@ -2066,34 +2066,80 @@ function _leerHorasReponerExistentes(tabNombre) {
 
 /*
  * Calcula el resumen de horas por participante para un período dado.
- * Lee desde DatosKobo emparejando entradas y salidas.
- * Retorna: { "Nombre": { horas, tarifa, tieneFactura, codigo } }
+ *
+ * ESTRATEGIA 1 (preferida): lee desde ASISTENCIA — mismos números que
+ * la facturación, ya emparejados y con % aplicados.
+ * ESTRATEGIA 2 (fallback): empareja en tiempo real desde DatosKobo.
+ *
+ * Retorna: { "Nombre": { horas, tarifa, tieneFactura, categoria, codigo } }
  */
 function _calcularResumenPeriodo(fi, ff) {
   var ss   = SpreadsheetApp.getActiveSpreadsheet();
-  var hK   = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
+  var mapa = _construirMapaTarifas();     // {nombre: {tarifa,categoria,tieneFactura}}
+  var dIni = new Date(fi.getFullYear(), fi.getMonth(), fi.getDate());
+  var dFin = new Date(ff.getFullYear(), ff.getMonth(), ff.getDate()); // inclusive
+
+  // ── Estrategia 1: ASISTENCIA ──────────────────────────────────
+  var hojaA = ss.getSheetByName(CFG.HOJAS.ASISTENCIA);
+  if (hojaA && hojaA.getLastRow() > 1) {
+    var asistRows = hojaA.getDataRange().getValues();
+    var porNombre = {};
+    var tieneData = false;
+
+    for (var ai = 1; ai < asistRows.length; ai++) {
+      var r     = asistRows[ai];
+      var fecha = new Date(r[2]);
+      if (isNaN(fecha)) continue;
+      var dia   = new Date(fecha.getFullYear(), fecha.getMonth(), fecha.getDate());
+      if (dia < dIni || dia > dFin) continue;
+
+      var nombre = String(r[0]).trim();
+      if (!nombre) continue;
+      tieneData = true;
+
+      var horas = parseFloat(r[8]) || 0; // col I = Horas_A_Pagar (idx 8)
+      if (!porNombre[nombre]) porNombre[nombre] = 0;
+      porNombre[nombre] += horas;
+    }
+
+    if (tieneData) {
+      var resultado1 = {};
+      Object.keys(porNombre).forEach(function(nombre) {
+        if (porNombre[nombre] <= 0) return;
+        var info   = _buscarInfoParticipante(mapa, nombre);
+        resultado1[nombre] = {
+          horas:        Math.round(porNombre[nombre] * 100) / 100,
+          tarifa:       info.tarifa    || CFG.CATEGORIAS.C,
+          tieneFactura: info.tieneFactura || false,
+          categoria:    info.categoria || "C",
+          codigo:       extraerCodigo(nombre) || ""
+        };
+      });
+      return resultado1;
+    }
+  }
+
+  // ── Estrategia 2: DatosKobo (fallback) ───────────────────────
+  var hK = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
   if (!hK || hK.getLastRow() < 2) return {};
 
   var enc  = hK.getRange(1, 1, 1, hK.getLastColumn()).getValues()[0];
   var raw  = hK.getRange(2, 1, hK.getLastRow()-1, hK.getLastColumn()).getValues();
   var cols = detectarColumnas(enc, raw.slice(0, 50));
-
   var mapeoNombres = cargarMapeoNombres();
-  var diasEstudio  = obtenerDiasEstudio();
-  var listaTerapias= obtenerListaTerapias();
 
-  var mapa = _construirMapaTarifas();
+  // Índice de timestamp: preferir cols.start; si no existe usar col 0
+  var iTS = (cols.start !== undefined) ? cols.start : 0;
+  // Índice de timestamp de fin de sesión (para salidas estimadas)
+  var iEnd = (cols.end !== undefined) ? cols.end : -1;
 
-  // Agrupar registros por participante, ordenados por timestamp
   var porPart = {};
 
   raw.forEach(function(fila) {
-    var ts  = new Date(fila[cols.start !== undefined ? cols.start : 0]);
+    var ts = new Date(fila[iTS]);
     if (isNaN(ts)) return;
-    // Filtrar por rango de fechas (comparar solo fecha, no hora)
+
     var dia = new Date(ts.getFullYear(), ts.getMonth(), ts.getDate());
-    var dIni = new Date(fi.getFullYear(), fi.getMonth(), fi.getDate());
-    var dFin = new Date(ff.getFullYear(), ff.getMonth(), ff.getDate());
     if (dia < dIni || dia > dFin) return;
 
     var nombreRaw = obtenerParticipanteFila(fila, cols);
@@ -2105,54 +2151,71 @@ function _calcularResumenPeriodo(fi, ff) {
     if (!tipo.esIngreso && !tipo.esEgreso) return;
 
     if (!porPart[nombre]) porPart[nombre] = [];
-    porPart[nombre].push({ ts: ts, tipo: tipo, fila: fila });
+    var tsEnd = (iEnd >= 0) ? new Date(fila[iEnd]) : null;
+    porPart[nombre].push({ ts: ts, tsEnd: tsEnd, tipo: tipo });
   });
 
-  // Calcular horas por participante
-  var resultado = {};
-
+  var resultado2 = {};
   Object.keys(porPart).forEach(function(nombre) {
-    var registros = porPart[nombre].sort(function(a,b){ return a.ts - b.ts; });
-    var totalHoras = 0;
-    var pendienteEntrada = null;
+    var regs = porPart[nombre].sort(function(a,b){ return a.ts - b.ts; });
+    var totalH = 0;
+    var entrada = null;
 
-    registros.forEach(function(reg) {
-      if (reg.tipo.esIngreso && !pendienteEntrada) {
-        pendienteEntrada = reg.ts;
-      } else if (reg.tipo.esEgreso && pendienteEntrada) {
-        var diffH = (reg.ts - pendienteEntrada) / 3600000;
-        if (diffH > 0 && diffH <= 16) {
-          // Verificar si es día de estudio (0% pago — pero contamos horas trabajadas)
-          var fechaDia = new Date(pendienteEntrada.getFullYear(),
-                                  pendienteEntrada.getMonth(),
-                                  pendienteEntrada.getDate());
-          totalHoras += diffH;
-        }
-        pendienteEntrada = null;
+    regs.forEach(function(reg) {
+      if (reg.tipo.esIngreso && !entrada) {
+        entrada = reg.ts;
+      } else if (reg.tipo.esEgreso && entrada) {
+        // Usar tsEnd del registro de salida si es confiable (< 16h de diferencia)
+        var tSalida = (reg.tsEnd && !isNaN(reg.tsEnd) &&
+                       (reg.tsEnd - entrada)/3600000 > 0 &&
+                       (reg.tsEnd - entrada)/3600000 < 16)
+                      ? reg.tsEnd : reg.ts;
+        var diffH = (tSalida - entrada) / 3600000;
+        if (diffH > 0 && diffH <= 16) totalH += diffH;
+        entrada = null;
       }
     });
 
-    // Entrada sin salida al final → estimar salida con jornada normal
-    if (pendienteEntrada) {
-      var estimada = new Date(pendienteEntrada.getTime() + CFG.HORAS_JORNADA_NORMAL * 3600000);
-      var diffH = Math.min((estimada - pendienteEntrada) / 3600000, CFG.HORAS_JORNADA_NORMAL);
-      if (diffH > 0) totalHoras += diffH;
+    if (entrada) {
+      // Entrada sin salida → estimar jornada normal
+      totalH += CFG.HORAS_JORNADA_NORMAL;
     }
 
-    if (totalHoras <= 0) return;
-
-    var info = mapa[limpiarNombre(nombre)] || mapa[nombre] || {};
-    var codigo = extraerCodigo(nombre) || info.codigo || "";
-
-    resultado[nombre] = {
-      horas:         Math.round(totalHoras * 100) / 100,
-      tarifa:        info.tarifa || CFG.CATEGORIAS.C,
-      tieneFactura:  info.tieneFactura || false,
-      codigo:        codigo
+    if (totalH <= 0) return;
+    var info = _buscarInfoParticipante(mapa, nombre);
+    resultado2[nombre] = {
+      horas:        Math.round(totalH * 100) / 100,
+      tarifa:       info.tarifa    || CFG.CATEGORIAS.C,
+      tieneFactura: info.tieneFactura || false,
+      categoria:    info.categoria || "C",
+      codigo:       extraerCodigo(nombre) || ""
     };
   });
 
-  return resultado;
+  return resultado2;
+}
+
+/*
+ * Busca la información de tarifa/categoría/factura de un participante
+ * en el mapa, usando múltiples estrategias de normalización de nombre.
+ */
+function _buscarInfoParticipante(mapa, nombre) {
+  // 1. Exacto
+  if (mapa[nombre]) return mapa[nombre];
+  // 2. Normalizado (sin acentos, minúsculas)
+  var norm = limpiarNombre(nombre);
+  for (var k in mapa) {
+    if (limpiarNombre(k) === norm) return mapa[k];
+  }
+  // 3. Primeras dos palabras (apellido + nombre parcial)
+  var palabras = norm.split(/\s+/);
+  if (palabras.length >= 2) {
+    var inicio = palabras.slice(0, 2).join(" ");
+    for (var k2 in mapa) {
+      if (limpiarNombre(k2).indexOf(inicio) === 0) return mapa[k2];
+    }
+  }
+  return {};
 }
 
 /*
@@ -2203,56 +2266,89 @@ function _generarReporteQuincena(fi, ff, label, tabNombre, prevHorasReponer) {
    .setHorizontalAlignment("center")
    .setBorder(true,true,true,true,null,null,"#37474f",SpreadsheetApp.BorderStyle.SOLID);
 
+  // Colores de fondo por categoría (claro = lectura fácil)
+  var BG_CAT = { A: "#d9ead3", B: "#c9daf8", C: "#fff2cc", D: "#f4cccc", "?": "#f3f3f3" };
+
   // ── Filas de datos: una por participante ───────────────────────
   var nombres = Object.keys(resumen).sort(function(a,b){ return a.localeCompare(b,"es"); });
   var filaActual = 4;
   var totalGeneral = 0;
   var num = 1;
 
+  // Acumular todo en un array para un solo setValues masivo (más rápido)
+  var bloqueValores = [];
+  var bloqueFilas   = [];   // índices de fila real (para format)
+
   nombres.forEach(function(nombre) {
     var d = resumen[nombre];
-    // Recuperar horas a reponer previas (editadas manualmente)
     var hReponer = prevHorasReponer[nombre] || 0;
-    var hTotal   = Math.round((d.horas + hReponer) * 100) / 100;
-    var monto    = Math.round(hTotal * d.tarifa * 100) / 100;
-    var iva      = d.tieneFactura ? Math.round(monto * CFG.IVA_PCT * 100) / 100 : 0;
-    var conIVA   = Math.round((monto + iva) * 100) / 100;
-    var redond   = Math.round(conIVA);
+
+    // ── Cálculo exacto (2 decimales, sin error float) ─────────────
+    var horas   = Math.round(d.horas   * 100) / 100;
+    var hTotal  = Math.round((horas + hReponer) * 100) / 100;
+    var monto   = Math.round(hTotal * d.tarifa * 100) / 100;
+    var iva     = d.tieneFactura ? Math.round(monto * CFG.IVA_PCT * 100) / 100 : 0;
+    var conIVA  = Math.round((monto + iva) * 100) / 100;
+    var redond  = Math.round(conIVA);   // entero para pago
     totalGeneral += redond;
 
-    var label = nombre + (d.codigo ? " (" + d.codigo + ")" : "");
+    var etiq = nombre + (d.codigo ? " (" + d.codigo + ")" : "");
 
-    h.getRange(filaActual, 1, 1, 12).setValues([[
-      num++,
-      label,
-      "","","",
-      d.horas,
+    bloqueValores.push([
+      num++, etiq, "","","",
+      horas,
       hReponer > 0 ? hReponer : "",
       hTotal,
       monto,
       iva > 0 ? iva : "",
       iva > 0 ? conIVA : monto,
       redond
-    ]]);
-
-    // Color de fila alternado
-    var bg = (num % 2 === 0) ? "#f8f9fa" : "#ffffff";
-    h.getRange(filaActual, 1, 1, 12).setBackground(bg);
-    h.getRange(filaActual, 1).setHorizontalAlignment("center");
-    h.getRange(filaActual, 6, 1, 7).setHorizontalAlignment("right");
-    // Formato moneda en cols 9-12
-    h.getRange(filaActual, 9, 1, 4).setNumberFormat('"Q"#,##0.00');
-
+    ]);
+    bloqueFilas.push({ fila: filaActual, cat: d.categoria || "?" });
     filaActual++;
+  });
+
+  // Escribir todos los valores de una vez
+  if (bloqueValores.length > 0) {
+    h.getRange(4, 1, bloqueValores.length, 12).setValues(bloqueValores);
+  }
+
+  // Aplicar formato fila a fila (colores por categoría + números)
+  bloqueFilas.forEach(function(bf) {
+    var bg  = BG_CAT[bf.cat] || BG_CAT["?"];
+    var rFila = h.getRange(bf.fila, 1, 1, 12);
+    rFila.setBackground(bg).setFontFamily("Arial").setFontSize(10)
+         .setVerticalAlignment("middle");
+
+    h.getRange(bf.fila, 1).setHorizontalAlignment("center").setFontWeight("bold");
+    // Col B (nombre) alineado izquierda, negrita
+    h.getRange(bf.fila, 2, 1, 4).setHorizontalAlignment("left");
+    // Cols numéricas: alineadas derecha
+    h.getRange(bf.fila, 6, 1, 7).setHorizontalAlignment("right");
+    // Formato moneda en cols I, J, K, L (9-12)
+    h.getRange(bf.fila, 9, 1, 4).setNumberFormat('"Q"#,##0.00');
+    // Borde inferior suave
+    h.getRange(bf.fila, 1, 1, 12)
+     .setBorder(null,null,true,null,null,null,"#cccccc",SpreadsheetApp.BorderStyle.SOLID);
   });
 
   // ── Fila total ─────────────────────────────────────────────────
   filaActual++;
-  h.getRange(filaActual, 1, 1, 12).setValues([["","","","","","","","","","","",totalGeneral]]);
+  h.getRange(filaActual, 1, 1, 12)
+   .setValues([["","","","","","","","","","","",totalGeneral]]);
   h.getRange(filaActual, 12)
    .setBackground("#00c853").setFontColor("#ffffff").setFontWeight("bold")
    .setFontSize(12).setHorizontalAlignment("center")
    .setNumberFormat('"Q"#,##0.00');
+
+  // ── Fila leyenda de categorías ─────────────────────────────────
+  filaActual++;
+  h.getRange(filaActual, 1, 1, 8)
+   .setValues([["A=Q16.50","B=Q15.75","C=Q15.00","D=Q14.00","","","",""]]);
+  [BG_CAT.A,BG_CAT.B,BG_CAT.C,BG_CAT.D].forEach(function(c,i){
+    h.getRange(filaActual,i+1).setBackground(c).setFontSize(9)
+     .setHorizontalAlignment("center").setFontWeight("bold");
+  });
 
   // ── Fila timestamp ─────────────────────────────────────────────
   filaActual++;
@@ -2261,9 +2357,8 @@ function _generarReporteQuincena(fi, ff, label, tabNombre, prevHorasReponer) {
    .setFontSize(8).setFontColor("#9aa0a6").setHorizontalAlignment("right");
 
   // ── Ancho de columnas ──────────────────────────────────────────
-  [35, 230, 30, 30, 30, 90, 100, 90, 90, 80, 90, 85].forEach(function(w, i) {
-    h.setColumnWidth(i+1, w);
-  });
+  [35, 230, 25, 25, 25, 95, 110, 95, 95, 80, 90, 90]
+    .forEach(function(w, i) { h.setColumnWidth(i+1, w); });
   h.setRowHeight(2, 28);
   h.setRowHeight(3, 24);
   h.setFrozenRows(3);
