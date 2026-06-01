@@ -1904,48 +1904,304 @@ function _mapaCorreos(hojaP) {
 // ── Dashboard ─────────────────────────────────────────────────
 
 function actualizarDashboard() { _run(function() {
-  var ss=SpreadsheetApp.getActiveSpreadsheet();
-  var dash=ss.getSheetByName(CFG.HOJAS.DASHBOARD)||ss.insertSheet(CFG.HOJAS.DASHBOARD,0);
-  var mes=CFG.MESES[new Date().getMonth()], anio=new Date().getFullYear();
-  var hojaP=ss.getSheetByName(CFG.HOJAS.PARTICIPANTES);
-  var hojaF=ss.getSheetByName(CFG.HOJAS.FACTURACION);
-  var activos=0, sumBase=0, sumIVA=0, sumTot=0, pag=0, pend=0;
-  if(hojaP){
-    var dp=hojaP.getDataRange().getValues();
-    for(var i=1;i<dp.length;i++){
-      if(String(dp[i][5]).toLowerCase()==="activo") activos++; // col F = Estado (idx 5)
-    }
-  }
-  if(hojaF){
-    var df=hojaF.getDataRange().getValues();
-    for(var j=1;j<df.length;j++){
-      if(df[j][2]!==mes||Number(df[j][3])!==anio) continue;
-      sumBase += parseFloat(df[j][9])||0;   // col J = Monto_Base (idx 9)
-      sumIVA  += parseFloat(df[j][11])||0;  // col L = IVA (idx 11)
-      sumTot  += parseFloat(df[j][12])||0;  // col M = Total_Factura (idx 12)
-      if(df[j][17]==="Sí") pag++; else pend++; // col R = Pagado (idx 17)
-    }
-  }
-  var ts=Utilities.formatDate(new Date(),Session.getScriptTimeZone(),"dd/MM/yyyy HH:mm");
-  var filas=[
-    ["MÉTRICA","VALOR"],
-    ["Participantes activos",               activos],
-    ["Monto base ("+mes+" "+anio+")",       "Q "+sumBase.toFixed(2)],
-    ["IVA 5% del mes",                      "Q "+sumIVA.toFixed(2)],
-    ["TOTAL A PAGAR (facturas)",            "Q "+sumTot.toFixed(2)],
-    ["Quincenas pagadas",                   pag],
-    ["Quincenas pendientes",                pend],
-    ["",""],
-    ["Tarifas vigentes",  "A=Q16.50 | B=Q15.75 | C=Q15.00 | D=Q14.00"],
-    ["Actualizado",       ts],
-  ];
+  var ss   = SpreadsheetApp.getActiveSpreadsheet();
+  var dash = ss.getSheetByName(CFG.HOJAS.DASHBOARD) || ss.insertSheet(CFG.HOJAS.DASHBOARD, 0);
+  var kpi  = _calcularKpis(ss);
+  var tz   = Session.getScriptTimeZone();
+  var ts   = Utilities.formatDate(new Date(), tz, "dd/MM/yyyy HH:mm");
+  var mes  = kpi.mes + " " + kpi.anio;
+
+  // ── Construir filas ───────────────────────────────────────────
+  // Formato: [col A (etiqueta), col B (valor), col C (descripción), col D (período)]
+  var filas = [], tipos = [];
+  function push(f, t) { filas.push(f); tipos.push(t); }
+
+  push(["MI EELO — INDICADORES CLAVE DE DESEMPEÑO", "", "", ""], "banner");
+  push(["Actualizado: " + ts + "  |  Período mensual: " + mes, "", "", ""], "sub");
+  push(["", "", "", ""], "vacio");
+
+  // ── Sección KPIs ─────────────────────────────────────────────
+  push(["#", "INDICADOR", "VALOR", "PERÍODO / FUENTE"], "enc");
+
+  // KPI 1: Ciclos de Vida completados
+  push(["KPI 1",
+        "Ciclos de Vida completados (año en curso)",
+        kpi.ciclosCompletados,
+        "Año " + kpi.anio + " · RRHH"],
+       kpi.ciclosCompletados > 0 ? "kpi_ok" : "kpi_cero");
+
+  // KPI 2: Ingresos brutos promedio por participante/mes
+  push(["KPI 2",
+        "Ingresos brutos promedio por participante",
+        kpi.ingresoPromedio > 0 ? "Q " + kpi.ingresoPromedio.toFixed(2) : "—",
+        mes + " · RRHH"],
+       kpi.ingresoPromedio > 0 ? "kpi_ok" : "kpi_nd");
+
+  // KPI 3: Pedidos/encargos totales
+  push(["KPI 3",
+        "Total pedidos / encargos formalizados",
+        kpi.pedidosTotales !== null ? String(kpi.pedidosTotales) : "Ver PRODUCCIÓN",
+        mes + " · PRODUCCIÓN"],
+       kpi.pedidosTotales !== null ? "kpi_ok" : "kpi_prod");
+
+  // KPI 4: Clientes únicos activos
+  push(["KPI 4",
+        "Clientes únicos activos del programa",
+        kpi.clientesUnicos !== null ? String(kpi.clientesUnicos) : "Ver PRODUCCIÓN",
+        mes + " · PRODUCCIÓN"],
+       kpi.clientesUnicos !== null ? "kpi_ok" : "kpi_prod");
+
+  // KPI 5: Horas de formación
+  push(["KPI 5",
+        "Horas de formación (nuevas y existentes participantes)",
+        kpi.horasFormacion > 0 ? kpi.horasFormacion.toFixed(1) + " hrs" : "0 hrs",
+        mes + " · RRHH"],
+       kpi.horasFormacion > 0 ? "kpi_ok" : "kpi_cero");
+
+  // KPI 6: Promedio horas laborales mensuales
+  push(["KPI 6",
+        "Promedio de horas laborales mensuales por participante",
+        kpi.promedioHorasLaborales > 0 ? kpi.promedioHorasLaborales.toFixed(1) + " hrs" : "—",
+        mes + " · RRHH"],
+       kpi.promedioHorasLaborales > 0 ? "kpi_ok" : "kpi_nd");
+
+  push(["", "", "", ""], "vacio");
+
+  // ── Sección resumen del mes ───────────────────────────────────
+  push(["RESUMEN MENSUAL — " + mes, "", "", ""], "sec");
+  push(["Participantes activas",   String(kpi.activos),             "Estado = Activo en PARTICIPANTES", ""], "dato");
+  push(["Total horas trabajadas",  kpi.totalHorasMes.toFixed(1)+" hrs", "Suma Q1+Q2 del mes", ""], "dato");
+  push(["Monto base total",        "Q "+kpi.sumBase.toFixed(2),    "Sin IVA, todas las participantes", ""], "dato");
+  push(["IVA 5% (Pequeño Contrib.)","Q "+kpi.sumIVA.toFixed(2),   "Solo quienes tienen factura", ""], "dato");
+  push(["TOTAL A PAGAR (facturas)","Q "+kpi.sumTot.toFixed(2),     "Lo que paga la organización", ""], "total");
+  push(["Quincenas pagadas",       String(kpi.pagadas),             "", ""], kpi.pagadas>0?"dato_pag":"dato");
+  push(["Quincenas pendientes",    String(kpi.pendientes),          "", ""],
+       kpi.pendientes>0 ? "dato_pend" : "dato");
+
+  push(["", "", "", ""], "vacio");
+
+  // ── Referencia tarifas ────────────────────────────────────────
+  push(["TARIFAS VIGENTES", "A = Q16.50/hr", "B = Q15.75/hr", "C = Q15.00/hr  |  D = Q14.00/hr"], "ref");
+
+  // ── Notas sobre KPIs que necesitan seguimiento manual ─────────
+  push(["", "", "", ""], "vacio");
+  push(["NOTAS", "", "", ""], "sec");
+  push(["KPI 1 — Ciclo de Vida",
+        "Marca Estado = 'Egresado' en PARTICIPANTES cuando alguien completa el programa.",
+        "", ""], "nota");
+  push(["KPI 3 y 4 — Producción",
+        "Estos datos vienen del sistema de Producción (PRODUCCION_todo.gs). Actualizar manualmente o integrar.",
+        "", ""], "nota");
+  push(["KPI 5 — Formación",
+        "Se cuentan horas en días de estudio y terapias desde la hoja ASISTENCIA del mes.",
+        "", ""], "nota");
+
+  // ── Escribir en hoja ──────────────────────────────────────────
   dash.clearContents();
-  dash.getRange(1,1,filas.length,2).setValues(filas);
-  dash.getRange(1,1,1,2).setBackground("#639922").setFontColor("#fff").setFontWeight("bold");
-  dash.getRange(5,1,1,2).setBackground("#e8eaf6").setFontWeight("bold");
-  if(pend>0) dash.getRange(7,2).setBackground("#fce8e6").setFontColor("#c62828").setFontWeight("bold");
-  dash.autoResizeColumns(1,2);
+  dash.clearFormats();
+  if (dash.getMaxColumns() < 4) dash.insertColumnsAfter(dash.getMaxColumns(), 4 - dash.getMaxColumns());
+
+  dash.getRange(1, 1, filas.length, 4).setValues(filas);
+
+  var VERDE  = "#34a853", AZUL = "#1a73e8", ROJO = "#c5221f";
+  var AMARILLO = "#f9ab00", GRIS = "#9aa0a6";
+
+  tipos.forEach(function(tipo, idx) {
+    var r = dash.getRange(idx+1, 1, 1, 4);
+    r.setFontFamily("Arial").setFontSize(10).setVerticalAlignment("middle");
+
+    switch (tipo) {
+      case "banner":
+        r.merge().setFontSize(14).setFontWeight("bold")
+         .setBackground("#1a237e").setFontColor("#ffffff")
+         .setHorizontalAlignment("center").setRowHeight && dash.setRowHeight(idx+1, 36);
+        break;
+      case "sub":
+        r.merge().setFontSize(9).setBackground("#e8eaf6")
+         .setFontColor("#5f6368").setHorizontalAlignment("center");
+        break;
+      case "enc":
+        r.setFontWeight("bold").setBackground("#202124").setFontColor("#ffffff")
+         .setHorizontalAlignment("center");
+        break;
+      case "kpi_ok":
+        dash.getRange(idx+1,1,1,1).setBackground("#e6f4ea").setFontWeight("bold").setHorizontalAlignment("center");
+        dash.getRange(idx+1,2,1,1).setBackground("#f8f9fa");
+        dash.getRange(idx+1,3,1,1).setBackground("#e6f4ea").setFontWeight("bold").setFontSize(13).setFontColor(VERDE).setHorizontalAlignment("center");
+        dash.getRange(idx+1,4,1,1).setBackground("#f8f9fa").setFontColor(GRIS);
+        break;
+      case "kpi_cero":
+        dash.getRange(idx+1,1,1,1).setBackground("#fef7e0").setFontWeight("bold").setHorizontalAlignment("center");
+        dash.getRange(idx+1,2,1,1).setBackground("#fefefe");
+        dash.getRange(idx+1,3,1,1).setBackground("#fef7e0").setFontWeight("bold").setFontSize(13).setFontColor(AMARILLO).setHorizontalAlignment("center");
+        dash.getRange(idx+1,4,1,1).setFontColor(GRIS);
+        break;
+      case "kpi_nd":
+        dash.getRange(idx+1,1,1,1).setBackground("#f1f3f4").setFontWeight("bold").setHorizontalAlignment("center");
+        dash.getRange(idx+1,2,1,1).setBackground("#fefefe");
+        dash.getRange(idx+1,3,1,1).setBackground("#f1f3f4").setFontColor(GRIS).setFontSize(12).setHorizontalAlignment("center");
+        dash.getRange(idx+1,4,1,1).setFontColor(GRIS);
+        break;
+      case "kpi_prod":
+        dash.getRange(idx+1,1,1,1).setBackground("#e8f0fe").setFontWeight("bold").setHorizontalAlignment("center");
+        dash.getRange(idx+1,2,1,1).setBackground("#fefefe");
+        dash.getRange(idx+1,3,1,1).setBackground("#e8f0fe").setFontColor(AZUL).setFontStyle("italic").setFontSize(11).setHorizontalAlignment("center");
+        dash.getRange(idx+1,4,1,1).setFontColor(GRIS);
+        break;
+      case "sec":
+        r.merge().setFontWeight("bold").setFontSize(11)
+         .setBackground("#37474f").setFontColor("#ffffff");
+        break;
+      case "total":
+        r.setFontWeight("bold").setBackground("#e8eaf6").setFontSize(11);
+        dash.getRange(idx+1,2,1,1).setFontColor(AZUL).setFontSize(12).setFontWeight("bold");
+        break;
+      case "dato_pag":
+        dash.getRange(idx+1,2,1,1).setFontColor(VERDE).setFontWeight("bold");
+        break;
+      case "dato_pend":
+        dash.getRange(idx+1,2,1,1).setFontColor(ROJO).setFontWeight("bold");
+        r.setBackground("#fff8f7");
+        break;
+      case "ref":
+        r.setBackground("#f0f4c3").setFontWeight("bold").setFontSize(9);
+        break;
+      case "nota":
+        dash.getRange(idx+1,1,1,1).setFontWeight("bold").setFontColor(GRIS);
+        dash.getRange(idx+1,2,1,3).merge().setFontColor(GRIS).setFontStyle("italic").setFontSize(9);
+        break;
+    }
+  });
+
+  // Bordes horizontales en KPIs
+  for (var i=0; i<tipos.length; i++) {
+    if (tipos[i].indexOf("kpi_") === 0) {
+      dash.getRange(i+1,1,1,4)
+        .setBorder(null,null,true,null,null,null,"#dadce0",SpreadsheetApp.BorderStyle.SOLID);
+    }
+  }
+
+  // Anchos de columna
+  dash.setColumnWidth(1, 70);
+  dash.setColumnWidth(2, 310);
+  dash.setColumnWidth(3, 160);
+  dash.setColumnWidth(4, 200);
+  dash.setFrozenRows(2);
+
 }); }
+
+/*
+ * Calcula todos los KPIs del mes en curso.
+ * Retorna objeto con valores para el Dashboard.
+ */
+function _calcularKpis(ss) {
+  var ahora    = new Date();
+  var mesNum   = ahora.getMonth()+1;
+  var anio     = ahora.getFullYear();
+  var nombreMes = CFG.MESES[mesNum-1];
+  ss = ss || SpreadsheetApp.getActiveSpreadsheet();
+
+  var kpi = {
+    mes: nombreMes, anio: anio,
+    // KPI 1
+    ciclosCompletados: 0,
+    // KPI 2
+    ingresoPromedio: 0,
+    // KPI 3 & 4 — vienen de Producción
+    pedidosTotales: null,
+    clientesUnicos: null,
+    // KPI 5
+    horasFormacion: 0,
+    // KPI 6
+    promedioHorasLaborales: 0,
+    // Resumen
+    activos: 0, sumBase: 0, sumIVA: 0, sumTot: 0,
+    pagadas: 0, pendientes: 0, totalHorasMes: 0
+  };
+
+  // ── PARTICIPANTES ─────────────────────────────────────────────
+  var hojaP = ss.getSheetByName(CFG.HOJAS.PARTICIPANTES);
+  if (hojaP && hojaP.getLastRow() > 1) {
+    hojaP.getDataRange().getValues().slice(1).forEach(function(r) {
+      var estado = String(r[5]).trim().toLowerCase();
+      if (estado === "activo") kpi.activos++;
+      if (estado === "egresado") kpi.ciclosCompletados++;
+    });
+  }
+
+  // ── FACTURACION ───────────────────────────────────────────────
+  var hojaF = ss.getSheetByName(CFG.HOJAS.FACTURACION);
+  if (hojaF && hojaF.getLastRow() > 1) {
+    var participantesMes = {};
+    hojaF.getDataRange().getValues().slice(1).forEach(function(f) {
+      if (f[2] !== nombreMes || Number(f[3]) !== anio) return;
+      kpi.sumBase += parseFloat(f[9])  || 0;
+      kpi.sumIVA  += parseFloat(f[11]) || 0;
+      kpi.sumTot  += parseFloat(f[12]) || 0;
+      if (String(f[17]) === "Sí") kpi.pagadas++; else kpi.pendientes++;
+
+      // Acumular horas por participante para KPI 6
+      var nombre = String(f[1]).trim();
+      if (!participantesMes[nombre]) participantesMes[nombre] = 0;
+      participantesMes[nombre] += parseFloat(f[5]) || 0; // Horas_Trabajadas (idx 5)
+      kpi.totalHorasMes += parseFloat(f[5]) || 0;
+    });
+
+    // KPI 2: promedio ingresos brutos por participante del mes
+    var numPart = Object.keys(participantesMes).length;
+    if (numPart > 0) {
+      // Suma total por participante (Q1+Q2), luego promedio
+      var totalPorPart = {};
+      hojaF.getDataRange().getValues().slice(1).forEach(function(f) {
+        if (f[2] !== nombreMes || Number(f[3]) !== anio) return;
+        var n = String(f[1]).trim();
+        totalPorPart[n] = (totalPorPart[n] || 0) + (parseFloat(f[12]) || 0);
+      });
+      var vals = Object.keys(totalPorPart).map(function(n){ return totalPorPart[n]; });
+      kpi.ingresoPromedio = vals.reduce(function(s,v){ return s+v; },0) / vals.length;
+
+      // KPI 6: promedio horas laborales por participante
+      var hVals = Object.keys(participantesMes).map(function(n){ return participantesMes[n]; });
+      kpi.promedioHorasLaborales = hVals.reduce(function(s,v){ return s+v; },0) / hVals.length;
+    }
+  }
+
+  // ── KPI 5: Horas de formación ─────────────────────────────────
+  // Cuenta desde ASISTENCIA: filas del mes donde Es_Dia_Estudio="Sí" o Es_Terapia="Sí"
+  var hojaA = ss.getSheetByName(CFG.HOJAS.ASISTENCIA);
+  if (hojaA && hojaA.getLastRow() > 1) {
+    hojaA.getDataRange().getValues().slice(1).forEach(function(a) {
+      var fecha = new Date(a[2]);
+      if (isNaN(fecha) || fecha.getMonth()+1 !== mesNum || fecha.getFullYear() !== anio) return;
+      var esEstudio  = String(a[5]).toLowerCase() === "sí" || String(a[5]) === "TRUE";
+      var esTerapia  = String(a[6]).toLowerCase() === "sí" || String(a[6]) === "TRUE";
+      if (esEstudio || esTerapia) {
+        kpi.horasFormacion += parseFloat(a[4]) || 0; // Horas_Trabajadas (idx 4)
+      }
+    });
+  }
+
+  // ── KPI 3 & 4: intentar leer desde hoja de Producción ─────────
+  // Si existe la hoja "ORDENES" en el mismo Spreadsheet, contamos
+  var hOrd = ss.getSheetByName("ORDENES");
+  if (hOrd && hOrd.getLastRow() > 1) {
+    var ordenes = hOrd.getDataRange().getValues().slice(1);
+    // Pedidos del mes (columna de fecha — asumimos col C=idx2)
+    var clientesSet = {};
+    ordenes.forEach(function(o) {
+      var fOrd = new Date(o[2]);
+      if (isNaN(fOrd)) return;
+      if (fOrd.getMonth()+1 === mesNum && fOrd.getFullYear() === anio) {
+        kpi.pedidosTotales = (kpi.pedidosTotales || 0) + 1;
+        var cli = String(o[4]||"").trim(); // cliente — columna E (idx 4), ajustar si difiere
+        if (cli) clientesSet[cli] = true;
+      }
+    });
+    kpi.clientesUnicos = Object.keys(clientesSet).length || null;
+  }
+
+  return kpi;
+}
 
 // ══════════════════════════════════════════════════════════════════
 // REPORTES — escritos como pestañas del Spreadsheet
