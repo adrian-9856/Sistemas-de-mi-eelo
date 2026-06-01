@@ -19,6 +19,7 @@ const CFG = {
     DASHBOARD:     "DASHBOARD",
     DATOS_KOBO:    "DatosKobo",
     CLASIFICACION: "CLASIFICACION",
+    PERIODOS:      "PERIODOS",
   },
   MESES: ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
           "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"],
@@ -78,55 +79,71 @@ function autorizar() {
 function onOpen() {
   var ui;
   try { ui = SpreadsheetApp.getUi(); } catch(_) { return; }
-  // ── Submenú: Configuración avanzada ──────────────────────────────────
-  var menuConfig = ui.createMenu("⚙️ Configuración avanzada")
-    .addItem("📚 Configurar Días de Estudio",          "crearHojaDiasEstudio")
-    .addItem("🧘 Configurar Lista de Terapias",        "crearHojaListaTerapias")
-    .addSeparator()
-    .addItem("✏️  Cambiar nombre de participante",     "cambiarNombreParticipante")
-    .addItem("✨ Normalizar nombres y datos Kobo",      "normalizarTodo")
-    .addSeparator()
-    .addItem("🔗 Emparejar entradas/salidas (manual)", "emparejarAsistencia")
-    .addItem("🔄 Reimportar todo desde Kobo",          "reimportarTodoDesdeKobo")
-    .addSeparator()
-    .addItem("🔍 Diagnosticar Datos Kobo",             "diagnosticarDatosKobo")
-    .addItem("🔧 Reparar Datos Kobo",                  "repararDatosKobo")
-    .addSeparator()
-    .addItem("⚡ Activar automatizaciones",            "configurarTriggers")
-    .addSeparator()
-    .addItem("🗑️  Reinstalar sistema (borra TODO)",    "reinstalarSistema");
 
-  ui.createMenu("👥 RRHH")
-    .addItem("🚀 Instalación completa",                "instalarTodo")
-    .addSeparator()
-    // ── Participantes ──
-    .addItem("➕ Nuevo participante",                   "nuevoParticipante")
-    .addItem("📋 Cargar lista oficial",                 "cargarListaParticipantes")
-    .addItem("👥 Directorio de participantes",          "generarDirectorioParticipantes")
-    .addItem("📄 Generar DP (fila activa)",             "generarDpFilaActiva")
-    .addItem("📄 Actualizar todos los DPs",             "actualizarTodosLosDps")
-    .addSeparator()
-    // ── Kobo ──
-    .addItem("📥 Importar asistencia desde Kobo",       "importarDesdeKobo")
-    .addSeparator()
-    // ── Proceso mensual ──
+  // ── Submenú: Más reportes ─────────────────────────────────────
+  var menuReportes = ui.createMenu("📊 Más reportes")
+    .addItem("📊 Reporte por día",                     "generarReportePorDia")
+    .addItem("📊 Reporte por semana",                  "generarReportePorSemana")
+    .addItem("📊 Reporte por mes",                     "generarReportePorMes")
+    .addItem("📊 Reporte completo (todos los datos)",  "generarReporteTodo");
+
+  // ── Submenú: Facturación ──────────────────────────────────────
+  var menuFact = ui.createMenu("💰 Facturación y recibos")
     .addItem("📅 Proceso mensual completo",             "procesarMesCompleto")
     .addSeparator()
     .addItem("💰 Calcular facturación del mes",         "calcularFacturacionMes")
     .addItem("📑 Resumen facturación en hoja",          "generarResumenFacturacionEnHoja")
     .addItem("🧾 Generar recibos de pago",              "generarRecibosMes")
     .addSeparator()
-    // ── Reportes de asistencia ──
-    .addItem("📊 Reporte por día",                     "generarReportePorDia")
-    .addItem("📊 Reporte por semana",                  "generarReportePorSemana")
-    .addItem("📊 Reporte por mes",                     "generarReportePorMes")
-    .addItem("📊 Reporte por rango de fechas",         "generarReportePorRango")
-    .addItem("📊 Reporte completo",                    "generarReporteTodo")
-    .addSeparator()
-    // ── Seguimiento ──
-    .addItem("🔄 Actualizar Dashboard",                 "actualizarDashboard")
     .addItem("🔔 Recordatorio de pagos pendientes",     "enviarRecordatorioPagos")
-    .addItem("📬 Resumen mensual al admin",             "enviarResumenMensual")
+    .addItem("📬 Resumen mensual al admin",             "enviarResumenMensual");
+
+  // ── Submenú: Configuración avanzada ──────────────────────────
+  var menuConfig = ui.createMenu("⚙️ Configuración avanzada")
+    .addItem("📚 Configurar Días de Estudio",           "crearHojaDiasEstudio")
+    .addItem("🧘 Configurar Lista de Terapias",         "crearHojaListaTerapias")
+    .addSeparator()
+    .addItem("👥 Directorio de participantes",          "generarDirectorioParticipantes")
+    .addItem("📄 Generar DP (fila activa)",             "generarDpFilaActiva")
+    .addItem("📄 Actualizar todos los DPs",             "actualizarTodosLosDps")
+    .addSeparator()
+    .addItem("✏️  Cambiar nombre de participante",      "cambiarNombreParticipante")
+    .addItem("✨ Normalizar nombres y datos Kobo",       "normalizarTodo")
+    .addItem("🔗 Emparejar entradas/salidas (manual)",  "emparejarAsistencia")
+    .addItem("🔄 Reimportar todo desde Kobo",           "reimportarTodoDesdeKobo")
+    .addSeparator()
+    .addItem("🔍 Diagnosticar Datos Kobo",              "diagnosticarDatosKobo")
+    .addItem("🔧 Reparar Datos Kobo",                   "repararDatosKobo")
+    .addSeparator()
+    .addItem("⚡ Activar automatizaciones",             "configurarTriggers")
+    .addSeparator()
+    .addItem("🗑️  Reinstalar sistema (borra TODO)",     "reinstalarSistema");
+
+  ui.createMenu("👥 RRHH")
+    // ── Configuración inicial ──
+    .addItem("🚀 Instalación completa",                 "instalarTodo")
+    .addSeparator()
+    // ── Participantes ──
+    .addItem("➕ Nuevo participante",                    "nuevoParticipante")
+    .addItem("📋 Cargar lista oficial",                  "cargarListaParticipantes")
+    .addSeparator()
+    // ── Kobo ──
+    .addItem("📥 Importar asistencia desde Kobo",        "importarDesdeKobo")
+    .addSeparator()
+    // ── QUINCENAS (flujo principal) ──
+    .addItem("📅 Ver quincena actual",                   "verQuincenaActual")
+    .addItem("✅ Cerrar quincena y crear siguiente",      "cerrarQuincenaYCrearSiguiente")
+    .addItem("🗓️ Configurar nueva quincena",             "configurarNuevaQuincena")
+    .addSeparator()
+    // ── Reportes ──
+    .addItem("📊 Reporte por rango de fechas",           "generarReportePorRango")
+    .addSubMenu(menuReportes)
+    .addSeparator()
+    // ── Finanzas ──
+    .addSubMenu(menuFact)
+    .addSeparator()
+    // ── Dashboard ──
+    .addItem("🔄 Actualizar Dashboard",                  "actualizarDashboard")
     .addSeparator()
     .addSubMenu(menuConfig)
     .addToUi();
@@ -222,6 +239,9 @@ function crearHojas() { _run(function() {
     hF.setColumnWidth(21, 300); // URL_Recibo
   }
 
+  // PERIODOS — hoja de control de quincenas
+  crearHojaPeriodos();
+
   ["Hoja 1","Sheet1"].forEach(function(n) {
     var h = ss.getSheetByName(n);
     if (h && ss.getSheets().length > 3) ss.deleteSheet(h);
@@ -233,10 +253,10 @@ function crearHojas() { _run(function() {
     "• CLASIFICACION (categorías A/B/C/D)\n" +
     "• PARTICIPANTES (20 cols — incl. Categoría, Tarifa, Tiene_Factura)\n" +
     "• ASISTENCIA\n" +
-    "• FACTURACION (21 cols — incl. Horas_A_Reponer, Tarifa por participante)\n\n" +
+    "• FACTURACION (21 cols — incl. Horas_A_Reponer, Tarifa por participante)\n" +
+    "• PERIODOS (control de quincenas)\n\n" +
     "Tarifas: A=Q16.50 | B=Q15.75 | C=Q15.00 | D=Q14.00\n" +
-    "IVA 5%: solo participantes con Tiene_Factura=Sí\n\n" +
-    "Siguiente paso: PASO 2 — Crear estructura en Drive"
+    "IVA 5%: solo participantes con Tiene_Factura=Sí"
   );
 }); }
 
@@ -1750,6 +1770,466 @@ function procesarMesCompleto() { _run(function() {
   _alert("Proceso mensual — " + nombreMes + " " + anio + "\n\n" + log.join("\n"));
 }); }
 
+// ══════════════════════════════════════════════════════════════════
+// SISTEMA DE QUINCENAS
+// ──────────────────────────────────────────────────────────────────
+// Flujo:
+//   1. configurarNuevaQuincena() → el usuario define fecha inicio/fin
+//   2. El reporte se auto-actualiza diariamente (trigger)
+//   3. cerrarQuincenaYCrearSiguiente() → cierra la actual, abre la próxima
+//
+// Hoja PERIODOS (cols A–H):
+//   A: ID | B: Label | C: Fecha_Inicio | D: Fecha_Fin
+//   E: Estado (Activo/Cerrado) | F: Total_Q | G: Tab_Reporte | H: Fecha_Cierre
+// ══════════════════════════════════════════════════════════════════
+
+function crearHojaPeriodos() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var h  = ss.getSheetByName(CFG.HOJAS.PERIODOS);
+  if (h) return h;
+  h = ss.insertSheet(CFG.HOJAS.PERIODOS);
+  h.appendRow(["ID","Período","Fecha_Inicio","Fecha_Fin","Estado","Total_Q","Tab_Reporte","Fecha_Cierre"]);
+  _fmtEnc(h, "#37474f");
+  h.setColumnWidth(2, 200);
+  h.setColumnWidth(3, 120);
+  h.setColumnWidth(4, 120);
+  h.setColumnWidth(7, 200);
+  return h;
+}
+
+/*
+ * Pide al usuario las fechas de inicio y fin de la nueva quincena,
+ * registra en PERIODOS y genera el reporte inicial.
+ */
+function configurarNuevaQuincena() { _run(function() {
+  var ui   = SpreadsheetApp.getUi();
+  var tz   = Session.getScriptTimeZone();
+  var ahora = new Date();
+
+  // Sugerir fecha inicio = hoy
+  var sugeridaIni = Utilities.formatDate(ahora, tz, "dd/MM/yyyy");
+  // Sugerir fecha fin = hoy + 14 días
+  var sugeridaFin = Utilities.formatDate(new Date(ahora.getTime() + 14*24*3600*1000), tz, "dd/MM/yyyy");
+
+  var r1 = ui.prompt("🗓️ Nueva quincena — Fecha inicio",
+    "Formato dd/mm/yyyy\n(sugerido: "+sugeridaIni+")", ui.ButtonSet.OK_CANCEL);
+  if (r1.getSelectedButton() !== ui.Button.OK) return;
+  var fi = _parseFecha(r1.getResponseText().trim() || sugeridaIni);
+  if (!fi) { _alert("Fecha de inicio inválida."); return; }
+
+  var r2 = ui.prompt("🗓️ Nueva quincena — Fecha fin",
+    "Formato dd/mm/yyyy\n(sugerido: "+sugeridaFin+")", ui.ButtonSet.OK_CANCEL);
+  if (r2.getSelectedButton() !== ui.Button.OK) return;
+  var ff = _parseFecha(r2.getResponseText().trim() || sugeridaFin);
+  if (!ff || ff < fi) { _alert("Fecha de fin inválida o anterior al inicio."); return; }
+
+  var ss  = SpreadsheetApp.getActiveSpreadsheet();
+  var hP  = crearHojaPeriodos();
+
+  // Marcar cualquier período activo anterior como "En pausa"
+  var datos = hP.getDataRange().getValues();
+  for (var i = 1; i < datos.length; i++) {
+    if (String(datos[i][4]) === "Activo") {
+      hP.getRange(i+1, 5).setValue("En pausa");
+    }
+  }
+
+  var label = _labelPeriodo(fi, ff);
+  var id    = datos.length; // simple incremental ID
+  var tab   = _tabNombreQuincena(fi, ff);
+
+  hP.appendRow([id, label, fi, ff, "Activo", 0, tab, ""]);
+
+  // Formato de fechas en columnas C y D
+  var lastR = hP.getLastRow();
+  hP.getRange(lastR, 3, 1, 2).setNumberFormat("dd/MM/yyyy");
+  hP.getRange(lastR, 5).setBackground("#e6f4ea").setFontColor("#137333").setFontWeight("bold");
+
+  // Generar el reporte de inmediato
+  var total = _generarReporteQuincena(fi, ff, label, tab, {});
+  hP.getRange(lastR, 6).setValue(total);
+
+  ss.setActiveSheet(ss.getSheetByName(tab) || ss.getActiveSheet());
+  _alert("✅ Quincena configurada: " + label + "\n\nTotal actual: Q" + total.toFixed(2) +
+         "\n\nEl reporte se actualizará automáticamente cada día.\n" +
+         "Usa 'Cerrar quincena y crear siguiente' cuando pagues.");
+}); }
+
+/*
+ * Muestra (o crea) el reporte de la quincena activa.
+ * Si no hay ninguna activa, ofrece crear una.
+ */
+function verQuincenaActual() { _run(function() {
+  var periodo = _periodoActivo();
+  if (!periodo) {
+    var ui = SpreadsheetApp.getUi();
+    var r  = ui.alert("No hay quincena activa",
+      "No hay ninguna quincena configurada como Activa.\n¿Quieres configurar una ahora?",
+      ui.ButtonSet.YES_NO);
+    if (r === ui.Button.YES) { configurarNuevaQuincena(); }
+    return;
+  }
+  var fi  = new Date(periodo.fi);
+  var ff  = new Date(periodo.ff);
+  var tab = periodo.tab;
+  var label = periodo.label;
+
+  // Re-generar (actualizar) el reporte
+  var hP = _sh(CFG.HOJAS.PERIODOS);
+  var horasReponer = _leerHorasReponerExistentes(tab);
+  var total = _generarReporteQuincena(fi, ff, label, tab, horasReponer);
+
+  // Actualizar total en PERIODOS
+  hP.getRange(periodo.fila, 6).setValue(total);
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var hTab = ss.getSheetByName(tab);
+  if (hTab) ss.setActiveSheet(hTab);
+
+  _alert("✅ Quincena actualizada: " + label + "\nTotal: Q" + total.toFixed(2));
+}); }
+
+/*
+ * Función llamada por el trigger diario — actualiza silenciosamente.
+ */
+function actualizarQuincenaActual() {
+  try {
+    var periodo = _periodoActivo();
+    if (!periodo) return;
+    var fi  = new Date(periodo.fi);
+    var ff  = new Date(periodo.ff);
+    var horasReponer = _leerHorasReponerExistentes(periodo.tab);
+    var total = _generarReporteQuincena(fi, ff, periodo.label, periodo.tab, horasReponer);
+    var hP = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CFG.HOJAS.PERIODOS);
+    if (hP) hP.getRange(periodo.fila, 6).setValue(total);
+  } catch(e) {
+    Logger.log("actualizarQuincenaActual error: " + e.message);
+  }
+}
+
+/*
+ * Cierra la quincena activa y abre la siguiente.
+ */
+function cerrarQuincenaYCrearSiguiente() { _run(function() {
+  var periodo = _periodoActivo();
+  if (!periodo) { _alert("No hay quincena activa. Usa 'Configurar nueva quincena'."); return; }
+
+  var ui  = SpreadsheetApp.getUi();
+  var tz  = Session.getScriptTimeZone();
+  var hP  = _sh(CFG.HOJAS.PERIODOS);
+
+  var r = ui.alert("Cerrar quincena",
+    "¿Cerrar el período " + periodo.label + "?\n\n" +
+    "Total: Q" + (periodo.total || "—") + "\n\n" +
+    "Se marcará como Cerrado y se configurará la siguiente quincena.",
+    ui.ButtonSet.OK_CANCEL);
+  if (r !== ui.Button.OK) return;
+
+  // Cerrar período actual
+  var hoy = Utilities.formatDate(new Date(), tz, "dd/MM/yyyy");
+  hP.getRange(periodo.fila, 5).setValue("Cerrado").setBackground("#fce8e6").setFontColor("#c5221f");
+  hP.getRange(periodo.fila, 8).setValue(hoy);
+
+  // Sugerir siguientes fechas: inicio = fin anterior + 1 día
+  var ffAnterior = new Date(periodo.ff);
+  var siguienteIni = new Date(ffAnterior.getTime() + 24*3600*1000);
+  var siguienteFin = new Date(siguienteIni.getTime() + 14*24*3600*1000);
+  var fmtIni = Utilities.formatDate(siguienteIni, tz, "dd/MM/yyyy");
+  var fmtFin = Utilities.formatDate(siguienteFin, tz, "dd/MM/yyyy");
+
+  var r2 = ui.prompt("🗓️ Siguiente quincena — Fecha inicio",
+    "Sugerido: "+fmtIni, ui.ButtonSet.OK_CANCEL);
+  if (r2.getSelectedButton() !== ui.Button.OK) { _alert("Quincena cerrada. Configura la siguiente cuando quieras."); return; }
+  var fi2 = _parseFecha(r2.getResponseText().trim() || fmtIni);
+
+  var r3 = ui.prompt("🗓️ Siguiente quincena — Fecha fin",
+    "Sugerido: "+fmtFin, ui.ButtonSet.OK_CANCEL);
+  if (r3.getSelectedButton() !== ui.Button.OK) { _alert("Quincena cerrada. Configura la siguiente cuando quieras."); return; }
+  var ff2 = _parseFecha(r3.getResponseText().trim() || fmtFin);
+
+  if (!fi2 || !ff2 || ff2 < fi2) { _alert("Fechas inválidas. Quincena cerrada. Configura manualmente."); return; }
+
+  var label2 = _labelPeriodo(fi2, ff2);
+  var tab2   = _tabNombreQuincena(fi2, ff2);
+  var datos  = hP.getDataRange().getValues();
+  hP.appendRow([datos.length, label2, fi2, ff2, "Activo", 0, tab2, ""]);
+  var lastR = hP.getLastRow();
+  hP.getRange(lastR, 3, 1, 2).setNumberFormat("dd/MM/yyyy");
+  hP.getRange(lastR, 5).setBackground("#e6f4ea").setFontColor("#137333").setFontWeight("bold");
+
+  var total2 = _generarReporteQuincena(fi2, ff2, label2, tab2, {});
+  hP.getRange(lastR, 6).setValue(total2);
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var hTab = ss.getSheetByName(tab2);
+  if (hTab) ss.setActiveSheet(hTab);
+
+  _alert("✅ Quincena anterior cerrada.\n\nNueva quincena abierta: " + label2 +
+         "\nTotal actual: Q" + total2.toFixed(2));
+}); }
+
+// ── Helpers de quincena ─────────────────────────────────────────
+
+function _periodoActivo() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var hP = ss.getSheetByName(CFG.HOJAS.PERIODOS);
+  if (!hP || hP.getLastRow() < 2) return null;
+  var datos = hP.getDataRange().getValues();
+  for (var i = datos.length - 1; i >= 1; i--) {
+    if (String(datos[i][4]) === "Activo") {
+      return {
+        fila:  i+1,
+        id:    datos[i][0],
+        label: String(datos[i][1]),
+        fi:    datos[i][2],
+        ff:    datos[i][3],
+        estado:String(datos[i][4]),
+        total: parseFloat(datos[i][5]) || 0,
+        tab:   String(datos[i][6])
+      };
+    }
+  }
+  return null;
+}
+
+function _labelPeriodo(fi, ff) {
+  var tz  = Session.getScriptTimeZone();
+  return Utilities.formatDate(fi, tz, "dd/MM/yyyy") + " al " +
+         Utilities.formatDate(ff, tz, "dd/MM/yyyy");
+}
+
+function _tabNombreQuincena(fi, ff) {
+  var tz = Session.getScriptTimeZone();
+  return "Q_" + Utilities.formatDate(fi, tz, "dd_MM") + "_" +
+                Utilities.formatDate(ff, tz, "dd_MM_yyyy");
+}
+
+/*
+ * Lee las "Horas a reponer" que el usuario ya editó en el reporte anterior,
+ * para no perderlas al actualizar.
+ */
+function _leerHorasReponerExistentes(tabNombre) {
+  var mapa = {};
+  var ss   = SpreadsheetApp.getActiveSpreadsheet();
+  var h    = ss.getSheetByName(tabNombre);
+  if (!h || h.getLastRow() < 4) return mapa;
+  var datos = h.getDataRange().getValues();
+  // Col B = nombre, Col G (idx 6) = Horas a reponer (fila 4 en adelante)
+  for (var i = 3; i < datos.length; i++) {
+    var nombre = String(datos[i][1]).trim().replace(/^SUBTOTAL\s*/i, "").trim();
+    var hrs    = parseFloat(datos[i][6]);
+    if (nombre && !isNaN(hrs) && hrs > 0) mapa[nombre] = hrs;
+  }
+  return mapa;
+}
+
+/*
+ * Calcula el resumen de horas por participante para un período dado.
+ * Lee desde DatosKobo emparejando entradas y salidas.
+ * Retorna: { "Nombre": { horas, tarifa, tieneFactura, codigo } }
+ */
+function _calcularResumenPeriodo(fi, ff) {
+  var ss   = SpreadsheetApp.getActiveSpreadsheet();
+  var hK   = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
+  if (!hK || hK.getLastRow() < 2) return {};
+
+  var enc  = hK.getRange(1, 1, 1, hK.getLastColumn()).getValues()[0];
+  var raw  = hK.getRange(2, 1, hK.getLastRow()-1, hK.getLastColumn()).getValues();
+  var cols = detectarColumnas(enc, raw.slice(0, 50));
+
+  var mapeoNombres = cargarMapeoNombres();
+  var diasEstudio  = obtenerDiasEstudio();
+  var listaTerapias= obtenerListaTerapias();
+
+  var mapa = _construirMapaTarifas();
+
+  // Agrupar registros por participante, ordenados por timestamp
+  var porPart = {};
+
+  raw.forEach(function(fila) {
+    var ts  = new Date(fila[cols.start !== undefined ? cols.start : 0]);
+    if (isNaN(ts)) return;
+    // Filtrar por rango de fechas (comparar solo fecha, no hora)
+    var dia = new Date(ts.getFullYear(), ts.getMonth(), ts.getDate());
+    var dIni = new Date(fi.getFullYear(), fi.getMonth(), fi.getDate());
+    var dFin = new Date(ff.getFullYear(), ff.getMonth(), ff.getDate());
+    if (dia < dIni || dia > dFin) return;
+
+    var nombreRaw = obtenerParticipanteFila(fila, cols);
+    if (!nombreRaw) return;
+    var nombre = normalizarNombre(nombreRaw, mapeoNombres) || limpiarNombre(nombreRaw);
+    if (!nombre) return;
+
+    var tipo = obtenerTipoRegistro(fila, cols);
+    if (!tipo.esIngreso && !tipo.esEgreso) return;
+
+    if (!porPart[nombre]) porPart[nombre] = [];
+    porPart[nombre].push({ ts: ts, tipo: tipo, fila: fila });
+  });
+
+  // Calcular horas por participante
+  var resultado = {};
+
+  Object.keys(porPart).forEach(function(nombre) {
+    var registros = porPart[nombre].sort(function(a,b){ return a.ts - b.ts; });
+    var totalHoras = 0;
+    var pendienteEntrada = null;
+
+    registros.forEach(function(reg) {
+      if (reg.tipo.esIngreso && !pendienteEntrada) {
+        pendienteEntrada = reg.ts;
+      } else if (reg.tipo.esEgreso && pendienteEntrada) {
+        var diffH = (reg.ts - pendienteEntrada) / 3600000;
+        if (diffH > 0 && diffH <= 16) {
+          // Verificar si es día de estudio (0% pago — pero contamos horas trabajadas)
+          var fechaDia = new Date(pendienteEntrada.getFullYear(),
+                                  pendienteEntrada.getMonth(),
+                                  pendienteEntrada.getDate());
+          totalHoras += diffH;
+        }
+        pendienteEntrada = null;
+      }
+    });
+
+    // Entrada sin salida al final → estimar salida con jornada normal
+    if (pendienteEntrada) {
+      var estimada = new Date(pendienteEntrada.getTime() + CFG.HORAS_JORNADA_NORMAL * 3600000);
+      var diffH = Math.min((estimada - pendienteEntrada) / 3600000, CFG.HORAS_JORNADA_NORMAL);
+      if (diffH > 0) totalHoras += diffH;
+    }
+
+    if (totalHoras <= 0) return;
+
+    var info = mapa[limpiarNombre(nombre)] || mapa[nombre] || {};
+    var codigo = extraerCodigo(nombre) || info.codigo || "";
+
+    resultado[nombre] = {
+      horas:         Math.round(totalHoras * 100) / 100,
+      tarifa:        info.tarifa || CFG.CATEGORIAS.C,
+      tieneFactura:  info.tieneFactura || false,
+      codigo:        codigo
+    };
+  });
+
+  return resultado;
+}
+
+/*
+ * Genera (o actualiza) la hoja del reporte de quincena.
+ * Formato: coincide con la captura de pantalla del usuario.
+ * Preserva "Horas a reponer" que el usuario haya editado.
+ * Retorna: total Q del período.
+ */
+function _generarReporteQuincena(fi, ff, label, tabNombre, prevHorasReponer) {
+  var ss      = SpreadsheetApp.getActiveSpreadsheet();
+  var resumen = _calcularResumenPeriodo(fi, ff);
+  var mapa    = _construirMapaTarifas();
+  var tz      = Session.getScriptTimeZone();
+  var ts      = Utilities.formatDate(new Date(), tz, "dd/MM/yyyy HH:mm");
+
+  // Recrear o limpiar hoja
+  var h = ss.getSheetByName(tabNombre);
+  if (h) {
+    h.clearContents();
+    h.clearFormats();
+  } else {
+    h = ss.insertSheet(tabNombre);
+  }
+
+  // Asegurar suficientes columnas
+  if (h.getMaxColumns() < 12) h.insertColumnsAfter(h.getMaxColumns(), 12 - h.getMaxColumns());
+
+  // ── Fila 1: referencia de tarifas ──────────────────────────────
+  h.getRange(1, 1, 1, 12).setValues([["Q16.50","Q15.75","Q15.00","Q14.00","","","","","","","",""]]);
+  ["#639922","#4285f4","#fbbc04","#ea4335"].forEach(function(c, i) {
+    h.getRange(1, i+1).setBackground(c).setFontColor("#ffffff").setFontWeight("bold")
+     .setHorizontalAlignment("center");
+  });
+
+  // ── Fila 2: título del período ─────────────────────────────────
+  h.getRange(2, 1, 1, 12).merge()
+   .setValue("Período: " + label)
+   .setBackground("#f8f9fa").setFontWeight("bold").setFontSize(11)
+   .setHorizontalAlignment("center")
+   .setBorder(true,true,true,true,null,null,"#dadce0",SpreadsheetApp.BorderStyle.SOLID);
+
+  // ── Fila 3: encabezados de columnas ───────────────────────────
+  var encabezados = ["#","Participantes","","","",
+    "Total de horas","Horas a reponer","Total a pagar",
+    "Monto (Q)","IVA – 5%","Pago + IVA","Redondeo"];
+  h.getRange(3, 1, 1, 12).setValues([encabezados])
+   .setBackground("#546e7a").setFontColor("#ffffff").setFontWeight("bold")
+   .setHorizontalAlignment("center")
+   .setBorder(true,true,true,true,null,null,"#37474f",SpreadsheetApp.BorderStyle.SOLID);
+
+  // ── Filas de datos: una por participante ───────────────────────
+  var nombres = Object.keys(resumen).sort(function(a,b){ return a.localeCompare(b,"es"); });
+  var filaActual = 4;
+  var totalGeneral = 0;
+  var num = 1;
+
+  nombres.forEach(function(nombre) {
+    var d = resumen[nombre];
+    // Recuperar horas a reponer previas (editadas manualmente)
+    var hReponer = prevHorasReponer[nombre] || 0;
+    var hTotal   = Math.round((d.horas + hReponer) * 100) / 100;
+    var monto    = Math.round(hTotal * d.tarifa * 100) / 100;
+    var iva      = d.tieneFactura ? Math.round(monto * CFG.IVA_PCT * 100) / 100 : 0;
+    var conIVA   = Math.round((monto + iva) * 100) / 100;
+    var redond   = Math.round(conIVA);
+    totalGeneral += redond;
+
+    var label = nombre + (d.codigo ? " (" + d.codigo + ")" : "");
+
+    h.getRange(filaActual, 1, 1, 12).setValues([[
+      num++,
+      label,
+      "","","",
+      d.horas,
+      hReponer > 0 ? hReponer : "",
+      hTotal,
+      monto,
+      iva > 0 ? iva : "",
+      iva > 0 ? conIVA : monto,
+      redond
+    ]]);
+
+    // Color de fila alternado
+    var bg = (num % 2 === 0) ? "#f8f9fa" : "#ffffff";
+    h.getRange(filaActual, 1, 1, 12).setBackground(bg);
+    h.getRange(filaActual, 1).setHorizontalAlignment("center");
+    h.getRange(filaActual, 6, 1, 7).setHorizontalAlignment("right");
+    // Formato moneda en cols 9-12
+    h.getRange(filaActual, 9, 1, 4).setNumberFormat('"Q"#,##0.00');
+
+    filaActual++;
+  });
+
+  // ── Fila total ─────────────────────────────────────────────────
+  filaActual++;
+  h.getRange(filaActual, 1, 1, 12).setValues([["","","","","","","","","","","",totalGeneral]]);
+  h.getRange(filaActual, 12)
+   .setBackground("#00c853").setFontColor("#ffffff").setFontWeight("bold")
+   .setFontSize(12).setHorizontalAlignment("center")
+   .setNumberFormat('"Q"#,##0.00');
+
+  // ── Fila timestamp ─────────────────────────────────────────────
+  filaActual++;
+  h.getRange(filaActual, 1, 1, 12).merge()
+   .setValue("Actualizado: " + ts + "  |  " + nombres.length + " participantes")
+   .setFontSize(8).setFontColor("#9aa0a6").setHorizontalAlignment("right");
+
+  // ── Ancho de columnas ──────────────────────────────────────────
+  [35, 230, 30, 30, 30, 90, 100, 90, 90, 80, 90, 85].forEach(function(w, i) {
+    h.setColumnWidth(i+1, w);
+  });
+  h.setRowHeight(2, 28);
+  h.setRowHeight(3, 24);
+  h.setFrozenRows(3);
+
+  return totalGeneral;
+}
+
 function crearEstructuraDrive() { _run(function() {
   var raiz     = _getOCreate(null, CFG.ORG+" · RRHH");
   var docsPD   = _getOCreate(raiz, "Docs_Proceso");
@@ -1791,19 +2271,29 @@ function _getOCreate(padre, nombre) {
 
 function configurarTriggers() { _run(function() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  // Solo eliminar triggers de importación (no eliminar onEdit simple)
+  // Eliminar triggers manejados por este sistema
   ScriptApp.getProjectTriggers().forEach(function(t){
     var h = t.getHandlerFunction();
-    if (h === "importarDesdeKobo" || h === "importarAlAbrir") ScriptApp.deleteTrigger(t);
+    if (h === "importarDesdeKobo" || h === "importarAlAbrir" ||
+        h === "actualizarQuincenaActual") {
+      ScriptApp.deleteTrigger(t);
+    }
   });
+  // Importar Kobo cada hora
   ScriptApp.newTrigger("importarDesdeKobo").timeBased().everyHours(1).create();
+  // Importar Kobo al abrir el Spreadsheet
   ScriptApp.newTrigger("importarAlAbrir").forSpreadsheet(ss).onOpen().create();
+  // Actualizar reporte de quincena activa cada día a las 7am
+  ScriptApp.newTrigger("actualizarQuincenaActual")
+    .timeBased().everyDays(1).atHour(7).create();
+
   _alert("✅ Automatizaciones activadas:\n\n" +
-    "• onEdit (automático) — Cambiar Categoría → auto-llena Tarifa\n" +
-    "• onEdit (automático) — Marcar Pagado → actualiza Dashboard\n" +
-    "• ⏰ Importación Kobo: cada hora automáticamente\n" +
-    "• 🔄 Importación Kobo: al abrir la hoja\n\n" +
-    "Los datos de Kobo se actualizarán solos cada hora y al abrir.");
+    "• ⏰ Kobo: importa datos cada hora\n" +
+    "• 🔄 Kobo: importa al abrir la hoja\n" +
+    "• 📅 Quincena activa: se actualiza cada día a las 7am\n\n" +
+    "onEdit (automático):\n" +
+    "• Categoría → auto-llena Tarifa\n" +
+    "• Pagado → actualiza Dashboard");
 }); }
 
 // ── Reinstalar ────────────────────────────────────────────────
