@@ -1024,19 +1024,34 @@ function emparejarAsistencia() { _run(function() {
   }
 
   var filasAsist = [];
+  var estimados  = 0;  // entradas sin salida → jornada estimada
+
   Object.keys(grupos).forEach(function(clave) {
     var g = grupos[clave];
-    if (!g.ent.length || !g.sal.length) return;
     g.ent.sort(function(a,b){return a-b;});
     g.sal.sort(function(a,b){return a-b;});
-    var horas = Math.max(0, Math.round((g.sal[g.sal.length-1]-g.ent[0])/36000)/100);
-    var id    = extraerCodigo(g.nombre) || "";
+
+    var horas, salida;
+    if (g.ent.length > 0 && g.sal.length > 0) {
+      // Par completo
+      horas  = Math.max(0, Math.round((g.sal[g.sal.length-1] - g.ent[0]) / 36000) / 100);
+      salida = g.sal[g.sal.length-1];
+    } else if (g.ent.length > 0 && g.sal.length === 0) {
+      // Entrada sin salida → estimar jornada normal
+      horas  = CFG.HORAS_JORNADA_NORMAL;
+      salida = new Date(g.ent[0].getTime() + horas * 3600000);
+      estimados++;
+    } else {
+      return; // Salida sin entrada: ignorar (caso raro)
+    }
+
+    var id       = extraerCodigo(g.nombre) || "";
     var esDiaEst = esDiaDeEstudio(g.nombre, g.fecha, diasEstudioMap) ? "Sí" : "No";
     var esTer    = (listaTerapias[g.nombre] || g.esTerapia) ? "Sí" : "No";
     var pct      = (esDiaEst==="Sí" || esTer==="Sí") ? 0 : 100;
-    var hap      = Math.round(horas*(pct/100)*100)/100;
-    var tipo2    = esDiaEst==="Sí"?"Día de Estudio":(esTer==="Sí"?"Terapia":"Normal");
-    filasAsist.push([g.nombre, id, g.ent[0], tipo2, horas, esDiaEst, esTer, pct, hap, clave, g.ent[0], g.sal[g.sal.length-1]]);
+    var hap      = Math.round(horas * (pct/100) * 100) / 100;
+    var tipo2    = esDiaEst==="Sí" ? "Día de Estudio" : (esTer==="Sí" ? "Terapia" : "Normal");
+    filasAsist.push([g.nombre, id, g.ent[0], tipo2, horas, esDiaEst, esTer, pct, hap, clave, g.ent[0], salida]);
   });
 
   filasAsist.sort(function(a,b){ return new Date(b[2])-new Date(a[2]); });
@@ -1046,8 +1061,29 @@ function emparejarAsistencia() { _run(function() {
     hA.getRange(2,1,filasAsist.length,12).setValues(filasAsist);
     hA.getRange("C2:C"+(filasAsist.length+1)).setNumberFormat("dd/MM/yyyy");
     hA.getRange("K2:L"+(filasAsist.length+1)).setNumberFormat("HH:mm");
+    // Colorear filas estimadas en amarillo para identificarlas
+    if (estimados > 0) {
+      for (var ei=0; ei<filasAsist.length; ei++) {
+        var salEstimada = filasAsist[ei][11];
+        var entRaw      = filasAsist[ei][10];
+        var diffMs = (salEstimada instanceof Date && entRaw instanceof Date)
+                     ? salEstimada - entRaw : 0;
+        var diffH = diffMs / 3600000;
+        if (Math.abs(diffH - CFG.HORAS_JORNADA_NORMAL) < 0.01) {
+          hA.getRange(ei+2, 1, 1, 12).setBackground("#fff9c4"); // amarillo suave
+        }
+      }
+    }
   }
-  _alert("✅ " + filasAsist.length + " pares entrada/salida procesados en ASISTENCIA.");
+  _alert(
+    "✅ Emparejamiento completado en ASISTENCIA\n\n" +
+    "• Pares completos (entrada+salida): " + (filasAsist.length - estimados) + "\n" +
+    (estimados > 0
+      ? "• Estimados (solo entrada):          " + estimados + " ⚠️\n" +
+        "  Se usó jornada de "+CFG.HORAS_JORNADA_NORMAL+"h. Filas en amarillo.\n" +
+        "  Ejecuta 'Diagnosticar Datos Kobo' para ver cuáles."
+      : "• Sin entradas sin par ✅")
+  );
 }); }
 
 // ── Normalizar nombres y datos Kobo ──────────────────────────
@@ -3866,46 +3902,186 @@ function crearHojaListaTerapias() { _run(function() {
 // DIAGNÓSTICO, REPARACIÓN Y CAMBIO DE NOMBRE
 // ══════════════════════════════════════════════════════════════════
 
+/**
+ * Diagnóstico completo de DatosKobo.
+ * Genera hoja "Diagnóstico_Kobo" con:
+ *  - Entradas sin salida (horas perdidas)
+ *  - Salidas sin entrada
+ *  - Nombres no reconocidos (slugs sin normalizar)
+ *  - Registros sin tipo válido
+ *  - Resumen por participante
+ */
 function diagnosticarDatosKobo() { _run(function() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss    = SpreadsheetApp.getActiveSpreadsheet();
   var hojaK = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
   if (!hojaK) { _alert("No existe DatosKobo. Importa primero desde Kobo."); return; }
 
-  var datos = hojaK.getDataRange().getValues();
-  var enc = datos[0];
-  var cols = detectarColumnas(enc, datos.slice(1));
+  var datos  = hojaK.getDataRange().getValues();
+  var cols   = detectarColumnas(datos[0], datos.slice(1));
+  var mapeo  = cargarMapeoNombres();
+  var tz     = Session.getScriptTimeZone();
 
-  var listaEnc = "";
-  for (var i=0; i<enc.length; i++) listaEnc += "Col "+i+": \""+enc[i]+"\"\n";
+  // ── 1. Recorrer todos los registros ─────────────────────────────
+  var grupos   = {};  // clave "nombre|fecha" → {ent:[], sal:[], nombre, fecha}
+  var sinTipo  = [];
+  var sinNombre= [];
+  var slugs    = [];  // nombres que parecen slugs (con _)
 
-  var det = "\n--- COLUMNAS DETECTADAS ---\n";
-  det += "start: "         + (cols.start          !== undefined ? "Col "+cols.start : "❌ NO ENCONTRADA") + "\n";
-  det += "end: "           + (cols.end             !== undefined ? "Col "+cols.end   : "no (opcional)")  + "\n";
-  det += "participante: "  + (cols.participante    !== undefined ? "Col "+cols.participante+" (\""+enc[cols.participante]+"\")" : "❌ NO ENCONTRADA") + "\n";
-  if (cols.participante2 !== undefined) det += "participante2: Col "+cols.participante2+" (\""+enc[cols.participante2]+"\")\n";
-  det += "acción: "        + (cols.accionUnificada !== undefined ? "Col "+cols.accionUnificada+" (\""+enc[cols.accionUnificada]+"\")": "❌ NO ENCONTRADA") + "\n";
-  det += "uuid: "          + (cols.uuid            !== undefined ? "Col "+cols.uuid : "no") + "\n";
+  for (var i=1; i<datos.length; i++) {
+    var fila = datos[i];
+    var nombreRaw = cols.participante !== undefined ? String(fila[cols.participante]||"").trim() : "";
+    if (!nombreRaw) { sinNombre.push(i+1); continue; }
 
-  var conteo = { entrada:0, salida:0, sinTipo:0, terapia:0, computacion:0, permiso:0 };
-  for (var f=1; f<datos.length; f++) {
-    var t = obtenerTipoRegistro(datos[f], cols);
-    if (t.esIngreso) conteo.entrada++;
-    else if (t.esEgreso) conteo.salida++;
-    else conteo.sinTipo++;
-    if (t.esTerapia) conteo.terapia++;
-    if (t.esComputacion) conteo.computacion++;
-    if (t.esPermiso) conteo.permiso++;
+    // Detectar slug sin normalizar
+    if (nombreRaw.indexOf("_") !== -1 && nombreRaw.indexOf(" ") === -1) {
+      slugs.push({ fila:i+1, valor:nombreRaw });
+    }
+
+    var nombre = normalizarNombre(nombreRaw, mapeo);
+    var tipo   = obtenerTipoRegistro(fila, cols);
+
+    if (!tipo.esIngreso && !tipo.esEgreso) {
+      sinTipo.push({ fila:i+1, nombre:nombre, valor: cols.accionUnificada!==undefined?String(fila[cols.accionUnificada]||""):"?" });
+      continue;
+    }
+
+    var tsRaw = cols.start !== undefined ? fila[cols.start] : null;
+    var ts    = tsRaw instanceof Date ? tsRaw : new Date(tsRaw);
+    if (isNaN(ts)) continue;
+    var clave = nombre + "|" + _dClave(ts);
+    if (!grupos[clave]) grupos[clave] = { nombre:nombre, fecha:ts, ent:[], sal:[] };
+    if (tipo.esIngreso) grupos[clave].ent.push(ts);
+    if (tipo.esEgreso)  grupos[clave].sal.push(ts);
   }
 
-  var resumen = "\n--- RESUMEN ---\n";
-  resumen += "Total filas: "+(datos.length-1)+"\n🟢 Entradas: "+conteo.entrada+"\n🔴 Salidas: "+conteo.salida;
-  resumen += "\n🧘 Terapias: "+conteo.terapia+"\n💻 Computación: "+conteo.computacion+"\n📝 Permisos: "+conteo.permiso;
-  if (conteo.sinTipo>0) resumen += "\n⚠️ Sin tipo: "+conteo.sinTipo;
-  resumen += (conteo.entrada===0 && conteo.salida===0)
-    ? "\n\n❌ PROBLEMA: No se detectaron entradas ni salidas.\nRevisa la columna de acción en DatosKobo."
-    : "\n\n✅ Datos listos para generar reportes.";
+  // ── 2. Detectar pares rotos ──────────────────────────────────────
+  var sinSalida  = [];  // tiene Entrada pero no Salida
+  var sinEntrada = [];  // tiene Salida pero no Entrada
+  var pareados   = 0;
+  var resumenPart= {}; // nombre → {dias:0, diasSinSalida:0, diasSinEntrada:0}
 
-  SpreadsheetApp.getUi().alert(listaEnc + det + resumen);
+  Object.keys(grupos).forEach(function(k) {
+    var g = grupos[k];
+    var fechaStr = Utilities.formatDate(g.fecha, tz, "dd/MM/yyyy");
+    if (!resumenPart[g.nombre]) resumenPart[g.nombre] = { dias:0, sinSalida:0, sinEntrada:0 };
+
+    if (g.ent.length > 0 && g.sal.length > 0) {
+      pareados++;
+      resumenPart[g.nombre].dias++;
+    } else if (g.ent.length > 0 && g.sal.length === 0) {
+      sinSalida.push({ nombre:g.nombre, fecha:fechaStr, horaEntrada: Utilities.formatDate(g.ent[0],tz,"HH:mm") });
+      resumenPart[g.nombre].sinSalida++;
+    } else if (g.ent.length === 0 && g.sal.length > 0) {
+      sinEntrada.push({ nombre:g.nombre, fecha:fechaStr, horaSalida: Utilities.formatDate(g.sal[0],tz,"HH:mm") });
+      resumenPart[g.nombre].sinEntrada++;
+    }
+  });
+
+  // ── 3. Crear hoja de diagnóstico ────────────────────────────────
+  var tabName = "Diagnóstico_Kobo";
+  var hD = ss.getSheetByName(tabName);
+  if (hD) ss.deleteSheet(hD);
+  hD = ss.insertSheet(tabName);
+  if (hD.getMaxColumns() < 6) hD.insertColumnsAfter(hD.getMaxColumns(), 6-hD.getMaxColumns());
+
+  var filas=[], tipos=[];
+  function p(f,t){filas.push(f);tipos.push(t);}
+  var ts2 = Utilities.formatDate(new Date(),tz,"dd/MM/yyyy HH:mm");
+
+  p(["DIAGNÓSTICO DE DATOS KOBO — "+CFG.ORG,"","","","",""],"titulo");
+  p(["Generado: "+ts2+" | Total registros: "+(datos.length-1)+" | Pares OK: "+pareados,"","","","",""],"sub");
+  p(["","","","","",""],"vacio");
+
+  // ── Sección 1: Entradas sin salida (⚠️ horas perdidas) ──────────
+  p(["⚠️  ENTRADAS SIN SALIDA — horas no contabilizadas","","","","",""],"sec_warn");
+  if (sinSalida.length === 0) {
+    p(["✅ Ninguna — todas tienen salida registrada","","","","",""],"ok");
+  } else {
+    p(["#","Participante","Fecha","Hora entrada","Problema","Acción sugerida"],"enc");
+    sinSalida.forEach(function(r,i){
+      p([i+1, r.nombre, r.fecha, r.horaEntrada, "Sin salida registrada", "Marcar salida manualmente o usar 'Reparar'"],"warn");
+    });
+  }
+  p(["","","","","",""],"vacio");
+
+  // ── Sección 2: Salidas sin entrada ───────────────────────────────
+  p(["⚠️  SALIDAS SIN ENTRADA — posible doble salida o error","","","","",""],"sec_warn");
+  if (sinEntrada.length === 0) {
+    p(["✅ Ninguna — todas las salidas tienen entrada","","","","",""],"ok");
+  } else {
+    p(["#","Participante","Fecha","Hora salida","Problema","Acción sugerida"],"enc");
+    sinEntrada.forEach(function(r,i){
+      p([i+1, r.nombre, r.fecha, r.horaSalida, "Sin entrada previa","Verificar si marcó entrada ese día"],"warn");
+    });
+  }
+  p(["","","","","",""],"vacio");
+
+  // ── Sección 3: Slugs sin normalizar ──────────────────────────────
+  p(["⚠️  NOMBRES SIN NORMALIZAR (slug de Kobo)","","","","",""],"sec_warn");
+  if (slugs.length === 0) {
+    p(["✅ Todos los nombres están normalizados","","","","",""],"ok");
+  } else {
+    p(["Fila","Valor en DatosKobo","","Acción","",""],"enc");
+    slugs.forEach(function(r){
+      var normalizado = normalizarNombre(r.valor, mapeo);
+      p([r.fila, r.valor, "→", normalizado===r.valor?"❌ No encontrado":normalizado, "",""],"warn");
+    });
+    p(["","Ejecuta: Configuración → Reparar Datos Kobo","","","",""],"nota");
+  }
+  p(["","","","","",""],"vacio");
+
+  // ── Sección 4: Sin tipo reconocido ───────────────────────────────
+  if (sinTipo.length > 0) {
+    p(["⚠️  REGISTROS SIN TIPO RECONOCIDO (ni Entrada ni Salida)","","","","",""],"sec_warn");
+    p(["Fila","Participante","Valor detectado","","",""],"enc");
+    sinTipo.forEach(function(r){
+      p([r.fila, r.nombre, '"'+r.valor+'"','','',''],"warn");
+    });
+    p(["","","","","",""],"vacio");
+  }
+
+  // ── Sección 5: Resumen por participante ──────────────────────────
+  p(["📊  RESUMEN POR PARTICIPANTE","","","","",""],"sec_ok");
+  p(["Participante","Días completos","Sin salida","Sin entrada","Estado",""],"enc");
+  Object.keys(resumenPart).sort().forEach(function(nombre){
+    var r = resumenPart[nombre];
+    var estado = (r.sinSalida===0 && r.sinEntrada===0) ? "✅ OK" : "⚠️ Revisar";
+    p([nombre, r.dias, r.sinSalida||"", r.sinEntrada||"", estado,""],
+      (r.sinSalida>0||r.sinEntrada>0)?"warn":"ok");
+  });
+
+  // ── Escribir hoja ─────────────────────────────────────────────────
+  hD.getRange(1,1,filas.length,6).setValues(filas);
+
+  var COLORES = { titulo:"#1a237e", sub:"#e8eaf6", vacio:"#ffffff", sec_warn:"#e65100",
+                  sec_ok:"#1b5e20", enc:"#37474f", warn:"#fff3e0", ok:"#f1f8e9", nota:"#fce4ec" };
+  tipos.forEach(function(t,i){
+    var r = hD.getRange(i+1,1,1,6);
+    r.setFontFamily("Arial").setFontSize(10);
+    if (t==="titulo") r.merge().setFontSize(13).setFontWeight("bold").setBackground(COLORES.titulo).setFontColor("#fff").setHorizontalAlignment("center");
+    else if (t==="sub") r.merge().setBackground(COLORES.sub).setFontColor("#283593").setHorizontalAlignment("center");
+    else if (t==="sec_warn") r.merge().setFontWeight("bold").setBackground(COLORES.sec_warn).setFontColor("#fff");
+    else if (t==="sec_ok")  r.merge().setFontWeight("bold").setBackground(COLORES.sec_ok).setFontColor("#fff");
+    else if (t==="enc")  r.setFontWeight("bold").setBackground(COLORES.enc).setFontColor("#fff");
+    else if (t==="warn") r.setBackground(COLORES.warn);
+    else if (t==="ok")   r.setBackground(COLORES.ok).setFontColor("#1b5e20");
+    else if (t==="nota") r.merge().setFontStyle("italic").setBackground(COLORES.nota).setFontColor("#880e4f");
+  });
+
+  hD.setColumnWidth(1,50); hD.setColumnWidth(2,250); hD.setColumnWidth(3,100);
+  hD.setColumnWidth(4,280); hD.setColumnWidth(5,160); hD.setColumnWidth(6,180);
+  hD.activate();
+
+  _alert(
+    "✅ Diagnóstico generado en hoja 'Diagnóstico_Kobo'\n\n" +
+    "Resumen:\n" +
+    "• Pares OK:           " + pareados + " días\n" +
+    "• Sin salida:         " + sinSalida.length + (sinSalida.length ? " ⚠️" : " ✅") + "\n" +
+    "• Sin entrada:        " + sinEntrada.length + (sinEntrada.length ? " ⚠️" : " ✅") + "\n" +
+    "• Slugs sin normalizar: " + slugs.length + (slugs.length ? " ⚠️" : " ✅") + "\n" +
+    "• Sin tipo válido:    " + sinTipo.length + (sinTipo.length ? " ⚠️" : " ✅") + "\n\n" +
+    (sinSalida.length ? "Para recuperar horas perdidas: 'Reparar Datos Kobo'" : "")
+  );
 }); }
 
 function repararDatosKobo() { _run(function() {
