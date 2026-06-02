@@ -91,6 +91,8 @@ function onOpen() {
   // ── Submenú: Facturación ──────────────────────────────────────
   var menuFact = ui.createMenu("💰 Facturación y recibos")
     .addItem("📋 Checklist de pago (flujo facturación)", "generarChecklistPago")
+    .addItem("🧾 Configurar quién emite factura (IVA)",  "configurarFacturacion")
+    .addItem("✅ Aplicar cambios de facturación",         "aplicarCambiosFacturacion")
     .addSeparator()
     .addItem("📅 Proceso mensual completo",             "procesarMesCompleto")
     .addSeparator()
@@ -2666,6 +2668,148 @@ function _generarReporteQuincena(fi, ff, label, tabNombre, prevHorasReponer) {
  *
  * Cada participante tiene columnas editables para marcar el avance.
  */
+/**
+ * Genera (o recarga) la hoja "Config_IVA" donde el admin marca quién emite factura.
+ * Al guardar cambios en esa hoja, se propagan automáticamente a PARTICIPANTES col M.
+ * También permite marcar TODAS con Sí / TODAS con No de un clic.
+ */
+function configurarFacturacion() { _run(function() {
+  var ss  = SpreadsheetApp.getActiveSpreadsheet();
+  var hP  = _sh(CFG.HOJAS.PARTICIPANTES);
+  var lastRow = hP.getLastRow();
+  if (lastRow < 2) { _alert("Primero carga la lista de participantes."); return; }
+
+  // Leer PARTICIPANTES
+  var datos = hP.getRange(2, 1, lastRow - 1, 13).getValues(); // A→M
+
+  // Crear/limpiar hoja Config_IVA
+  var tabName = "Config_IVA";
+  var hC = ss.getSheetByName(tabName);
+  if (hC) { hC.clearContents(); hC.clearFormats(); }
+  else    { hC = ss.insertSheet(tabName); }
+  if (hC.getMaxColumns() < 5) hC.insertColumnsAfter(hC.getMaxColumns(), 5 - hC.getMaxColumns());
+
+  // ── Encabezado ─────────────────────────────────────────────────
+  hC.getRange(1,1,1,5).merge()
+    .setValue("⚠️  CONFIGURACIÓN IVA — ¿Quién emite factura? (Pequeño Contribuyente 5%)")
+    .setBackground("#e65100").setFontColor("#fff").setFontWeight("bold")
+    .setFontSize(11).setHorizontalAlignment("center");
+
+  hC.getRange(2,1,1,5).merge()
+    .setValue("Marca 'Sí' en la col D para quienes emiten factura. Luego usa el botón 'Aplicar cambios a PARTICIPANTES'.")
+    .setBackground("#fff3e0").setFontColor("#bf360c").setFontSize(9)
+    .setHorizontalAlignment("center");
+
+  hC.getRange(3,1,1,5).setValues([["#","Creamos ID","Participante","¿Tiene Factura?","Categoría"]])
+    .setBackground("#37474f").setFontColor("#fff").setFontWeight("bold")
+    .setHorizontalAlignment("center");
+
+  // Validación desplegable Sí/No
+  var vSN = SpreadsheetApp.newDataValidation().requireValueInList(["Sí","No"],true).build();
+
+  var COLORES = { A:"#d9ead3", B:"#c9daf8", C:"#fff2cc", D:"#f4cccc" };
+  var filas   = [];
+  datos.forEach(function(r, i) {
+    var id     = String(r[0] || "").trim();
+    var nombre = String(r[1] || "").trim();
+    var cat    = String(r[10]|| "").trim().toUpperCase();
+    var tieneFact = String(r[12]||"").trim();
+    if (!nombre) return;
+    filas.push([i+1, id, nombre, tieneFact||"No", cat]);
+  });
+
+  if (filas.length > 0) {
+    var rango = hC.getRange(4, 1, filas.length, 5);
+    rango.setValues(filas);
+    // Color por categoría
+    filas.forEach(function(f, i) {
+      hC.getRange(i+4, 1, 1, 5).setBackground(COLORES[f[4]] || "#ffffff");
+    });
+    // Validación en col D (Tiene Factura)
+    hC.getRange(4, 4, filas.length, 1).setDataValidation(vSN).setHorizontalAlignment("center");
+    // Negrita y color especial para quienes ya tienen Sí
+    filas.forEach(function(f, i) {
+      if (f[3] === "Sí") {
+        hC.getRange(i+4, 4).setBackground("#f9cb9c").setFontWeight("bold");
+      }
+    });
+  }
+
+  // Fila de totales
+  var filaTot = 4 + filas.length + 1;
+  hC.getRange(filaTot, 1, 1, 5).merge()
+    .setValue("▶  Cuando termines de marcar, ve al menú: 💰 Facturación → 🧾 Configurar quién emite factura → para aplicar cambios")
+    .setBackground("#e8f5e9").setFontColor("#1b5e20").setFontStyle("italic").setFontSize(9);
+
+  // Ancho columnas
+  hC.setColumnWidth(1,40); hC.setColumnWidth(2,130); hC.setColumnWidth(3,260);
+  hC.setColumnWidth(4,130); hC.setColumnWidth(5,80);
+  hC.setFrozenRows(3);
+  hC.activate();
+
+  _alert(
+    "📋 HOJA 'Config_IVA' lista.\n\n" +
+    "Instrucciones:\n" +
+    "1. Cambia 'Sí' o 'No' en la columna D para cada participante\n" +
+    "2. Vuelve al menú: 💰 Facturación → 🧾 Configurar quién emite factura\n" +
+    "3. Elige 'Aplicar cambios'\n\n" +
+    "¿Qué hace el IVA 5%?\n" +
+    "• Si tiene factura: org paga Base + 5% (IVA lo declara en Declaraguate)\n" +
+    "• Si NO tiene factura: org paga solo el Monto Base\n\n" +
+    "¿Todas tienen factura? → abre PARTICIPANTES, col M, cambia todas a Sí."
+  );
+}); }
+
+/**
+ * Lee la hoja Config_IVA y aplica los cambios de Tiene_Factura a PARTICIPANTES.
+ */
+function aplicarCambiosFacturacion() { _run(function() {
+  var ss  = SpreadsheetApp.getActiveSpreadsheet();
+  var hC  = ss.getSheetByName("Config_IVA");
+  if (!hC) { _alert("Primero ejecuta 'Configurar quién emite factura' para crear la hoja."); return; }
+
+  var hP  = _sh(CFG.HOJAS.PARTICIPANTES);
+  var datosC = hC.getDataRange().getValues();
+  var datosP = hP.getDataRange().getValues();
+
+  // Construir índice nombre→fila en PARTICIPANTES
+  var idxP = {};
+  for (var i=1; i<datosP.length; i++) {
+    var n = String(datosP[i][1]||"").trim();
+    if (n) idxP[textoParaComparar(n)] = i+1; // fila real (1-indexed)
+  }
+
+  var actualizados = 0;
+  for (var r=3; r<datosC.length; r++) { // desde fila 4 (datos)
+    var nombre = String(datosC[r][2]||"").trim();
+    var valor  = String(datosC[r][3]||"").trim();
+    if (!nombre || (valor !== "Sí" && valor !== "No")) continue;
+    var filaP = idxP[textoParaComparar(nombre)];
+    if (!filaP) continue;
+    var actual = String(hP.getRange(filaP, 13).getValue()).trim();
+    if (actual !== valor) {
+      hP.getRange(filaP, 13).setValue(valor);
+      actualizados++;
+    }
+  }
+
+  // Contar totales
+  var total = hP.getLastRow()-1;
+  var conFact = 0;
+  if (total > 0) {
+    var vals = hP.getRange(2,13,total,1).getValues();
+    vals.forEach(function(v){ if(String(v[0]).trim()==="Sí") conFact++; });
+  }
+
+  _alert(
+    "✅ Cambios aplicados a PARTICIPANTES\n\n" +
+    "• Filas actualizadas: " + actualizados + "\n" +
+    "• Con factura (IVA 5%): " + conFact + " participantes\n" +
+    "• Sin factura:          " + (total - conFact) + " participantes\n\n" +
+    "Los reportes de quincena ahora calcularán IVA solo para las " + conFact + " marcadas con Sí."
+  );
+}); }
+
 function generarChecklistPago() { _run(function() {
   var ui  = SpreadsheetApp.getUi();
   var tz  = Session.getScriptTimeZone();
