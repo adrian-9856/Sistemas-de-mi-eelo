@@ -260,20 +260,32 @@ function _fmtEnc(hoja, color) {
 
 function nuevoParticipante() { _run(function() {
   var ui = SpreadsheetApp.getUi();
-  var r1 = ui.prompt("Nuevo participante", "Creamos_ID (ej. CR202401):", ui.ButtonSet.OK_CANCEL);
-  if (r1.getSelectedButton() !== ui.Button.OK) return;
-  var id = r1.getResponseText().trim().toUpperCase();
-  if (!id) { ui.alert("El ID no puede estar vacío."); return; }
 
-  var r2 = ui.prompt("Nuevo participante", "Nombre completo:", ui.ButtonSet.OK_CANCEL);
+  var r2 = ui.prompt("➕ Nuevo participante", "Nombre completo (tal como aparece en el sistema):", ui.ButtonSet.OK_CANCEL);
   if (r2.getSelectedButton() !== ui.Button.OK) return;
   var nombre = r2.getResponseText().trim();
   if (!nombre) { ui.alert("El nombre no puede estar vacío."); return; }
 
   var hP = _sh(CFG.HOJAS.PARTICIPANTES);
   var dp = hP.getDataRange().getValues();
+
+  // Verificar duplicado por nombre
   for (var i = 1; i < dp.length; i++) {
-    if (String(dp[i][0]).trim() === id) { ui.alert("Ya existe el ID " + id); return; }
+    if (limpiarNombre(String(dp[i][1])).toLowerCase() === limpiarNombre(nombre).toLowerCase()) {
+      ui.alert("Ya existe un participante con ese nombre:\n" + dp[i][1]); return;
+    }
+  }
+
+  // Auto-generar ID
+  var seq = dp.length; // fila siguiente = total actual (sin encabezado) + 1
+  var id = _generarCreamos_ID(nombre, seq);
+  // Garantizar unicidad
+  var idsExistentes = dp.slice(1).map(function(r){ return String(r[0]).trim(); });
+  var base = id.substring(0, 4), n = seq;
+  while (idsExistentes.indexOf(id) !== -1) {
+    n++;
+    var ns = String(n); while(ns.length < 3) ns = "0"+ns;
+    id = base + ns;
   }
 
   var carpeta = _carpetaDP();
@@ -449,12 +461,13 @@ function generarDirectorioParticipantes() { _run(function() {
   // Agrupar por categoría
   var porCat = { A: [], B: [], C: [], D: [] };
   datos.forEach(function(r) {
+    var id      = String(r[0]).trim();
     var nombre  = String(r[1]).trim();
     var cat     = String(r[10]).trim().toUpperCase();
     var tarifa  = parseFloat(r[11]) || CFG.CATEGORIAS[cat] || 0;
     var estado  = String(r[5]).trim() || "Activo";
     if (!nombre || !porCat[cat]) return;
-    porCat[cat].push({ nombre: nombre, tarifa: tarifa, estado: estado });
+    porCat[cat].push({ id: id, nombre: nombre, tarifa: tarifa, estado: estado });
   });
 
   // Recrear hoja Directorio
@@ -468,12 +481,12 @@ function generarDirectorioParticipantes() { _run(function() {
   function push(fila, tipo) { filas.push(fila); tipos.push(tipo); }
 
   var ahora = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm");
-  push(["DIRECTORIO DE PARTICIPANTES — " + CFG.ORG, "", "", "", ""], "titulo");
-  push(["Actualizado: " + ahora,                      "", "", "", ""], "sub");
-  push(["", "", "", "", ""],                                           "vacio");
+  push(["DIRECTORIO DE PARTICIPANTES — " + CFG.ORG, "", "", "", "", ""], "titulo");
+  push(["Actualizado: " + ahora,                      "", "", "", "", ""], "sub");
+  push(["", "", "", "", "", ""],                                           "vacio");
 
   // encabezado de columnas
-  push(["#", "NOMBRE", "CATEGORÍA", "TARIFA Q/HR", "ESTADO"], "enc");
+  push(["#", "CREAMOS ID", "NOMBRE", "CATEGORÍA", "TARIFA Q/HR", "ESTADO"], "enc");
 
   var num = 1;
   var COLORES_CAT = { A: "#e6f4ea", B: "#e8f0fe", C: "#fef7e0", D: "#fce8e6" };
@@ -484,30 +497,30 @@ function generarDirectorioParticipantes() { _run(function() {
     if (!lista.length) return;
     var tarifa = CFG.CATEGORIAS[cat];
 
-    push(["▶  CATEGORÍA " + cat, "Q" + tarifa.toFixed(2) + " / hora",
+    push(["▶  CATEGORÍA " + cat, "", "Q" + tarifa.toFixed(2) + " / hora",
           lista.length + " participante" + (lista.length > 1 ? "s" : ""),
           "", ""], "cat_" + cat);
 
     lista.forEach(function(p) {
-      push([num++, p.nombre, cat, "Q" + tarifa.toFixed(2), p.estado],
+      push([num++, p.id, p.nombre, cat, "Q" + tarifa.toFixed(2), p.estado],
            p.estado === "Activo" ? "activo" : "inactivo");
     });
 
-    push(["", "Subtotal categoría " + cat + ": " + lista.length, "", "", ""], "subtotal");
-    push(["", "", "", "", ""], "vacio");
+    push(["", "", "Subtotal categoría " + cat + ": " + lista.length, "", "", ""], "subtotal");
+    push(["", "", "", "", "", ""], "vacio");
   });
 
   // Total general
   var totalActivos = Object.keys(porCat).reduce(function(s, c) {
     return s + porCat[c].filter(function(p){ return p.estado === "Activo"; }).length;
   }, 0);
-  push(["", "TOTAL ACTIVOS: " + totalActivos, "", "", ""], "total");
+  push(["", "", "TOTAL ACTIVOS: " + totalActivos, "", "", ""], "total");
 
-  hD.getRange(1, 1, filas.length, 5).setValues(filas);
+  hD.getRange(1, 1, filas.length, 6).setValues(filas);
 
   // ── Formato ──────────────────────────────────────────────────
   tipos.forEach(function(tipo, idx) {
-    var r = hD.getRange(idx + 1, 1, 1, 5);
+    var r = hD.getRange(idx + 1, 1, 1, 6);
     r.setFontFamily("Arial").setFontSize(10);
 
     if (tipo === "titulo") {
@@ -546,17 +559,18 @@ function generarDirectorioParticipantes() { _run(function() {
   // bordes en filas de datos y encabezado
   tipos.forEach(function(tipo, idx) {
     if (tipo === "activo" || tipo === "inactivo" || tipo === "enc") {
-      hD.getRange(idx + 1, 1, 1, 5)
+      hD.getRange(idx + 1, 1, 1, 6)
         .setBorder(null, null, true, null, null, null, "#dadce0", SpreadsheetApp.BorderStyle.SOLID);
     }
   });
 
   // anchos de columna
   hD.setColumnWidth(1, 45);
-  hD.setColumnWidth(2, 260);
-  hD.setColumnWidth(3, 100);
-  hD.setColumnWidth(4, 110);
-  hD.setColumnWidth(5, 90);
+  hD.setColumnWidth(2, 100);
+  hD.setColumnWidth(3, 260);
+  hD.setColumnWidth(4, 100);
+  hD.setColumnWidth(5, 110);
+  hD.setColumnWidth(6, 90);
   hD.setFrozenRows(4);
 
   // Activar la hoja
@@ -2142,7 +2156,8 @@ function _calcularResumenPeriodo(fi, ff) {
           tarifa:       info.tarifa    || CFG.CATEGORIAS.C,
           tieneFactura: info.tieneFactura || false,
           categoria:    info.categoria || "C",
-          codigo:       extraerCodigo(nombre) || ""
+          id:           info.id || "",
+          codigo:       info.id || extraerCodigo(nombre) || ""
         };
       });
       return resultado1;
@@ -2218,7 +2233,8 @@ function _calcularResumenPeriodo(fi, ff) {
       tarifa:       info.tarifa    || CFG.CATEGORIAS.C,
       tieneFactura: info.tieneFactura || false,
       categoria:    info.categoria || "C",
-      codigo:       extraerCodigo(nombre) || ""
+      id:           info.id || "",
+      codigo:       info.id || extraerCodigo(nombre) || ""
     };
   });
 
@@ -3576,6 +3592,7 @@ function _construirMapaTarifas() {
     }
     var t = String(datos[i][12]).trim().toLowerCase(); // col M = Tiene_Factura
     map[nombre] = {
+      id:           String(datos[i][0]||"").trim(),  // col A = Creamos_ID
       tarifa:       tarifa,
       categoria:    String(datos[i][10]).trim().toUpperCase(),
       tieneFactura: t === "sí" || t === "si"
