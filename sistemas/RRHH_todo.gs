@@ -2623,6 +2623,8 @@ function generarChecklistPago() { _run(function() {
          "Sin factura: " + sinFact.length + " participantes\n\n" +
          "Las columnas ★ son editables para marcar el avance.");
 }); }
+
+function crearEstructuraDrive() { _run(function() {
   var raiz     = _getOCreate(null, CFG.ORG+" · RRHH");
   var docsPD   = _getOCreate(raiz, "Docs_Proceso");
   var recibos  = _getOCreate(raiz, "Recibos");
