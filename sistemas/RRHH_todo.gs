@@ -357,47 +357,82 @@ var LISTA_OFICIAL = [
 
 /*
  * Carga la lista oficial en PARTICIPANTES.
- * Solo agrega filas nuevas; no sobreescribe existentes.
+ * Limpia duplicados y genera Creamos_ID automático (formato XXXX001).
  */
 function cargarListaParticipantes() { _run(function() {
+  var ui = SpreadsheetApp.getUi();
+  var resp = ui.alert(
+    "📋 Cargar lista oficial",
+    "Se borrarán todas las filas actuales de PARTICIPANTES y se cargará la lista\noficial limpia (29 participantes) con IDs generados automáticamente.\n\n¿Continuar?",
+    ui.ButtonSet.YES_NO
+  );
+  if (resp !== ui.Button.YES) return;
+
   var hP = _sh(CFG.HOJAS.PARTICIPANTES);
 
-  // índice de nombres ya existentes (normalizados)
-  var existentes = {};
+  // Borrar datos anteriores (preservar encabezado)
   var lastRow = hP.getLastRow();
-  if (lastRow > 1) {
-    hP.getRange(2, 2, lastRow - 1, 1).getValues().forEach(function(r) {
-      if (r[0]) existentes[limpiarNombre(String(r[0]))] = true;
-    });
-  }
+  if (lastRow > 1) hP.getRange(2, 1, lastRow - 1, 20).clearContent();
 
-  var agregados = 0, omitidos = 0;
-  LISTA_OFICIAL.forEach(function(item) {
+  // Construir filas con IDs únicos
+  var filas = [];
+  LISTA_OFICIAL.forEach(function(item, idx) {
     var nombre = item[0], cat = item[1];
-    if (existentes[limpiarNombre(nombre)]) { omitidos++; return; }
+    var id     = _generarCreamos_ID(nombre, idx + 1);
     var tarifa = CFG.CATEGORIAS[cat] || 0;
-    hP.appendRow([
-      "",       // Creamos_ID
-      nombre,   // Nombre
-      CFG.ORG,  // Proyecto
-      "","",    // Division, Programa
-      "Activo", // Estado
-      "","","","", // Etapa, Educacion, Apoyo, Inclusion
-      cat,      // Categoria
-      tarifa,   // Tarifa_Hora
-      "No",     // Tiene_Factura
-      "","","","","","",""  // DPI…URL_Doc_Proceso
+    filas.push([
+      id,       // A: Creamos_ID
+      nombre,   // B: Nombre
+      CFG.ORG,  // C: Proyecto
+      "", "",   // D: Division, E: Programa
+      "Activo", // F: Estado
+      "", "", "", "", // G–J: Etapa, Educacion, Apoyo_Emocional, Inclusion_Laboral
+      cat,      // K: Categoria
+      tarifa,   // L: Tarifa_Hora
+      "No",     // M: Tiene_Factura
+      "", "", "", "", "", "", "" // N–T: DPI, NIT, Correo, Banco, Num_Cuenta, Forma_Pago, URL_Doc_Proceso
     ]);
-    existentes[limpiarNombre(nombre)] = true;
-    agregados++;
   });
 
+  if (filas.length > 0) {
+    hP.getRange(2, 1, filas.length, 20).setValues(filas);
+    // Formato de tarifa
+    hP.getRange(2, 12, filas.length, 1).setNumberFormat("Q#,##0.00");
+    // Color alterno por categoría
+    _colorearParticipantes(hP, filas.length);
+  }
+
   _alert(
-    "✅ Lista cargada en PARTICIPANTES.\n" +
-    "  Nuevos: " + agregados + "\n" +
-    "  Ya existían: " + omitidos
+    "✅ Lista oficial cargada.\n\n" +
+    "  Participantes: " + filas.length + "\n" +
+    "  IDs generados: XXXX + 3 dígitos (ej. ANVE001)\n\n" +
+    "Los IDs son editables — puedes ajustarlos manualmente en la col. A."
   );
 }); }
+
+/**
+ * Genera ID en formato: 2 letras del primer nombre + 2 letras del primer apellido + seq 3 dígitos
+ * Ejemplo: ANGELICA VELIZ → ANVE001
+ */
+function _generarCreamos_ID(nombre, seq) {
+  var partes = textoParaComparar(nombre).toUpperCase()
+    .replace(/[^A-Z\s]/g, "").trim().split(/\s+/);
+  var p1 = (partes[0] || "XX").substring(0, 2);
+  var p2 = (partes[1] || "XX").substring(0, 2);
+  var num = String(seq);
+  while (num.length < 3) num = "0" + num;
+  return (p1 + p2 + num).toUpperCase();
+}
+
+/** Colorea filas de PARTICIPANTES según categoría */
+function _colorearParticipantes(hP, total) {
+  var COLORES = { A: "#d9ead3", B: "#c9daf8", C: "#fff2cc", D: "#f4cccc" };
+  for (var i = 0; i < total; i++) {
+    var cat = String(hP.getRange(i + 2, 11).getValue()).trim().toUpperCase();
+    var color = COLORES[cat] || "#ffffff";
+    hP.getRange(i + 2, 1, 1, 20).setBackground(color);
+  }
+}
 
 /*
  * Genera (o actualiza) una hoja "Directorio" con todos los participantes
@@ -1144,12 +1179,18 @@ function _nombreDeFila(fila, c) {
 // ── Normalización de nombres ──────────────────────────────────
 
 function extraerCodigo(nombre) {
-  var m=String(nombre).match(/([A-ZÁÉÍÓÚÑÜ]{4}\d{6})/i); return m?m[1].toUpperCase():null;
+  // Formato largo: ANVE300380 (4 letras + 6 dígitos)
+  var m = String(nombre).match(/([A-ZÁÉÍÓÚÑÜ]{4}\d{6})/i);
+  if (m) return m[1].toUpperCase();
+  // Formato corto: ANVE001 (4 letras + 3 dígitos)
+  var m2 = String(nombre).match(/([A-ZÁÉÍÓÚÑÜ]{4}\d{3})/i);
+  return m2 ? m2[1].toUpperCase() : null;
 }
 function limpiarNombre(nombre) {
-  var s=String(nombre).replace(/^[A-ZÁÉÍÓÚÑÜ]{4}\d{6}\s*/i,"");
-  s=s.replace(/\s*\([A-ZÁÉÍÓÚÑÜ]{4}\d{6}\)\s*/i,"");
-  return s.replace(/^[•\s]+/,"").trim();
+  var s = String(nombre)
+    .replace(/^[A-ZÁÉÍÓÚÑÜ]{4}\d{3,6}\s*/i, "")       // ID al inicio
+    .replace(/\s*\([A-ZÁÉÍÓÚÑÜ]{4}\d{3,6}\)\s*/i, ""); // ID en paréntesis
+  return s.replace(/^[•\s]+/, "").trim();
 }
 function textoParaComparar(texto) {
   return String(texto).toLowerCase()
