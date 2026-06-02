@@ -336,45 +336,43 @@ function actualizarTodosLosDps() { _run(function() {
 
 // Lista maestra: [Nombre, Categoria].  Editar aquí para actualizar.
 // Formato: [nombre_oficial, categoria, creamos_id, kobo_slug]
-// creamos_id = "" si aún no tiene ID oficial asignado (se auto-genera)
+// Orden oficial del taller (1-33). creamos_id="" = se auto-genera.
+// kobo_slug: valor exacto que usa KoboToolbox en el campo Participante.
 var LISTA_OFICIAL = [
-  // ── Categoría A ────────────────────────────────────────────────
-  ["Angelica Casandra Veliz Vián",        "A", "ANVE241097", "angelica_casandra_veliz_vian"],
-  // ── Categoría B ────────────────────────────────────────────────
-  ["Emily Cristina Zacarías Morales",     "B", "EMZA021099", "emily_cristina_zacarias_morales"],
-  ["Juana del Rosario Vicente Choy",      "B", "",           "juana_del_rosario_vicente_choy"],
-  ["Karin Nineth Balcarcel Santizo",      "B", "KABA221273", "karin_nineth_balcarcel_santizo"],
-  ["Sara Evilia Raymundo Rivera",         "B", "SARA010779", "sara_evilia_raymundo_rivera"],
-  ["Sindy Paola Lazaro Diaz",            "B", "SILA161192", "sindy_paola_lazaro_diaz"],
-  ["Sindy Sucely Veliz Vian",            "B", "SIVE150196", "sindy_sucely_veliz_vian"],
-  // ── Categoría C ────────────────────────────────────────────────
-  ["Anaid Lluleydi Mateo Morales",        "C", "ANMA100605", "anaid_lluleydi_mateo_morales"],
-  ["Ericka Vasquez Tocay",               "C", "ERVA031282", "ericka_vasquez_tocay"],
-  ["Heidy Yessenía Morales Lázaro",      "C", "",           "heidy_yessenia_morales_lazaro"],
-  ["Helen Melany Rodas López",           "C", "HERO171201", "helen_melany_rodas_lopez"],
-  ["Laura Elizabeth Gonzalez Figueroa",  "C", "LAGO091289", "laura_elizabeth_gonzalez_figueroa"],
-  ["Leticia Sumalé Arredondo",           "C", "LESU210172", "leticia_sumale_arredondo"],
-  ["Lorena del Rosario Urrea",           "C", "",           "lorena_del_rosario_urrea"],
-  ["Maria Audelia Velasquez Cabrera",    "C", "MAVE130766", "maria_audelia_velasquez_cabrera"],
-  ["Maria del Carmen Borrayo Vásquez",   "C", "MABO280871", "maria_del_carmen_borrayo_vasquez"],
-  ["María Ricarda Suret Chamalé",        "C", "MASU150784", "maria_ricarda_suret_chamale"],
-  ["Mayra Lorena Cifuentes García",      "C", "MACI030373", "mayra_lorena_cifuentes_garcia"],
-  ["Rosaura Jeannette Saquic Lopez",     "C", "ROSA301178", "rosaura_jeannette_saquic_lopez"],
-  ["Ruth Saraí Pivaral Sequen",          "C", "RUPI170992", "ruth_sarai_pivaral_sequen"],
-  ["Sandra Aracely Vicente Cortéz",      "C", "",           "sandra_aracely_vicente_cortez"],
-  ["Vilma Elizabeth Lopez Vasquez",      "C", "VILO040971", "vilma_elizabeth_lopez_vasquez"],
-  ["Yocelin Yajaira Celada Rodriguez",   "C", "YOCE041291", "yocelin_yajaira_celada_rodriguez"],
-  ["Yoselin Melissa Zurdo Tocay",        "C", "YOZU230190", "yoselin_melissa_zurdo_tocay"],
-  // ── Categoría D ────────────────────────────────────────────────
-  ["Alicia Lopez Reynoso",               "D", "",           "alicia_lopez_reynoso"],
-  ["Ana Rebeca Larios Perez",            "D", "ANLA060686", "ana_rebeca_larios_perez"],
-  ["Angélica Maribel Cuxe Pérez",        "D", "ANCU300380", "angelica_maribel_cuxe_perez"],
-  ["Brenda Azucena del Cid Urrea",       "D", "",           "brenda_azucena_del_cid_urrea"],
-  ["Elendi Nicol Pedroza Cuxé",          "D", "",           "elendi_nicol_pedroza_cuxe"],
-  ["Jeimy Suceli Barrientos",            "D", "JEBA011090", "jeimy_suceli_barrientos"],
-  ["María Aidé Alvarado Cortéz",         "D", "MAAL070490", "maria_aide_alvarado_cortez"],
-  ["Mirna Leticia Rodriguez Paniagua",   "D", "MIRO080964", "mirna_leticia_rodriguez_paniagua"],
-  ["Otilia Turuy Paz",                   "D", "",           "otilia_turuy_paz"]
+  //  #   Nombre oficial                           Cat  Creamos_ID    Kobo slug
+  [ 1, "Sindy Paola Lazaro Diaz",            "B", "SILA161192", "sindy_paola_lazaro_diaz"],
+  [ 2, "Rosaura Jeannette Saquic Lopez",     "C", "ROSA301178", "rosaura_jeannette_saquic_lopez"],
+  [ 3, "Maria del Carmen Borrayo Vásquez",   "C", "MABO280871", "maria_del_carmen_borrayo_vasquez"],
+  [ 4, "Maria Audelia Velasquez Cabrera",    "C", "MAVE130766", "maria_audelia_velasquez_cabrera"],
+  [ 5, "María Ricarda Suret Chamalé",        "C", "MASU150784", "maria_ricarda_suret_chamale"],
+  [ 6, "Mirna Leticia Rodriguez Paniagua",   "D", "MIRO080964", "mirna_leticia_rodriguez_paniagua"],
+  [ 7, "Sindy Sucely Veliz Vian",            "B", "SIVE150196", "sindy_sucely_veliz_vian"],
+  [ 8, "Yoselin Melissa Zurdo Tocay",        "C", "YOZU230190", "yoselin_melissa_zurdo_tocay"],
+  [ 9, "Erika Vásquez Tocay de López",       "C", "ERVA031282", "ericka_vasquez_tocay"],
+  [10, "Leticia Sumalé Arredondo",           "C", "LESU210172", "leticia_sumale_arredondo"],
+  [11, "Alicia Lopez Reynoso",               "D", "",           "alicia_lopez_reynoso"],
+  [12, "Otilia Turuy Paz",                   "D", "",           "otilia_turuy_paz"],
+  [13, "Angelica Casandra Veliz Vián",       "A", "ANVE241097", "angelica_casandra_veliz_vian"],
+  [14, "Karin Nineth Balcarcel Santizo",     "B", "KABA221273", "karin_nineth_balcarcel_santizo"],
+  [15, "Lorena del Rosario Urrea",           "C", "",           "lorena_del_rosario_urrea"],
+  [16, "Brenda Azucena del Cid Urrea",       "D", "",           "brenda_azucena_del_cid_urrea"],
+  [17, "Vilma Elizabeth Lopez Vasquez",      "C", "VILO040971", "vilma_elizabeth_lopez_vasquez"],
+  [18, "Angélica Maribel Cuxe Pérez",        "D", "ANCU300380", "angelica_maribel_cuxe_perez"],
+  [19, "Sara Evilia Raymundo Rivera",        "B", "SARA010779", "sara_evilia_raymundo_rivera"],
+  [20, "Helen Melany Rodas López",           "C", "HERO171201", "helen_melany_rodas_lopez"],
+  [21, "Elendi Nicol Pedroza Cuxé",          "D", "",           "elendi_nicol_pedroza_cuxe"],
+  [22, "Emily Cristina Zacarías Morales",    "B", "EMZA021099", "emily_cristina_zacarias_morales"],
+  [23, "Juana del Rosario Vicente Choy",     "B", "",           "juana_del_rosario_vicente_choy"],
+  [24, "Mayra Lorena Cifuentes García",      "C", "MACI030373", "mayra_lorena_cifuentes_garcia"],
+  [25, "Ana Rebeca Larios Perez",            "D", "ANLA060686", "ana_rebeca_larios_perez"],
+  [26, "Jeimy Suceli Barrientos",            "D", "JEBA011090", "jeimy_suceli_barrientos"],
+  [27, "María Aidé Alvarado Cortéz",         "D", "MAAL070490", "maria_aide_alvarado_cortez"],
+  [28, "Yocelin Yajaira Celada Rodriguez",   "C", "YOCE041291", "yocelin_yajaira_celada_rodriguez"],
+  [29, "Ruth Saraí Pivaral Sequen",          "C", "RUPI170992", "ruth_sarai_pivaral_sequen"],
+  [30, "Laura Elizabeth Gonzalez Figueroa",  "C", "LAGO091289", "laura_elizabeth_gonzalez_figueroa"],
+  [31, "Sandra Aracely Vicente Cortéz",      "C", "",           "sandra_aracely_vicente_cortez"],
+  [32, "Heidy Yessenía Morales Lázaro",      "C", "",           "heidy_yessenia_morales_lazaro"],
+  [33, "Anaid Lluleydi Mateo Morales",       "C", "ANMA100605", "anaid_lluleydi_mateo_morales"]
 ];
 
 /*
@@ -399,10 +397,10 @@ function cargarListaParticipantes() { _run(function() {
   // Construir filas con IDs únicos
   var filas = [];
   LISTA_OFICIAL.forEach(function(item, idx) {
-    var nombre = item[0], cat = item[1];
-    // Usar ID oficial si existe; si no, auto-generar
-    var id     = (item[2] && item[2].trim()) ? item[2].trim().toUpperCase()
-                                             : _generarCreamos_ID(nombre, idx + 1);
+    var nombre = item[1], cat = item[2];
+    // Usar ID oficial (item[3]) si existe; si no, auto-generar
+    var id     = (item[3] && item[3].trim()) ? item[3].trim().toUpperCase()
+                                             : _generarCreamos_ID(nombre, item[0]);
     var tarifa = CFG.CATEGORIAS[cat] || 0;
     filas.push([
       id,       // A: Creamos_ID
@@ -424,7 +422,7 @@ function cargarListaParticipantes() { _run(function() {
     _colorearParticipantes(hP, filas.length);
   }
 
-  var sinId = LISTA_OFICIAL.filter(function(it){ return !it[2]; }).map(function(it){ return it[0]; });
+  var sinId = LISTA_OFICIAL.filter(function(it){ return !it[3]; }).map(function(it){ return it[0]+". "+it[1]; });
   _alert(
     "✅ Lista oficial cargada — " + filas.length + " participantes.\n\n" +
     "IDs oficiales: " + (filas.length - sinId.length) + "\n" +
@@ -1300,15 +1298,15 @@ function cargarMapeoNombres() {
 
   // 1. Desde LISTA_OFICIAL: slug kobo → nombre oficial
   LISTA_OFICIAL.forEach(function(item) {
-    var nombreOficial = item[0];
-    var slug          = item[3] || "";
+    var nombreOficial = item[1];
+    var slug          = item[4] || "";
     if (slug) {
       m[slug] = nombreOficial;
       // También mapear slug con espacios (kobo a veces usa espacios en lugar de _)
       m[slug.replace(/_/g, " ")] = nombreOficial;
     }
     // Mapear versión sin tildes del nombre oficial
-    var sinTildes = textoParaComparar(nombreOficial);
+    var sinTildes = textoParaComparar(item[1]);
     if (sinTildes !== nombreOficial.toLowerCase()) {
       m[sinTildes] = nombreOficial;
     }
@@ -3830,9 +3828,10 @@ function crearHojaDiasEstudio() { _run(function() {
 
   if (esNueva) {
     // Pre-llenar desde LISTA_OFICIAL (siempre limpio)
+    // Orden oficial del taller (por número 1-33)
     var filas = LISTA_OFICIAL.map(function(it) {
-      return [it[0], "","","","","","","","",""];
-    }).sort(function(a,b){ return a[0].localeCompare(b[0],"es"); });
+      return [it[1], "","","","","","","","",""];
+    });
 
     hoja.getRange(2, 1, filas.length, 10).setValues(filas);
 
@@ -3840,10 +3839,10 @@ function crearHojaDiasEstudio() { _run(function() {
     var vX = SpreadsheetApp.newDataValidation().requireValueInList(["X",""],true).build();
     hoja.getRange(2,2,filas.length,7).setDataValidation(vX).setHorizontalAlignment("center");
 
-    // Colores alternos por categoría
+    // Colores por categoría
     var CAT_BG = { A:"#e8d5f5", B:"#d5e8f5", C:"#f5f5d5", D:"#f5d5d5" };
-    LISTA_OFICIAL.sort(function(a,b){return a[0].localeCompare(b[0],"es");}).forEach(function(it, i) {
-      hoja.getRange(i+2, 1, 1, 10).setBackground(CAT_BG[it[1]] || "#ffffff");
+    LISTA_OFICIAL.forEach(function(it, i) {
+      hoja.getRange(i+2, 1, 1, 10).setBackground(CAT_BG[it[2]] || "#ffffff");
     });
   }
 
@@ -3875,9 +3874,10 @@ function crearHojaListaTerapias() { _run(function() {
 
   if (esNueva) {
     // Pre-llenar desde LISTA_OFICIAL con ID y nombre
+    // Orden oficial del taller (por número 1-33)
     var filas = LISTA_OFICIAL.map(function(it) {
-      return [it[2] || "", it[0], "", ""];
-    }).sort(function(a,b){ return a[1].localeCompare(b[1],"es"); });
+      return [it[3] || "", it[1], "", ""];
+    });
 
     hoja.getRange(2, 1, filas.length, 4).setValues(filas);
 
