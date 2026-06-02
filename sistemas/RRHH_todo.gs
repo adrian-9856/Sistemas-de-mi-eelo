@@ -2693,28 +2693,47 @@ function configurarTriggers() { _run(function() {
 // ── Reinstalar ────────────────────────────────────────────────
 
 function reinstalarSistema() { _run(function() {
-  var ui=SpreadsheetApp.getUi();
-  var resp=ui.alert("⚠️  Reinstalar sistema RRHH — BORRADO COMPLETO",
-    "Elimina TODO:\n• Hojas PARTICIPANTES, ASISTENCIA, FACTURACION,\n" +
-    "  DASHBOARD, DatosKobo, NombresCanonicos, DiasEstudio, ListaTerapias\n" +
-    "• Carpeta «"+CFG.ORG+" · RRHH» con Docs de Proceso, Recibos y Reportes\n\n" +
+  var ui  = SpreadsheetApp.getUi();
+  var resp = ui.alert("⚠️  Reinstalar sistema RRHH — BORRADO COMPLETO",
+    "Elimina TODO:\n• TODAS las hojas del Spreadsheet\n" +
+    "• Carpeta «" + CFG.ORG + " · RRHH» en Drive (Docs, Recibos, Reportes)\n" +
+    "• Todos los triggers automáticos\n\n" +
     "Esta acción NO se puede deshacer.\n¿Continuar?", ui.ButtonSet.YES_NO);
-  if(resp!==ui.Button.YES)return;
-  var ss=SpreadsheetApp.getActiveSpreadsheet();
-  [CFG.HOJAS.PARTICIPANTES, CFG.HOJAS.CLASIFICACION, CFG.HOJAS.ASISTENCIA,
-   CFG.HOJAS.FACTURACION, CFG.HOJAS.DASHBOARD, CFG.HOJAS.DATOS_KOBO,
-   "NombresCanonicos","DiasEstudio","ListaTerapias"].forEach(function(n){
-    var h=ss.getSheetByName(n);if(h)ss.deleteSheet(h);
+  if (resp !== ui.Button.YES) return;
+
+  var ss     = SpreadsheetApp.getActiveSpreadsheet();
+  var hojas  = ss.getSheets();
+
+  // Google Sheets requiere al menos 1 hoja: crear temporal, borrar el resto
+  var temp = ss.insertSheet("_temp_reinstal_");
+  hojas.forEach(function(h) {
+    try { ss.deleteSheet(h); } catch(_) {}
   });
-  var p=PropertiesService.getScriptProperties();
-  var idRaiz=p.getProperty("RRHH_RAIZ");
-  if(idRaiz){try{_borrarCarpetaRecursivo(DriveApp.getFolderById(idRaiz));}catch(_){}}
-  else{var it=DriveApp.getFoldersByName(CFG.ORG+" · RRHH");while(it.hasNext())_borrarCarpetaRecursivo(it.next());}
-  ScriptApp.getProjectTriggers().forEach(function(t){ScriptApp.deleteTrigger(t);});
+
+  // Borrar carpeta en Drive
+  var p = PropertiesService.getScriptProperties();
+  var idRaiz = p.getProperty("RRHH_RAIZ");
+  if (idRaiz) {
+    try { _borrarCarpetaRecursivo(DriveApp.getFolderById(idRaiz)); } catch(_) {}
+  } else {
+    var it = DriveApp.getFoldersByName(CFG.ORG + " · RRHH");
+    while (it.hasNext()) _borrarCarpetaRecursivo(it.next());
+  }
+
+  // Borrar triggers y propiedades
+  ScriptApp.getProjectTriggers().forEach(function(t) { ScriptApp.deleteTrigger(t); });
   p.deleteAllProperties();
+
   Utilities.sleep(500);
+
+  // Recrear hojas del sistema (borra la hoja temporal internamente)
   crearHojas();
-  _alert("✅ Sistema reinstalado.\nSiguiente paso: PASO 2 — Crear estructura en Drive.");
+
+  // Borrar la hoja temporal si quedó
+  var t2 = ss.getSheetByName("_temp_reinstal_");
+  if (t2) try { ss.deleteSheet(t2); } catch(_) {}
+
+  _alert("✅ Sistema reinstalado limpiamente.\n\nTodas las hojas antiguas fueron eliminadas.\nSiguiente paso: ejecuta 'Instalación completa'.");
 }); }
 
 function _borrarCarpetaRecursivo(carpeta) {
