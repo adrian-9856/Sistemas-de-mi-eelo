@@ -2307,7 +2307,7 @@ function _generarReporteQuincena(fi, ff, label, tabNombre, prevHorasReponer) {
   // A=#  B=Participante  C=Fact.  D-E=spacers
   // F=Total hrs  G=Hrs reponer  H=Total a pagar
   // I=Monto Base  J=IVA 5%  K=Total org paga  L=Redondeo  M=Neto part.
-  var encabezados = ["#","Participantes","Fact.","","",
+  var encabezados = ["#","Participante","Fact.","ID","",
     "Total hrs","Hrs reponer","Total a pagar",
     "Monto Base","IVA 5%","Total org paga","Redondeo","Neto part."];
   h.getRange(3, 1, 1, 13).setValues([encabezados])
@@ -2348,11 +2348,10 @@ function _generarReporteQuincena(fi, ff, label, tabNombre, prevHorasReponer) {
     totalGeneral += redond;
     if (d.tieneFactura) conFactura++; else sinFactura++;
 
-    var etiq = nombre + (d.codigo ? " (" + d.codigo + ")" : "");
     var factInd = d.tieneFactura ? "★ Sí" : "—";
 
     bloqueValores.push([
-      num++, etiq, factInd, "", "",
+      num++, nombre, factInd, d.codigo || "", "",
       horas,
       hReponer > 0 ? hReponer : "",
       hTotal,
@@ -2531,8 +2530,8 @@ function generarChecklistPago() { _run(function() {
    .setHorizontalAlignment("center");
 
   // ── Encabezados ────────────────────────────────────────────────
-  var enc = ["#","Participante","Cat.","Tarifa","Monto Base","IVA 5%",
-             "Total org paga","★ Factura recibida","★ Declaraguate","★ Pagado","Fecha pago","Notas"];
+  var enc = ["#","Participante","ID","Cat.","Tarifa","Monto Base","IVA 5%",
+             "Total org paga","★ Factura recibida","★ Declaraguate","★ Pagado","Notas"];
   h.getRange(3,1,1,12).setValues([enc])
    .setBackground("#37474f").setFontColor("#ffffff").setFontWeight("bold")
    .setHorizontalAlignment("center");
@@ -2562,20 +2561,21 @@ function generarChecklistPago() { _run(function() {
 
       h.getRange(filaActual,1,1,12).setValues([[
         num++,
-        nombre + (d.codigo ? " (" + d.codigo + ")" : ""),
+        nombre,
+        d.codigo || "",
         d.categoria || "?",
         "Q" + (d.tarifa||0).toFixed(2),
         base, iva > 0 ? iva : "—", org,
-        "Pendiente","Pendiente","No","",""
+        "Pendiente","Pendiente","No",""
       ]]);
 
       // Formato
       var bgF = d.tieneFactura ? "#fff8e1" : "#f1f8e9";
       h.getRange(filaActual,1,1,12).setBackground(bgF).setFontSize(10);
       h.getRange(filaActual,1).setHorizontalAlignment("center");
-      h.getRange(filaActual,5,1,3).setNumberFormat('"Q"#,##0.00').setHorizontalAlignment("right");
-      // Cols editables: H, I, J, K (8-11) — fondo blanco destacado
-      h.getRange(filaActual,8,1,4).setBackground("#ffffff")
+      h.getRange(filaActual,6,1,3).setNumberFormat('"Q"#,##0.00').setHorizontalAlignment("right");
+      // Cols editables: I, J, K, L (9-12) — fondo blanco destacado
+      h.getRange(filaActual,9,1,4).setBackground("#ffffff")
        .setBorder(true,true,true,true,null,null,"#aaaaaa",SpreadsheetApp.BorderStyle.SOLID);
       // Borde fila
       h.getRange(filaActual,1,1,12)
@@ -2586,13 +2586,13 @@ function generarChecklistPago() { _run(function() {
 
     // Subtotal de sección
     h.getRange(filaActual,1,1,12).setValues([
-      ["","Subtotal","","",
+      ["","Subtotal","","","",
        Math.round(totalBase*100)/100,
        Math.round(totalIVA*100)/100,
-       Math.round(totalOrg*100)/100,"","","","",""]
+       Math.round(totalOrg*100)/100,"","","",""]
     ]);
     h.getRange(filaActual,1,1,12).setBackground("#eceff1").setFontStyle("italic");
-    h.getRange(filaActual,5,1,3).setNumberFormat('"Q"#,##0.00').setHorizontalAlignment("right");
+    h.getRange(filaActual,6,1,3).setNumberFormat('"Q"#,##0.00').setHorizontalAlignment("right");
     filaActual += 2;
     // Reset para la siguiente sección
     totalBase = 0; totalIVA = 0; totalOrg = 0;
@@ -2618,12 +2618,12 @@ function generarChecklistPago() { _run(function() {
   });
 
   h.getRange(filaActual,1,1,12).setValues([
-    ["","TOTALES GENERALES","","",
+    ["","TOTALES GENERALES","","","",
      Math.round(gBase*100)/100, Math.round(gIVA*100)/100, Math.round(gOrg*100)/100,
-     "","","","",""]
+     "","","",""]
   ]);
   h.getRange(filaActual,1,1,12).setBackground("#1a237e").setFontColor("#ffffff").setFontWeight("bold");
-  h.getRange(filaActual,5,1,3).setNumberFormat('"Q"#,##0.00').setHorizontalAlignment("right");
+  h.getRange(filaActual,6,1,3).setNumberFormat('"Q"#,##0.00').setHorizontalAlignment("right");
   filaActual += 2;
 
   // ── Guía de pasos ──────────────────────────────────────────────
