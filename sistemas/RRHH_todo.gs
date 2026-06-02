@@ -89,6 +89,8 @@ function onOpen() {
 
   // ── Submenú: Facturación ──────────────────────────────────────
   var menuFact = ui.createMenu("💰 Facturación y recibos")
+    .addItem("📋 Checklist de pago (flujo facturación)", "generarChecklistPago")
+    .addSeparator()
     .addItem("📅 Proceso mensual completo",             "procesarMesCompleto")
     .addSeparator()
     .addItem("💰 Calcular facturación del mes",         "calcularFacturacionMes")
@@ -2227,28 +2229,31 @@ function _generarReporteQuincena(fi, ff, label, tabNombre, prevHorasReponer) {
     h = ss.insertSheet(tabNombre);
   }
 
-  // Asegurar suficientes columnas
-  if (h.getMaxColumns() < 12) h.insertColumnsAfter(h.getMaxColumns(), 12 - h.getMaxColumns());
+  // Asegurar suficientes columnas (ahora usamos 13)
+  if (h.getMaxColumns() < 13) h.insertColumnsAfter(h.getMaxColumns(), 13 - h.getMaxColumns());
 
   // ── Fila 1: referencia de tarifas ──────────────────────────────
-  h.getRange(1, 1, 1, 12).setValues([["Q16.50","Q15.75","Q15.00","Q14.00","","","","","","","",""]]);
+  h.getRange(1, 1, 1, 13).setValues([["Q16.50","Q15.75","Q15.00","Q14.00","","","","","","","","",""]]);
   ["#639922","#4285f4","#fbbc04","#ea4335"].forEach(function(c, i) {
     h.getRange(1, i+1).setBackground(c).setFontColor("#ffffff").setFontWeight("bold")
      .setHorizontalAlignment("center");
   });
 
   // ── Fila 2: título del período ─────────────────────────────────
-  h.getRange(2, 1, 1, 12).merge()
+  h.getRange(2, 1, 1, 13).merge()
    .setValue("Período: " + label)
    .setBackground("#f8f9fa").setFontWeight("bold").setFontSize(11)
    .setHorizontalAlignment("center")
    .setBorder(true,true,true,true,null,null,"#dadce0",SpreadsheetApp.BorderStyle.SOLID);
 
   // ── Fila 3: encabezados de columnas ───────────────────────────
-  var encabezados = ["#","Participantes","","","",
-    "Total de horas","Horas a reponer","Total a pagar",
-    "Monto (Q)","IVA – 5%","Pago + IVA","Redondeo"];
-  h.getRange(3, 1, 1, 12).setValues([encabezados])
+  // A=#  B=Participante  C=Fact.  D-E=spacers
+  // F=Total hrs  G=Hrs reponer  H=Total a pagar
+  // I=Monto Base  J=IVA 5%  K=Total org paga  L=Redondeo  M=Neto part.
+  var encabezados = ["#","Participantes","Fact.","","",
+    "Total hrs","Hrs reponer","Total a pagar",
+    "Monto Base","IVA 5%","Total org paga","Redondeo","Neto part."];
+  h.getRange(3, 1, 1, 13).setValues([encabezados])
    .setBackground("#546e7a").setFontColor("#ffffff").setFontWeight("bold")
    .setHorizontalAlignment("center")
    .setBorder(true,true,true,true,null,null,"#37474f",SpreadsheetApp.BorderStyle.SOLID);
@@ -2259,83 +2264,123 @@ function _generarReporteQuincena(fi, ff, label, tabNombre, prevHorasReponer) {
   // ── Filas de datos: una por participante ───────────────────────
   var nombres = Object.keys(resumen).sort(function(a,b){ return a.localeCompare(b,"es"); });
   var filaActual = 4;
-  var totalGeneral = 0;
+  var sumBase = 0, sumIVA = 0, sumTotal = 0, totalGeneral = 0;
   var num = 1;
+  var conFactura = 0, sinFactura = 0;
 
   // Acumular todo en un array para un solo setValues masivo (más rápido)
   var bloqueValores = [];
-  var bloqueFilas   = [];   // índices de fila real (para format)
+  var bloqueFilas   = [];   // {fila, cat, tieneFactura}
 
   nombres.forEach(function(nombre) {
     var d = resumen[nombre];
     var hReponer = prevHorasReponer[nombre] || 0;
 
-    // ── Cálculo exacto (2 decimales, sin error float) ─────────────
+    // ── Cálculo exacto (2 decimales en cada paso) ─────────────────
     var horas   = Math.round(d.horas   * 100) / 100;
     var hTotal  = Math.round((horas + hReponer) * 100) / 100;
-    var monto   = Math.round(hTotal * d.tarifa * 100) / 100;
-    var iva     = d.tieneFactura ? Math.round(monto * CFG.IVA_PCT * 100) / 100 : 0;
-    var conIVA  = Math.round((monto + iva) * 100) / 100;
-    var redond  = Math.round(conIVA);   // entero para pago
+    var base    = Math.round(hTotal * d.tarifa * 100) / 100;
+    var iva     = d.tieneFactura ? Math.round(base * CFG.IVA_PCT * 100) / 100 : 0;
+    var orgPaga = Math.round((base + iva) * 100) / 100;
+    var redond  = Math.round(orgPaga);
+    var neto    = base;  // participante retiene base; IVA va a SAT vía Declaraguate
+
+    sumBase  += base;
+    sumIVA   += iva;
+    sumTotal += redond;
     totalGeneral += redond;
+    if (d.tieneFactura) conFactura++; else sinFactura++;
 
     var etiq = nombre + (d.codigo ? " (" + d.codigo + ")" : "");
+    var factInd = d.tieneFactura ? "★ Sí" : "—";
 
     bloqueValores.push([
-      num++, etiq, "","","",
+      num++, etiq, factInd, "", "",
       horas,
       hReponer > 0 ? hReponer : "",
       hTotal,
-      monto,
+      base,
       iva > 0 ? iva : "",
-      iva > 0 ? conIVA : monto,
-      redond
+      orgPaga,
+      redond,
+      neto
     ]);
-    bloqueFilas.push({ fila: filaActual, cat: d.categoria || "?" });
+    bloqueFilas.push({ fila: filaActual, cat: d.categoria || "?", tieneFactura: d.tieneFactura });
     filaActual++;
   });
 
   // Escribir todos los valores de una vez
   if (bloqueValores.length > 0) {
-    h.getRange(4, 1, bloqueValores.length, 12).setValues(bloqueValores);
+    h.getRange(4, 1, bloqueValores.length, 13).setValues(bloqueValores);
   }
 
   // Aplicar formato fila a fila (colores por categoría + números)
   bloqueFilas.forEach(function(bf) {
     var bg  = BG_CAT[bf.cat] || BG_CAT["?"];
-    var rFila = h.getRange(bf.fila, 1, 1, 12);
-    rFila.setBackground(bg).setFontFamily("Arial").setFontSize(10)
-         .setVerticalAlignment("middle");
-
+    h.getRange(bf.fila, 1, 1, 13)
+     .setBackground(bg).setFontFamily("Arial").setFontSize(10).setVerticalAlignment("middle");
     h.getRange(bf.fila, 1).setHorizontalAlignment("center").setFontWeight("bold");
-    // Col B (nombre) alineado izquierda, negrita
-    h.getRange(bf.fila, 2, 1, 4).setHorizontalAlignment("left");
-    // Cols numéricas: alineadas derecha
-    h.getRange(bf.fila, 6, 1, 7).setHorizontalAlignment("right");
-    // Formato moneda en cols I, J, K, L (9-12)
-    h.getRange(bf.fila, 9, 1, 4).setNumberFormat('"Q"#,##0.00');
-    // Borde inferior suave
-    h.getRange(bf.fila, 1, 1, 12)
+    h.getRange(bf.fila, 2, 1, 3).setHorizontalAlignment("left");
+    h.getRange(bf.fila, 6, 1, 8).setHorizontalAlignment("right");
+    // Col C (Fact.) — color especial si tiene factura
+    if (bf.tieneFactura) {
+      h.getRange(bf.fila, 3)
+       .setBackground("#fce8e6").setFontColor("#c5221f").setFontWeight("bold")
+       .setHorizontalAlignment("center");
+    } else {
+      h.getRange(bf.fila, 3).setFontColor("#9aa0a6").setHorizontalAlignment("center");
+    }
+    // Formato moneda cols I–M (9–13)
+    h.getRange(bf.fila, 9, 1, 5).setNumberFormat('"Q"#,##0.00');
+    h.getRange(bf.fila, 1, 1, 13)
      .setBorder(null,null,true,null,null,null,"#cccccc",SpreadsheetApp.BorderStyle.SOLID);
   });
 
-  // ── Fila total ─────────────────────────────────────────────────
+  // ── Bloque de totales desglosados ──────────────────────────────
   filaActual++;
-  h.getRange(filaActual, 1, 1, 12)
-   .setValues([["","","","","","","","","","","",totalGeneral]]);
-  h.getRange(filaActual, 12)
-   .setBackground("#00c853").setFontColor("#ffffff").setFontWeight("bold")
-   .setFontSize(12).setHorizontalAlignment("center")
-   .setNumberFormat('"Q"#,##0.00');
 
-  // ── Fila leyenda de categorías ─────────────────────────────────
+  // Fila: subtotal monto base
+  h.getRange(filaActual, 1, 1, 13).setValues([
+    ["","Monto base (sin IVA)","","","","","","",
+     Math.round(sumBase*100)/100,"","","",""]
+  ]);
+  h.getRange(filaActual,2).setFontStyle("italic").setFontColor("#555555");
+  h.getRange(filaActual,9).setNumberFormat('"Q"#,##0.00').setBackground("#f8f9fa");
   filaActual++;
-  h.getRange(filaActual, 1, 1, 8)
-   .setValues([["A=Q16.50","B=Q15.75","C=Q15.00","D=Q14.00","","","",""]]);
+
+  // Fila: total IVA (Declaraguate)
+  h.getRange(filaActual, 1, 1, 13).setValues([
+    ["","IVA 5% total a declarar (Declaraguate)","","","","","","",
+     "","",Math.round(sumIVA*100)/100,"",""]
+  ]);
+  h.getRange(filaActual,2).setFontWeight("bold").setFontColor("#c5221f");
+  h.getRange(filaActual,11)
+   .setNumberFormat('"Q"#,##0.00').setBackground("#fce8e6").setFontColor("#c5221f").setFontWeight("bold");
+  filaActual++;
+
+  // Fila: GRAN TOTAL (lo que paga la organización)
+  h.getRange(filaActual, 1, 1, 13).setValues([
+    ["","TOTAL QUE PAGA LA ORGANIZACIÓN","","","","","","",
+     "","","",totalGeneral,""]
+  ]);
+  h.getRange(filaActual,2).setFontWeight("bold").setFontSize(11);
+  h.getRange(filaActual,12)
+   .setBackground("#00c853").setFontColor("#ffffff").setFontWeight("bold")
+   .setFontSize(12).setHorizontalAlignment("center").setNumberFormat('"Q"#,##0.00');
+  filaActual++;
+
+  // ── Fila leyenda + resumen ─────────────────────────────────────
+  filaActual++;
+  h.getRange(filaActual, 1, 1, 13).setValues([[
+    "A=Q16.50","B=Q15.75","C=Q15.00","D=Q14.00","",
+    "★ = emite factura","","",
+    "Con factura: "+conFactura,"Sin factura: "+sinFactura,"","",""
+  ]]);
   [BG_CAT.A,BG_CAT.B,BG_CAT.C,BG_CAT.D].forEach(function(c,i){
     h.getRange(filaActual,i+1).setBackground(c).setFontSize(9)
      .setHorizontalAlignment("center").setFontWeight("bold");
   });
+  h.getRange(filaActual,6,1,4).setFontSize(9).setFontColor("#555555");
 
   // ── Fila timestamp ─────────────────────────────────────────────
   filaActual++;
@@ -2343,8 +2388,8 @@ function _generarReporteQuincena(fi, ff, label, tabNombre, prevHorasReponer) {
    .setValue("Actualizado: " + ts + "  |  " + nombres.length + " participantes")
    .setFontSize(8).setFontColor("#9aa0a6").setHorizontalAlignment("right");
 
-  // ── Ancho de columnas ──────────────────────────────────────────
-  [35, 230, 25, 25, 25, 95, 110, 95, 95, 80, 90, 90]
+  // ── Ancho de columnas (13 cols) ────────────────────────────────
+  [35, 220, 60, 20, 20, 90, 100, 95, 95, 80, 95, 90, 90]
     .forEach(function(w, i) { h.setColumnWidth(i+1, w); });
   h.setRowHeight(2, 28);
   h.setRowHeight(3, 24);
@@ -2353,7 +2398,231 @@ function _generarReporteQuincena(fi, ff, label, tabNombre, prevHorasReponer) {
   return totalGeneral;
 }
 
-function crearEstructuraDrive() { _run(function() {
+// ══════════════════════════════════════════════════════════════════
+// CHECKLIST DE PAGO
+// Flujo post-quincena: qué hacer después de calcular el reporte
+// ══════════════════════════════════════════════════════════════════
+
+/*
+ * Genera una hoja "Checklist_[período]" con el flujo completo de pago:
+ *  SECCIÓN 1 — Con factura: Factura recibida → Declaraguate → Pago
+ *  SECCIÓN 2 — Sin factura: Pago directo
+ *  Resumen: total IVA a declarar, total pagado, pendientes
+ *
+ * Cada participante tiene columnas editables para marcar el avance.
+ */
+function generarChecklistPago() { _run(function() {
+  var ui  = SpreadsheetApp.getUi();
+  var tz  = Session.getScriptTimeZone();
+
+  // ¿Usar período activo o pedir fechas?
+  var periodo = _periodoActivo();
+  var fi, ff, label;
+
+  if (periodo) {
+    var r = ui.alert("Checklist de pago",
+      "¿Generar el checklist para la quincena activa?\n" + periodo.label,
+      ui.ButtonSet.YES_NO);
+    if (r === ui.Button.YES) {
+      fi = new Date(periodo.fi);
+      ff = new Date(periodo.ff);
+      label = periodo.label;
+    }
+  }
+
+  if (!fi) {
+    var r1 = ui.prompt("📋 Checklist de pago — Fecha inicio",
+      "Formato dd/mm/yyyy:", ui.ButtonSet.OK_CANCEL);
+    if (r1.getSelectedButton() !== ui.Button.OK) return;
+    fi = _parseFecha(r1.getResponseText().trim());
+    if (!fi) { _alert("Fecha inválida."); return; }
+
+    var r2 = ui.prompt("📋 Checklist de pago — Fecha fin",
+      "Formato dd/mm/yyyy:", ui.ButtonSet.OK_CANCEL);
+    if (r2.getSelectedButton() !== ui.Button.OK) return;
+    ff = _parseFecha(r2.getResponseText().trim());
+    if (!ff) { _alert("Fecha inválida."); return; }
+    label = _labelPeriodo(fi, ff);
+  }
+
+  var resumen = _calcularResumenPeriodo(fi, ff);
+  if (!Object.keys(resumen).length) {
+    _alert("No hay datos para ese período. Ejecuta 'Emparejar entradas/salidas' primero."); return;
+  }
+
+  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var tab   = "Checklist_" + Utilities.formatDate(fi, tz, "dd_MM") + "_" +
+              Utilities.formatDate(ff, tz, "dd_MM_yyyy");
+  var h = ss.getSheetByName(tab);
+  if (h) ss.deleteSheet(h);
+  h = ss.insertSheet(tab);
+
+  if (h.getMaxColumns() < 12) h.insertColumnsAfter(h.getMaxColumns(), 12 - h.getMaxColumns());
+
+  var ts = Utilities.formatDate(new Date(), tz, "dd/MM/yyyy HH:mm");
+
+  // ── Fila 1: título ─────────────────────────────────────────────
+  h.getRange(1,1,1,12).merge()
+   .setValue("CHECKLIST DE PAGO — Período: " + label)
+   .setBackground("#1a237e").setFontColor("#ffffff")
+   .setFontWeight("bold").setFontSize(13).setHorizontalAlignment("center");
+
+  // ── Fila 2: instrucciones ──────────────────────────────────────
+  h.getRange(2,1,1,12).merge()
+   .setValue("Marca cada paso al completarlo. Las columnas H, I, J, K son editables.")
+   .setBackground("#e8eaf6").setFontColor("#3949ab").setFontSize(9)
+   .setHorizontalAlignment("center");
+
+  // ── Encabezados ────────────────────────────────────────────────
+  var enc = ["#","Participante","Cat.","Tarifa","Monto Base","IVA 5%",
+             "Total org paga","★ Factura recibida","★ Declaraguate","★ Pagado","Fecha pago","Notas"];
+  h.getRange(3,1,1,12).setValues([enc])
+   .setBackground("#37474f").setFontColor("#ffffff").setFontWeight("bold")
+   .setHorizontalAlignment("center");
+
+  var nombres = Object.keys(resumen).sort(function(a,b){ return a.localeCompare(b,"es"); });
+
+  // Separar con factura / sin factura
+  var conFact = nombres.filter(function(n){ return resumen[n].tieneFactura; });
+  var sinFact = nombres.filter(function(n){ return !resumen[n].tieneFactura; });
+
+  var filaActual = 4;
+  var totalBase = 0, totalIVA = 0, totalOrg = 0;
+  var num = 1;
+
+  function seccion(titulo, bg, lista) {
+    h.getRange(filaActual,1,1,12).merge()
+     .setValue(titulo).setBackground(bg).setFontColor("#ffffff")
+     .setFontWeight("bold").setFontSize(10).setHorizontalAlignment("left");
+    filaActual++;
+
+    lista.forEach(function(nombre) {
+      var d    = resumen[nombre];
+      var base = Math.round(d.horas * d.tarifa * 100) / 100;
+      var iva  = d.tieneFactura ? Math.round(base * CFG.IVA_PCT * 100) / 100 : 0;
+      var org  = Math.round((base + iva) * 100) / 100;
+      totalBase += base; totalIVA += iva; totalOrg += org;
+
+      h.getRange(filaActual,1,1,12).setValues([[
+        num++,
+        nombre + (d.codigo ? " (" + d.codigo + ")" : ""),
+        d.categoria || "?",
+        "Q" + (d.tarifa||0).toFixed(2),
+        base, iva > 0 ? iva : "—", org,
+        "Pendiente","Pendiente","No","",""
+      ]]);
+
+      // Formato
+      var bgF = d.tieneFactura ? "#fff8e1" : "#f1f8e9";
+      h.getRange(filaActual,1,1,12).setBackground(bgF).setFontSize(10);
+      h.getRange(filaActual,1).setHorizontalAlignment("center");
+      h.getRange(filaActual,5,1,3).setNumberFormat('"Q"#,##0.00').setHorizontalAlignment("right");
+      // Cols editables: H, I, J, K (8-11) — fondo blanco destacado
+      h.getRange(filaActual,8,1,4).setBackground("#ffffff")
+       .setBorder(true,true,true,true,null,null,"#aaaaaa",SpreadsheetApp.BorderStyle.SOLID);
+      // Borde fila
+      h.getRange(filaActual,1,1,12)
+       .setBorder(null,null,true,null,null,null,"#cccccc",SpreadsheetApp.BorderStyle.SOLID);
+
+      filaActual++;
+    });
+
+    // Subtotal de sección
+    h.getRange(filaActual,1,1,12).setValues([
+      ["","Subtotal","","",
+       Math.round(totalBase*100)/100,
+       Math.round(totalIVA*100)/100,
+       Math.round(totalOrg*100)/100,"","","","",""]
+    ]);
+    h.getRange(filaActual,1,1,12).setBackground("#eceff1").setFontStyle("italic");
+    h.getRange(filaActual,5,1,3).setNumberFormat('"Q"#,##0.00').setHorizontalAlignment("right");
+    filaActual += 2;
+    // Reset para la siguiente sección
+    totalBase = 0; totalIVA = 0; totalOrg = 0;
+  }
+
+  if (conFact.length) {
+    seccion("  ★  CON FACTURA — Pequeño Contribuyente (IVA 5% → declarar en Declaraguate)",
+            "#c62828", conFact);
+  }
+  if (sinFact.length) {
+    seccion("  ✓  SIN FACTURA — Pago directo (sin IVA)",
+            "#2e7d32", sinFact);
+  }
+
+  // ── Resumen total ──────────────────────────────────────────────
+  // Recalcular totales generales
+  var gBase = 0, gIVA = 0, gOrg = 0;
+  nombres.forEach(function(n) {
+    var d   = resumen[n];
+    var base= Math.round(d.horas * d.tarifa * 100) / 100;
+    var iva = d.tieneFactura ? Math.round(base * CFG.IVA_PCT * 100) / 100 : 0;
+    gBase += base; gIVA += iva; gOrg += Math.round((base+iva)*100)/100;
+  });
+
+  h.getRange(filaActual,1,1,12).setValues([
+    ["","TOTALES GENERALES","","",
+     Math.round(gBase*100)/100, Math.round(gIVA*100)/100, Math.round(gOrg*100)/100,
+     "","","","",""]
+  ]);
+  h.getRange(filaActual,1,1,12).setBackground("#1a237e").setFontColor("#ffffff").setFontWeight("bold");
+  h.getRange(filaActual,5,1,3).setNumberFormat('"Q"#,##0.00').setHorizontalAlignment("right");
+  filaActual += 2;
+
+  // ── Guía de pasos ──────────────────────────────────────────────
+  var pasos = [
+    ["FLUJO DE PAGO — PASOS A SEGUIR", "", "", "", "", "", "", "", "", "", "", ""],
+    ["PASO","Quién","Acción","Cuándo","","","","","","","",""],
+    ["1","Participante (con factura)","Emite factura al " + CFG.ORG + " por el monto total (base + IVA 5%)","Antes del pago","","","","","","","",""],
+    ["2","Organización",             "Recibe la factura → marca col H = 'Recibida'",                         "Al recibir factura","","","","","","","",""],
+    ["3","Organización",             "Declara el IVA en Declaraguate a nombre del participante",              "Dentro del mes","","","","","","","",""],
+    ["4","Organización",             "Realiza el pago al participante (monto total)",                         "Fecha acordada","","","","","","","",""],
+    ["5","Organización",             "Marca col J = 'Sí' y col K = fecha en este checklist",                  "Al pagar","","","","","","","",""],
+    ["","","","","","","","","","","",""],
+    ["Sin factura:","Organización",  "Paga directamente el monto base (sin IVA ni declaraguate)",             "Fecha acordada","","","","","","","",""],
+    ["","","","","","","","","","","",""],
+    ["IVA 5%:","Pequeño Contribuyente","El participante retiene el IVA que recibió y lo paga a SAT via Declaraguate","Mensualmente","","","","","","","",""],
+  ];
+
+  h.getRange(filaActual, 1, pasos.length, 12).setValues(pasos);
+  h.getRange(filaActual, 1, 1, 12).merge()
+   .setBackground("#e8eaf6").setFontWeight("bold").setFontSize(11).setHorizontalAlignment("center");
+  h.getRange(filaActual+1, 1, 1, 12)
+   .setBackground("#c5cae9").setFontWeight("bold");
+  // Formato filas de pasos
+  for (var p=2; p<pasos.length; p++) {
+    var bgP = p % 2 === 0 ? "#f5f5f5" : "#fafafa";
+    h.getRange(filaActual+p, 1, 1, 12).setBackground(bgP).setFontSize(9);
+    h.getRange(filaActual+p, 1).setFontWeight("bold").setHorizontalAlignment("center");
+  }
+
+  // ── Anchos y timestamp ─────────────────────────────────────────
+  [35, 220, 50, 80, 90, 80, 90, 100, 90, 70, 90, 120]
+    .forEach(function(w,i){ h.setColumnWidth(i+1,w); });
+  h.setFrozenRows(3);
+
+  // Validaciones de datos en cols editables
+  var vFact = SpreadsheetApp.newDataValidation()
+    .requireValueInList(["Pendiente","Recibida","No aplica"],true).build();
+  var vDecl = SpreadsheetApp.newDataValidation()
+    .requireValueInList(["Pendiente","Declarado","No aplica"],true).build();
+  var vPag  = SpreadsheetApp.newDataValidation()
+    .requireValueInList(["No","Sí"],true).build();
+  h.getRange("H4:H200").setDataValidation(vFact);
+  h.getRange("I4:I200").setDataValidation(vDecl);
+  h.getRange("J4:J200").setDataValidation(vPag);
+
+  // Timestamp al final
+  h.getRange(h.getLastRow()+2, 1, 1, 12).merge()
+   .setValue("Generado: " + ts + "  ·  " + nombres.length + " participantes")
+   .setFontSize(8).setFontColor("#9aa0a6").setHorizontalAlignment("right");
+
+  ss.setActiveSheet(h);
+  _alert("✅ Checklist generado: '" + tab + "'\n\n" +
+         "Con factura: " + conFact.length + " participantes\n" +
+         "Sin factura: " + sinFact.length + " participantes\n\n" +
+         "Las columnas ★ son editables para marcar el avance.");
+}); }
   var raiz     = _getOCreate(null, CFG.ORG+" · RRHH");
   var docsPD   = _getOCreate(raiz, "Docs_Proceso");
   var recibos  = _getOCreate(raiz, "Recibos");
