@@ -10,8 +10,8 @@ const CFG = {
   IVA_PCT:      0.05,  // 5% Pequeño Contribuyente Guatemala (solo quien tiene factura)
   HORAS_JORNADA_NORMAL: 7,
   KOBO_URL_CSV: "https://kf.kobotoolbox.org/api/v2/assets/agi395bJj6ojXJzPPDT9n6/export-settings/es4oUjEmPvovgLd6Y5yrQ4K/data.csv",
-  KOBO_TIPO_ENTRADA: "🟢 Entrada",
-  KOBO_TIPO_SALIDA:  "🔴 Salida",
+  KOBO_TIPO_ENTRADA: "🟢 Entrada",   // valor normalizado interno (no el label de Kobo)
+  KOBO_TIPO_SALIDA:  "🔴 Salida",    // Kobo exporta "Entrada"/"Salida" — detectarColumnas detecta ambos
   HOJAS: {
     PARTICIPANTES: "PARTICIPANTES",
     ASISTENCIA:    "ASISTENCIA",
@@ -903,13 +903,34 @@ function _buscarIndice(enc, clave) {
 }
 
 function _limpiarColumnasKobo(hoja, enc) {
+  // Ocultar columnas irrelevantes
   var imp = ["start","end","ingreso","egreso","entrada","salida",
-             "participante","nombre","seleccione","c_id","_uuid","uuid","accion","acción","terapia","permiso","comput"];
-  for (var i=0; i<enc.length; i++) {
+             "participante","nombre","seleccione","c_id","_uuid","uuid",
+             "accion","acción","terapia","permiso","comput","ingreso_egreso"];
+  for (var i = 0; i < enc.length; i++) {
     var h = String(enc[i]).trim().toLowerCase();
-    var esImp = h && imp.some(function(p){ return h.indexOf(p)!==-1; });
+    var esImp = h && imp.some(function(p){ return h.indexOf(p) !== -1; });
     try { if (!esImp) hoja.hideColumns(i+1); else hoja.showColumns(i+1); } catch(_) {}
   }
+
+  // Normalizar columna Participante: slug → nombre oficial
+  var cols = detectarColumnas(enc, []);
+  if (cols.participante === undefined) return;
+  var mapeo = cargarMapeoNombres();
+  var lastRow = hoja.getLastRow();
+  if (lastRow < 2) return;
+
+  var colP = cols.participante + 1; // 1-indexed
+  var valores = hoja.getRange(2, colP, lastRow - 1, 1).getValues();
+  var cambiados = 0;
+  var nuevos = valores.map(function(r) {
+    var raw = String(r[0] || "").trim();
+    if (!raw) return [raw];
+    var normalizado = normalizarNombre(raw, mapeo);
+    if (normalizado !== raw) cambiados++;
+    return [normalizado];
+  });
+  if (cambiados > 0) hoja.getRange(2, colP, lastRow - 1, 1).setValues(nuevos);
 }
 
 function _normalizarAccionSilencioso(hoja) {
@@ -3760,74 +3781,85 @@ function instalarTodo() { _run(function() {
 // ══════════════════════════════════════════════════════════════════
 
 function crearHojaDiasEstudio() { _run(function() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss   = SpreadsheetApp.getActiveSpreadsheet();
   var hoja = ss.getSheetByName("DiasEstudio");
-  if (!hoja) {
-    hoja = ss.insertSheet("DiasEstudio");
-    var enc = ["Participante","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo","Fecha_Inicio","Fecha_Fin"];
-    hoja.getRange(1,1,1,enc.length).setValues([enc])
-      .setFontWeight("bold").setBackground("#7b1fa2").setFontColor("#fff").setHorizontalAlignment("center");
-    hoja.setFrozenRows(1);
+  var esNueva = !hoja;
+  if (esNueva) hoja = ss.insertSheet("DiasEstudio");
 
-    // Pre-llenar con participantes desde DatosKobo
-    var hojaK = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
-    if (hojaK) {
-      var datos = hojaK.getDataRange().getValues();
-      var colsP = _buscarColsParticipante(datos[0]);
-      if (colsP.col1 !== -1) {
-        var mapeo = cargarMapeoNombres();
-        var partics = {};
-        for (var f=1; f<datos.length; f++) {
-          var n = _nombreDeFila(datos[f], colsP);
-          if (n) partics[normalizarNombre(n, mapeo)] = true;
-        }
-        var lista = Object.keys(partics).sort();
-        for (var p=0; p<lista.length; p++) hoja.getRange(p+2,1).setValue(lista[p]);
-      }
-    }
+  // Encabezado siempre
+  var enc = ["Participante","Lun","Mar","Mié","Jue","Vie","Sáb","Dom","Fecha_Inicio","Fecha_Fin"];
+  hoja.getRange(1,1,1,enc.length).setValues([enc])
+    .setFontWeight("bold").setBackground("#7b1fa2").setFontColor("#fff").setHorizontalAlignment("center");
+  hoja.setFrozenRows(1);
 
-    var vXO = SpreadsheetApp.newDataValidation().requireValueInList(["X",""],true).build();
-    hoja.getRange(2,2,200,7).setDataValidation(vXO).setHorizontalAlignment("center");
-    hoja.setColumnWidth(1,220); hoja.setColumnWidth(9,100); hoja.setColumnWidth(10,100);
-    for (var c=2;c<=8;c++) hoja.setColumnWidth(c,80);
+  if (esNueva) {
+    // Pre-llenar desde LISTA_OFICIAL (siempre limpio)
+    var filas = LISTA_OFICIAL.map(function(it) {
+      return [it[0], "","","","","","","","",""];
+    }).sort(function(a,b){ return a[0].localeCompare(b[0],"es"); });
+
+    hoja.getRange(2, 1, filas.length, 10).setValues(filas);
+
+    // Validación X / vacío en cols días (B-H)
+    var vX = SpreadsheetApp.newDataValidation().requireValueInList(["X",""],true).build();
+    hoja.getRange(2,2,filas.length,7).setDataValidation(vX).setHorizontalAlignment("center");
+
+    // Colores alternos por categoría
+    var CAT_BG = { A:"#e8d5f5", B:"#d5e8f5", C:"#f5f5d5", D:"#f5d5d5" };
+    LISTA_OFICIAL.sort(function(a,b){return a[0].localeCompare(b[0],"es");}).forEach(function(it, i) {
+      hoja.getRange(i+2, 1, 1, 10).setBackground(CAT_BG[it[1]] || "#ffffff");
+    });
   }
+
+  hoja.setColumnWidth(1, 260);
+  for (var c=2;c<=8;c++) hoja.setColumnWidth(c,55);
+  hoja.setColumnWidth(9,110); hoja.setColumnWidth(10,110);
   hoja.activate();
-  _alert("📚 HOJA DÍAS DE ESTUDIO\n\nMarca con X los días que cada participante estudia (0% de pago).\n\n" +
-    "Columnas I y J: Fecha_Inicio y Fecha_Fin (opcionales) para limitar el período de vigencia.");
+
+  _alert(
+    "📚 DÍAS DE ESTUDIO — Para qué sirve:\n\n" +
+    "Marca con X los días que cada participante asiste a estudiar.\n" +
+    "Al calcular horas, el sistema marcará esos días como 'Es_Dia_Estudio=Sí'\n" +
+    "y aplicará el porcentaje de pago correspondiente.\n\n" +
+    "Fecha_Inicio / Fecha_Fin: opcionales, para limitar vigencia (dd/mm/yyyy).\n\n" +
+    "Ejemplo: si Sindy estudia Lunes y Miércoles → marca X en Lun y Mié."
+  );
 }); }
 
 function crearHojaListaTerapias() { _run(function() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss   = SpreadsheetApp.getActiveSpreadsheet();
   var hoja = ss.getSheetByName("ListaTerapias");
-  if (!hoja) {
-    hoja = ss.insertSheet("ListaTerapias");
-    hoja.getRange(1,1,1,3).setValues([["Participante","Recibe Terapia (X)","Notas"]])
-      .setFontWeight("bold").setBackground("#00897b").setFontColor("#fff").setHorizontalAlignment("center");
-    hoja.setFrozenRows(1);
+  var esNueva = !hoja;
+  if (esNueva) hoja = ss.insertSheet("ListaTerapias");
 
-    // Pre-llenar con participantes desde DatosKobo
-    var hojaK = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
-    if (hojaK) {
-      var datos = hojaK.getDataRange().getValues();
-      var colsP = _buscarColsParticipante(datos[0]);
-      if (colsP.col1 !== -1) {
-        var mapeo = cargarMapeoNombres();
-        var partics = {};
-        for (var f=1; f<datos.length; f++) {
-          var n = _nombreDeFila(datos[f], colsP);
-          if (n) partics[normalizarNombre(n, mapeo)] = true;
-        }
-        var lista = Object.keys(partics).sort();
-        for (var p=0; p<lista.length; p++) hoja.getRange(p+2,1).setValue(lista[p]);
-      }
-    }
+  // Encabezado siempre
+  hoja.getRange(1,1,1,4).setValues([["Creamos_ID","Participante","Recibe Terapia (X)","Notas"]])
+    .setFontWeight("bold").setBackground("#00897b").setFontColor("#fff").setHorizontalAlignment("center");
+  hoja.setFrozenRows(1);
+
+  if (esNueva) {
+    // Pre-llenar desde LISTA_OFICIAL con ID y nombre
+    var filas = LISTA_OFICIAL.map(function(it) {
+      return [it[2] || "", it[0], "", ""];
+    }).sort(function(a,b){ return a[1].localeCompare(b[1],"es"); });
+
+    hoja.getRange(2, 1, filas.length, 4).setValues(filas);
 
     var vX = SpreadsheetApp.newDataValidation().requireValueInList(["X",""],true).build();
-    hoja.getRange(2,2,200,1).setDataValidation(vX).setHorizontalAlignment("center");
-    hoja.setColumnWidth(1,250); hoja.setColumnWidth(2,140); hoja.setColumnWidth(3,300);
+    hoja.getRange(2,3,filas.length,1).setDataValidation(vX).setHorizontalAlignment("center");
   }
+
+  hoja.setColumnWidth(1,120); hoja.setColumnWidth(2,260);
+  hoja.setColumnWidth(3,150); hoja.setColumnWidth(4,300);
   hoja.activate();
-  _alert("🧘 HOJA LISTA DE TERAPIAS\n\nMarca con X a las personas que reciben terapia.\nLos registros de tipo 'Terapia' se contabilizan al 100% del pago.");
+
+  _alert(
+    "🧘 LISTA DE TERAPIAS — Para qué sirve:\n\n" +
+    "Marca con X a las personas que reciben sesiones de terapia.\n" +
+    "Cuando llegue un registro de Kobo con tipo 'Terapia' o 'Salida Terapia',\n" +
+    "el sistema lo contabiliza como horas trabajadas (Es_Terapia=Sí).\n\n" +
+    "Esto afecta el cálculo de horas del período y los reportes."
+  );
 }); }
 
 // ══════════════════════════════════════════════════════════════════
