@@ -20,6 +20,7 @@ const CFG = {
     DATOS_KOBO:    "DatosKobo",
     CLASIFICACION: "CLASIFICACION",  // mantenida solo para borrado en reinstalar
     PERIODOS:      "PERIODOS",
+    CREAMOS_DB:    "Copy of CREAMOS ID nuevo",  // BASE DE DATOS OFICIAL — SOLO LECTURA
   },
   MESES: ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
           "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"],
@@ -238,6 +239,9 @@ function crearHojas() { _run(function() {
     if (h && ss.getSheets().length > 3) ss.deleteSheet(h);
   });
 
+  // Proteger y ocultar la base de datos oficial de Creamos (si existe)
+  _protegerHojaCreamos_DB();
+
   ss.setActiveSheet(hP);
   _alert(
     "✅ Hojas creadas:\n" +
@@ -276,33 +280,40 @@ function nuevoParticipante() { _run(function() {
     }
   }
 
-  // Auto-generar ID
-  var seq = dp.length; // fila siguiente = total actual (sin encabezado) + 1
-  var id = _generarCreamos_ID(nombre, seq);
-  // Garantizar unicidad
-  var idsExistentes = dp.slice(1).map(function(r){ return String(r[0]).trim(); });
-  var base = id.substring(0, 4), n = seq;
-  while (idsExistentes.indexOf(id) !== -1) {
-    n++;
-    var ns = String(n); while(ns.length < 3) ns = "0"+ns;
-    id = base + ns;
+  // Buscar en base de datos oficial de Creamos
+  SpreadsheetApp.getActiveSpreadsheet().toast("Buscando en base de datos Creamos...", "⏳", -1);
+  var db  = _buscarEnCreamos_DB(nombre);
+  var id  = db.id  || "";
+  var dpi = db.dpi || "";
+
+  if (!id) {
+    var resp2 = ui.alert(
+      "⚠️ No encontrado en base Creamos",
+      "No se encontró '" + nombre + "' en 'Copy of CREAMOS ID nuevo'.\n\n" +
+      "¿Deseas continuar sin Creamos ID?\n" +
+      "(El ID quedará vacío — podrás llenarlo después en col A)",
+      ui.ButtonSet.YES_NO
+    );
+    if (resp2 !== ui.Button.YES) return;
   }
 
   var carpeta = _carpetaDP();
-  var doc = _abrirOCrearDocProceso(id, nombre, carpeta, "");
+  var doc = _abrirOCrearDocProceso(id || nombre, nombre, carpeta, "");
   var url = doc.getUrl();
-  var part = { id:id, nombre:nombre, proyecto:"", division:"", programa:"", estado:"Activo",
+  var part = { id:id, nombre:nombre, proyecto:CFG.ORG, division:"", programa:"", estado:"Activo",
                etapa:"", educacion:"", apoyoEmocional:"", inclusionLaboral:"",
                categoria:"", tarifa:"", tieneFactura:"No",
-               dpi:"", nit:"", correo:"", banco:"", numCuenta:"", formaPago:"" };
+               dpi:dpi, nit:"", correo:"", banco:"", numCuenta:"", formaPago:"" };
   _escribirContenidoDP(doc, part, [], []);
 
-  // 20 cols: ID | Nombre | Proyecto | Division | Programa | Estado | Etapa |
-  //           Educacion | Apoyo | Inclusion | Categoria | Tarifa | Tiene_Factura |
-  //           DPI | NIT | Correo | Banco | Num_Cuenta | Forma_Pago | URL_DP
-  hP.appendRow([id, nombre, "", "", "", "Activo", "", "", "", "", "", "", "No", "", "", "", "", "", "", url]);
+  hP.appendRow([id, nombre, CFG.ORG, "", "", "Activo", "", "", "", "", "", "", "No", dpi, "", "", "", "", "", url]);
   hP.setActiveRange(hP.getRange(hP.getLastRow(), 1));
-  ui.alert("✅ Participante registrado: " + nombre + "\nDocumento de Proceso:\n" + url);
+  ui.alert(
+    "✅ Participante registrado: " + nombre + "\n\n" +
+    "Creamos ID: " + (id || "— (llenar manualmente)") + "\n" +
+    "DPI: "        + (dpi || "— (no encontrado)") + "\n\n" +
+    "Documento de Proceso:\n" + url
+  );
 }); }
 
 // ── Documentos de Proceso (DP) ────────────────────────────────
@@ -394,16 +405,23 @@ function cargarListaParticipantes() { _run(function() {
   var lastRow = hP.getLastRow();
   if (lastRow > 1) hP.getRange(2, 1, lastRow - 1, 20).clearContent();
 
-  // Construir filas con IDs únicos
-  var filas = [];
-  LISTA_OFICIAL.forEach(function(item, idx) {
+  // Construir filas buscando cada participante en la DB de Creamos
+  SpreadsheetApp.getActiveSpreadsheet().toast("Buscando en base de datos Creamos...", "⏳", -1);
+  var filas      = [];
+  var encontrados = 0, sinEncontrar = [];
+
+  LISTA_OFICIAL.forEach(function(item) {
     var nombre = item[1], cat = item[2];
-    // Usar ID oficial (item[3]) si existe; si no, auto-generar
-    var id     = (item[3] && item[3].trim()) ? item[3].trim().toUpperCase()
-                                             : _generarCreamos_ID(nombre, item[0]);
+    var db     = _buscarEnCreamos_DB(nombre);  // busca ID, DPI, género, fecha nac...
+    var id     = db.id || "";                  // ID viene SOLO de la DB, nunca se genera
+    var dpi    = db.dpi || "";
     var tarifa = CFG.CATEGORIAS[cat] || 0;
+
+    if (id) encontrados++;
+    else    sinEncontrar.push(item[0] + ". " + nombre);
+
     filas.push([
-      id,       // A: Creamos_ID
+      id,       // A: Creamos_ID   ← de la DB oficial
       nombre,   // B: Nombre
       CFG.ORG,  // C: Proyecto
       "", "",   // D: Division, E: Programa
@@ -412,7 +430,8 @@ function cargarListaParticipantes() { _run(function() {
       cat,      // K: Categoria
       tarifa,   // L: Tarifa_Hora
       "No",     // M: Tiene_Factura
-      "", "", "", "", "", "", "" // N–T: DPI, NIT, Correo, Banco, Num_Cuenta, Forma_Pago, URL_Doc_Proceso
+      dpi,      // N: DPI          ← de la DB oficial
+      "", "", "", "", "", ""  // O–T: NIT, Correo, Banco, Num_Cuenta, Forma_Pago, URL
     ]);
   });
 
@@ -422,12 +441,13 @@ function cargarListaParticipantes() { _run(function() {
     _colorearParticipantes(hP, filas.length);
   }
 
-  var sinId = LISTA_OFICIAL.filter(function(it){ return !it[3]; }).map(function(it){ return it[0]+". "+it[1]; });
   _alert(
     "✅ Lista oficial cargada — " + filas.length + " participantes.\n\n" +
-    "IDs oficiales: " + (filas.length - sinId.length) + "\n" +
-    (sinId.length ? "Sin ID oficial (auto-generado):\n• " + sinId.join("\n• ") : "Todos tienen ID oficial") + "\n\n" +
-    "Los IDs son editables en la columna A."
+    "• Encontrados en base Creamos: " + encontrados + "\n" +
+    (sinEncontrar.length
+      ? "• Sin ID en base Creamos (" + sinEncontrar.length + "):\n  " + sinEncontrar.join("\n  ") +
+        "\n\nVerifica que el nombre coincida exactamente\ncon 'Copy of CREAMOS ID nuevo'."
+      : "• Todos tienen Creamos ID ✅")
   );
 }); }
 
@@ -435,14 +455,86 @@ function cargarListaParticipantes() { _run(function() {
  * Genera ID en formato: 2 letras del primer nombre + 2 letras del primer apellido + seq 3 dígitos
  * Ejemplo: ANGELICA VELIZ → ANVE001
  */
-function _generarCreamos_ID(nombre, seq) {
-  var partes = textoParaComparar(nombre).toUpperCase()
-    .replace(/[^A-Z\s]/g, "").trim().split(/\s+/);
-  var p1 = (partes[0] || "XX").substring(0, 2);
-  var p2 = (partes[1] || "XX").substring(0, 2);
-  var num = String(seq);
-  while (num.length < 3) num = "0" + num;
-  return (p1 + p2 + num).toUpperCase();
+/**
+ * Busca un participante en la base de datos oficial "Copy of CREAMOS ID nuevo".
+ * Estrategias: exacto → normalizado → primeras 2 palabras.
+ * Retorna: { id, dpi, edad, genero, fechaNac, anioEntrada } o {} si no encontrado.
+ */
+function _buscarEnCreamos_DB(nombre) {
+  var ss   = SpreadsheetApp.getActiveSpreadsheet();
+  var hDB  = ss.getSheetByName(CFG.HOJAS.CREAMOS_DB);
+  if (!hDB || hDB.getLastRow() < 2) return {};
+
+  var datos = hDB.getDataRange().getValues();
+  var enc   = datos[0];
+
+  // Detectar índices de columnas por encabezado
+  var iNombre = -1, iID = -1, iAnio = -1, iEdad = -1, iGenero = -1, iFechaNac = -1, iDPI = -1;
+  enc.forEach(function(h, i) {
+    var hl = String(h).toLowerCase().trim();
+    if (hl.indexOf("nombre") !== -1)               iNombre   = i;
+    if (hl.indexOf("creamos") !== -1 || hl === "id") iID     = i;
+    if (hl.indexOf("año") !== -1 || hl.indexOf("anio") !== -1 || hl.indexOf("entró") !== -1) iAnio = i;
+    if (hl === "age" || hl === "edad")             iEdad     = i;
+    if (hl === "gender" || hl.indexOf("género") !== -1 || hl.indexOf("genero") !== -1) iGenero = i;
+    if (hl.indexOf("nacimiento") !== -1 || hl.indexOf("fecha") !== -1) iFechaNac = i;
+    if (hl.indexOf("dpi") !== -1)                  iDPI      = i;
+  });
+  if (iNombre === -1) return {};
+
+  var normBuscar = textoParaComparar(nombre);
+  var palabras   = normBuscar.split(/\s+/).slice(0, 2).join(" ");
+
+  function extraer(fila) {
+    return {
+      id:        iID      >= 0 ? String(fila[iID]      || "").trim() : "",
+      dpi:       iDPI     >= 0 ? String(fila[iDPI]     || "").trim() : "",
+      edad:      iEdad    >= 0 ? String(fila[iEdad]    || "").trim() : "",
+      genero:    iGenero  >= 0 ? String(fila[iGenero]  || "").trim() : "",
+      fechaNac:  iFechaNac>= 0 ? fila[iFechaNac]                     : "",
+      anioEntrada: iAnio  >= 0 ? String(fila[iAnio]   || "").trim() : ""
+    };
+  }
+
+  // 1) Exacto
+  for (var i = 1; i < datos.length; i++) {
+    if (String(datos[i][iNombre]).trim() === nombre) return extraer(datos[i]);
+  }
+  // 2) Normalizado
+  for (var i = 1; i < datos.length; i++) {
+    if (textoParaComparar(String(datos[i][iNombre])) === normBuscar) return extraer(datos[i]);
+  }
+  // 3) Primeras 2 palabras
+  for (var i = 1; i < datos.length; i++) {
+    var normDB = textoParaComparar(String(datos[i][iNombre]));
+    if (normDB.indexOf(palabras) === 0 || palabras.indexOf(normDB.split(/\s+/).slice(0,2).join(" ")) === 0) {
+      return extraer(datos[i]);
+    }
+  }
+  return {};
+}
+
+/**
+ * Protege y oculta la hoja de la base de datos Creamos.
+ * Solo el admin puede verla/editarla.
+ */
+function _protegerHojaCreamos_DB() {
+  var ss  = SpreadsheetApp.getActiveSpreadsheet();
+  var hDB = ss.getSheetByName(CFG.HOJAS.CREAMOS_DB);
+  if (!hDB) return;
+  // Ocultar la hoja
+  hDB.hideSheet();
+  // Proteger contra edición
+  var protecciones = hDB.getProtections(SpreadsheetApp.ProtectionType.SHEET);
+  if (protecciones.length === 0) {
+    var prot = hDB.protect();
+    prot.setDescription("Base de datos oficial Creamos — NO EDITAR");
+    prot.setWarningOnly(false);
+    // Solo el propietario/admin puede editar
+    var yo = Session.getEffectiveUser();
+    prot.addEditor(yo);
+    prot.removeEditors(prot.getEditors().filter(function(e){ return e.getEmail() !== yo.getEmail(); }));
+  }
 }
 
 /** Colorea filas de PARTICIPANTES según categoría */
@@ -2868,9 +2960,10 @@ function reinstalarSistema() { _run(function() {
   var ss     = SpreadsheetApp.getActiveSpreadsheet();
   var hojas  = ss.getSheets();
 
-  // Google Sheets requiere al menos 1 hoja: crear temporal, borrar el resto
+  // Google Sheets requiere al menos 1 hoja: preservar la DB de Creamos, borrar el resto
   var temp = ss.insertSheet("_temp_reinstal_");
   hojas.forEach(function(h) {
+    if (h.getName() === CFG.HOJAS.CREAMOS_DB) return; // NUNCA borrar la base de datos oficial
     try { ss.deleteSheet(h); } catch(_) {}
   });
 
