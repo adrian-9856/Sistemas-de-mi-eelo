@@ -71,6 +71,104 @@ function autorizar() {
   Logger.log("✅ Autorizado: " + SpreadsheetApp.getActiveSpreadsheet().getName());
 }
 
+// ── Helpers de sincronización entre hojas ────────────────────
+
+/**
+ * Lee PARTICIPANTES y devuelve un mapa {nombre: {id, cat}} con IDs y categorías actuales.
+ * Si PARTICIPANTES no existe o está vacía, cae back a LISTA_OFICIAL.
+ */
+function _mapaDatosParticipantes(ss) {
+  ss = ss || SpreadsheetApp.getActiveSpreadsheet();
+  var mapa = {};
+  var hP = ss.getSheetByName(CFG.HOJAS.PARTICIPANTES);
+  if (hP && hP.getLastRow() >= 2) {
+    var datos = hP.getRange(2, 1, hP.getLastRow() - 1, 9).getValues(); // A–I
+    datos.forEach(function(f) {
+      var nombre = String(f[1] || "").trim();
+      if (!nombre) return;
+      var id  = _esCreamos_ID_real(String(f[0] || "").trim()) ? String(f[0]).trim() : "";
+      var cat = String(f[8] || "").trim().toUpperCase(); // col I = Categoria
+      mapa[nombre] = { id: id, cat: cat };
+    });
+  }
+  // Fallback: completar con LISTA_OFICIAL para quienes no están en PARTICIPANTES
+  LISTA_OFICIAL.forEach(function(it) {
+    var nombre = it[1];
+    if (!mapa[nombre]) mapa[nombre] = { id: it[3] || "", cat: it[2] || "" };
+  });
+  return mapa;
+}
+
+/**
+ * Colorea todas las filas de una hoja auxiliar según la categoría del participante.
+ * @param {Sheet} hoja
+ * @param {number} colNombre  índice 1-based de la columna con el nombre
+ * @param {number} nCols      total de columnas a colorear
+ * @param {Object} mapaDatos  resultado de _mapaDatosParticipantes()
+ */
+function _colorearHojaApoyo(hoja, colNombre, nCols, mapaDatos) {
+  if (!hoja || hoja.getLastRow() < 2) return;
+  var nombres = hoja.getRange(2, colNombre, hoja.getLastRow() - 1, 1).getValues();
+  nombres.forEach(function(f, i) {
+    var nombre = String(f[0] || "").trim();
+    if (!nombre) return;
+    var cat    = (mapaDatos[nombre] || {}).cat || "";
+    var color  = (CFG.COLORES_CAT[cat] || {}).bgClaro || "#ffffff";
+    hoja.getRange(i + 2, 1, 1, nCols).setBackground(color);
+  });
+}
+
+/**
+ * Actualiza Creamos_ID (col A) en una hoja auxiliar leyendo desde mapaDatos.
+ * @param {Sheet} hoja
+ * @param {number} colNombre  índice 1-based de la columna con el nombre
+ * @param {Object} mapaDatos
+ */
+function _actualizarIDsEnHoja(hoja, colNombre, mapaDatos) {
+  if (!hoja || hoja.getLastRow() < 2) return;
+  var filas = hoja.getRange(2, 1, hoja.getLastRow() - 1, colNombre).getValues();
+  filas.forEach(function(f, i) {
+    var nombre = String(f[colNombre - 1] || "").trim();
+    if (!nombre) return;
+    var id = (mapaDatos[nombre] || {}).id || "";
+    var actual = String(f[0] || "").trim();
+    if (id && actual !== id) hoja.getRange(i + 2, 1).setValue(id);
+  });
+}
+
+/**
+ * Re-aplica colores e IDs en todas las hojas auxiliares existentes.
+ * Llámalo después de cargar la lista, sincronizar IDs, o cambiar categorías.
+ */
+function actualizarColoresYIDs() { _run(function() {
+  var ss   = SpreadsheetApp.getActiveSpreadsheet();
+  var mapa = _mapaDatosParticipantes(ss);
+  var log  = [];
+
+  var hDE = ss.getSheetByName("DiasEstudio");
+  if (hDE && hDE.getLastRow() >= 2) {
+    _colorearHojaApoyo(hDE, 1, 10, mapa);
+    log.push("📚 DiasEstudio: colores actualizados");
+  }
+
+  var hLT = ss.getSheetByName("ListaTerapias");
+  if (hLT && hLT.getLastRow() >= 2) {
+    _actualizarIDsEnHoja(hLT, 2, mapa);
+    _colorearHojaApoyo(hLT, 2, 4, mapa);
+    log.push("🧘 ListaTerapias: IDs y colores actualizados");
+  }
+
+  var hIL = ss.getSheetByName("InclusionLaboral");
+  if (hIL && hIL.getLastRow() >= 2) {
+    _actualizarIDsEnHoja(hIL, 2, mapa);
+    _colorearHojaApoyo(hIL, 2, 4, mapa);
+    log.push("💼 InclusionLaboral: IDs y colores actualizados");
+  }
+
+  _alert("✅ Sincronización completa\n\n" + log.join("\n") +
+    "\n\nLos colores y Creamos IDs están al día en todas las hojas.");
+}); }
+
 // ── Menú ─────────────────────────────────────────────────────
 
 function onOpen() {
@@ -111,6 +209,7 @@ function onOpen() {
     .addItem("💼 Inclusión Laboral",                     "crearHojaInclusionLaboral")
     .addItem("🔴 Hoja Retiradx",                         "crearHojaRetiradx")
     .addItem("🔗 Sincronizar participación (→ PARTICIPANTES)", "sincronizarParticipacion")
+    .addItem("🎨 Actualizar colores e IDs en todas las hojas", "actualizarColoresYIDs")
     .addSeparator()
     .addItem("🧾 Configurar IVA (quién tiene factura)",  "configurarFacturacion")
     .addItem("✅ Guardar cambios de facturación",         "aplicarCambiosFacturacion")
@@ -279,11 +378,21 @@ function sincronizarParticipacion() { _run(function() {
     });
   }
 
+  // Actualizar colores e IDs en todas las hojas auxiliares
+  var mapa = _mapaDatosParticipantes(ss);
+  var hDE2 = ss.getSheetByName("DiasEstudio");
+  var hLT2 = ss.getSheetByName("ListaTerapias");
+  var hIL2 = ss.getSheetByName("InclusionLaboral");
+  if (hDE2) _colorearHojaApoyo(hDE2, 1, 10, mapa);
+  if (hLT2) { _actualizarIDsEnHoja(hLT2, 2, mapa); _colorearHojaApoyo(hLT2, 2, 4, mapa); }
+  if (hIL2) { _actualizarIDsEnHoja(hIL2, 2, mapa); _colorearHojaApoyo(hIL2, 2, 4, mapa); }
+
   _alert(
     "✅ Participación sincronizada\n\n" +
     "📚 Educación (días de estudio): " + actDE + " con asistencia marcada\n" +
     "🧘 Apoyo Emocional (terapias): " + actLT + " con terapia marcada\n" +
-    "💼 Inclusión Laboral: " + actIL + " participando"
+    "💼 Inclusión Laboral: " + actIL + " participando\n\n" +
+    "🎨 Colores e IDs actualizados en todas las hojas"
   );
 }); }
 
@@ -549,14 +658,25 @@ function cargarListaParticipantes() { _run(function() {
     });
   }
 
+  // Propagar IDs y colores a todas las hojas auxiliares
+  var ss2 = SpreadsheetApp.getActiveSpreadsheet();
+  var mapa2 = _mapaDatosParticipantes(ss2);
+  var hDE2 = ss2.getSheetByName("DiasEstudio");
+  var hLT2 = ss2.getSheetByName("ListaTerapias");
+  var hIL2 = ss2.getSheetByName("InclusionLaboral");
+  if (hDE2) _colorearHojaApoyo(hDE2, 1, 10, mapa2);
+  if (hLT2) { _actualizarIDsEnHoja(hLT2, 2, mapa2); _colorearHojaApoyo(hLT2, 2, 4, mapa2); }
+  if (hIL2) { _actualizarIDsEnHoja(hIL2, 2, mapa2); _colorearHojaApoyo(hIL2, 2, 4, mapa2); }
+
   _alert(
     "✅ Lista oficial cargada — " + filas.length + " participantes.\n\n" +
     "• Encontrados en base Creamos: " + encontrados + "\n" +
     (sinEncontrar.length
       ? "• Sin perfil en Creamos (" + sinEncontrar.length + "):\n  " + sinEncontrar.join("\n  ") +
-        "\n\n⚠️ Marcadas en rojo — cuando creen el perfil en Salesforce\n" +
+        "\n\n⚠️ Marcadas en amarillo — cuando creen el perfil en Salesforce\n" +
         "usa Administración → Sincronizar desde Creamos DB."
-      : "• Todos tienen Creamos ID ✅")
+      : "• Todos tienen Creamos ID ✅") +
+    "\n\n🎨 Colores e IDs propagados a DiasEstudio, ListaTerapias e InclusionLaboral."
   );
 }); }
 
@@ -695,10 +815,12 @@ function _protegerHojaCreamos_DB() {
   }
 }
 
-/** Colorea filas de PARTICIPANTES según categoría */
+/** Colorea filas de PARTICIPANTES según categoría (no sobreescribe filas Retiradx) */
 function _colorearParticipantes(hP, total) {
   for (var i = 0; i < total; i++) {
-    var cat = String(hP.getRange(i + 2, 9).getValue()).trim().toUpperCase(); // col I = Categoria
+    var etapa = String(hP.getRange(i + 2, 5).getValue()).trim(); // col E = Etapa
+    if (etapa === "Retiradx") continue; // ya coloreadas en rojo por el flujo de retiro
+    var cat   = String(hP.getRange(i + 2, 9).getValue()).trim().toUpperCase(); // col I = Categoria
     var color = (CFG.COLORES_CAT[cat] || {}).bgClaro || "#ffffff";
     hP.getRange(i + 2, 1, 1, 19).setBackground(color);
   }
@@ -792,20 +914,22 @@ function crearHojaInclusionLaboral() { _run(function() {
     .setFontWeight("bold").setBackground("#f57c00").setFontColor("#fff").setHorizontalAlignment("center");
   hoja.setFrozenRows(1);
 
+  var mapa = _mapaDatosParticipantes(ss);
+
   if (esNueva) {
     var filas = LISTA_OFICIAL.map(function(it) {
-      return [it[3] || "", it[1], "", ""];
+      var id = (mapa[it[1]] || {}).id || it[3] || "";
+      return [id, it[1], "", ""];
     });
     hoja.getRange(2, 1, filas.length, 4).setValues(filas);
-
     var vX = SpreadsheetApp.newDataValidation().requireValueInList(["X",""],true).build();
     hoja.getRange(2, 3, filas.length, 1).setDataValidation(vX).setHorizontalAlignment("center");
-
-    var CAT_BG = { A: CFG.COLORES_CAT.A.bgClaro, B: CFG.COLORES_CAT.B.bgClaro, C: CFG.COLORES_CAT.C.bgClaro, D: CFG.COLORES_CAT.D.bgClaro };
-    LISTA_OFICIAL.forEach(function(it, i) {
-      hoja.getRange(i+2, 1, 1, 4).setBackground(CAT_BG[it[2]] || "#ffffff");
-    });
+  } else {
+    _actualizarIDsEnHoja(hoja, 2, mapa);
   }
+
+  // Colores por categoría — siempre desde PARTICIPANTES
+  _colorearHojaApoyo(hoja, 2, 4, mapa);
 
   hoja.setColumnWidth(1,120); hoja.setColumnWidth(2,260);
   hoja.setColumnWidth(3,120); hoja.setColumnWidth(4,300);
@@ -4427,25 +4551,19 @@ function crearHojaDiasEstudio() { _run(function() {
     .setFontWeight("bold").setBackground("#7b1fa2").setFontColor("#fff").setHorizontalAlignment("center");
   hoja.setFrozenRows(1);
 
+  var mapa = _mapaDatosParticipantes(ss);
+
   if (esNueva) {
-    // Pre-llenar desde LISTA_OFICIAL (siempre limpio)
-    // Orden oficial del taller (por número 1-33)
     var filas = LISTA_OFICIAL.map(function(it) {
       return [it[1], "","","","","","","","",""];
     });
-
     hoja.getRange(2, 1, filas.length, 10).setValues(filas);
-
-    // Validación X / vacío en cols días (B-H)
     var vX = SpreadsheetApp.newDataValidation().requireValueInList(["X",""],true).build();
     hoja.getRange(2,2,filas.length,7).setDataValidation(vX).setHorizontalAlignment("center");
-
-    // Colores por categoría
-    var CAT_BG = { A: CFG.COLORES_CAT.A.bgClaro, B: CFG.COLORES_CAT.B.bgClaro, C: CFG.COLORES_CAT.C.bgClaro, D: CFG.COLORES_CAT.D.bgClaro };
-    LISTA_OFICIAL.forEach(function(it, i) {
-      hoja.getRange(i+2, 1, 1, 10).setBackground(CAT_BG[it[2]] || "#ffffff");
-    });
   }
+
+  // Colores por categoría — siempre (nueva o existente), desde PARTICIPANTES
+  _colorearHojaApoyo(hoja, 1, 10, mapa);
 
   hoja.setColumnWidth(1, 260);
   for (var c=2;c<=8;c++) hoja.setColumnWidth(c,55);
@@ -4468,23 +4586,27 @@ function crearHojaListaTerapias() { _run(function() {
   var esNueva = !hoja;
   if (esNueva) hoja = ss.insertSheet("ListaTerapias");
 
-  // Encabezado siempre
   hoja.getRange(1,1,1,4).setValues([["Creamos_ID","Participante","Recibe Terapia (X)","Notas"]])
     .setFontWeight("bold").setBackground("#00897b").setFontColor("#fff").setHorizontalAlignment("center");
   hoja.setFrozenRows(1);
 
+  var mapa = _mapaDatosParticipantes(ss);
+
   if (esNueva) {
-    // Pre-llenar desde LISTA_OFICIAL con ID y nombre
-    // Orden oficial del taller (por número 1-33)
     var filas = LISTA_OFICIAL.map(function(it) {
-      return [it[3] || "", it[1], "", ""];
+      var id = (mapa[it[1]] || {}).id || it[3] || "";
+      return [id, it[1], "", ""];
     });
-
     hoja.getRange(2, 1, filas.length, 4).setValues(filas);
-
     var vX = SpreadsheetApp.newDataValidation().requireValueInList(["X",""],true).build();
     hoja.getRange(2,3,filas.length,1).setDataValidation(vX).setHorizontalAlignment("center");
+  } else {
+    // Hoja ya existe: actualizar IDs
+    _actualizarIDsEnHoja(hoja, 2, mapa);
   }
+
+  // Colores por categoría (siempre, nueva o existente)
+  _colorearHojaApoyo(hoja, 2, 4, mapa);
 
   hoja.setColumnWidth(1,120); hoja.setColumnWidth(2,260);
   hoja.setColumnWidth(3,150); hoja.setColumnWidth(4,300);
@@ -4494,8 +4616,8 @@ function crearHojaListaTerapias() { _run(function() {
     "🧘 LISTA DE TERAPIAS — Para qué sirve:\n\n" +
     "Marca con X a las personas que reciben sesiones de terapia.\n" +
     "Cuando llegue un registro de Kobo con tipo 'Terapia' o 'Salida Terapia',\n" +
-    "el sistema lo contabiliza como horas trabajadas (Es_Terapia=Sí).\n\n" +
-    "Esto afecta el cálculo de horas del período y los reportes."
+    "el sistema lo contabiliza como horas trabajadas.\n\n" +
+    "Colores y Creamos IDs se sincronizan desde PARTICIPANTES automáticamente."
   );
 }); }
 
