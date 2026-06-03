@@ -621,9 +621,10 @@ function cargarListaParticipantes() { _run(function() {
 
   LISTA_OFICIAL.forEach(function(item) {
     var nombre = item[1], cat = item[2];
-    var db     = _buscarEnCreamos_DB(nombre);  // busca ID, DPI, género, fecha nac...
-    var id     = db.id || "";                  // ID viene SOLO de la DB, nunca se genera
-    var dpi    = db.dpi || "";
+    var idLista = item[3] || "";               // ID hardcodeado en LISTA_OFICIAL
+    var db      = _buscarEnCreamos_DB(nombre); // busca ID, DPI y datos extra en la DB
+    var id      = db.id || idLista;            // DB tiene prioridad; si falla, usar LISTA_OFICIAL
+    var dpi     = db.dpi || "";
     var tarifa = CFG.CATEGORIAS[cat] || 0;
 
     if (id) encontrados++;
@@ -726,8 +727,12 @@ function _buscarEnCreamos_DB(nombre) {
   }
 
   var normBuscar  = textoParaComparar(nombre);
-  var palabrasBus = normBuscar.split(/\s+/).filter(function(p){ return p.length > 1; });
-  var p2          = palabrasBus.slice(0, 2).join(" ");
+  // Filtrar palabras conectoras para evitar que "del", "de", "la", "el" rompan el match
+  var CONECTORAS  = { de:1, del:1, la:1, el:1, los:1, las:1, y:1, e:1 };
+  var palabrasBus = normBuscar.split(/\s+/).filter(function(p){
+    return p.length > 1 && !CONECTORAS[p];
+  });
+  var p2 = palabrasBus.slice(0, 2).join(" ");
 
   // Construir cache normalizado una sola vez
   var normDB = [];
@@ -769,7 +774,7 @@ function _buscarEnCreamos_DB(nombre) {
       if (todas) return extraer(datos[i]);
     }
   }
-  // Estrategia 6: Coincidencia por prefijo de 4 letras de las primeras 2 palabras
+  // Estrategia 6: Coincidencia por prefijo de 4 letras de las primeras 2 palabras sustantivas
   if (palabrasBus.length >= 2) {
     var pref1 = palabrasBus[0].substring(0, 4);
     var pref2 = palabrasBus[1].substring(0, 4);
@@ -782,6 +787,34 @@ function _buscarEnCreamos_DB(nombre) {
       if (puntaje > mejorPuntaje) { mejorPuntaje = puntaje; mejorFila = i; }
     }
     if (mejorPuntaje === 2) return extraer(datos[mejorFila]);
+  }
+  // Estrategia 7: Prefijo de 3 letras del primer nombre + cualquier palabra del apellido
+  // Captura variaciones como Erika/Ericka, Emily/Emili, etc.
+  if (palabrasBus.length >= 2) {
+    var pref3 = palabrasBus[0].substring(0, 3);
+    var pApell = palabrasBus[palabrasBus.length - 1]; // último apellido (más único)
+    var mejorP7 = 0, mejorF7 = -1;
+    for (var i = 1; i < datos.length; i++) {
+      var dbP = normDB[i].split(/\s+/);
+      var m3 = dbP.some(function(p){ return p.substring(0,3) === pref3; });
+      var mA = dbP.some(function(p){ return p === pApell || p.substring(0,4) === pApell.substring(0,4); });
+      var pts = (m3?1:0) + (mA?1:0);
+      if (pts > mejorP7) { mejorP7 = pts; mejorF7 = i; }
+    }
+    if (mejorP7 === 2) return extraer(datos[mejorF7]);
+  }
+  // Estrategia 8: Palabras sustantivas — al menos primer nombre + un apellido coinciden (ignora palabras cortas y conectoras)
+  if (palabrasBus.length >= 3) {
+    var sustantivas = palabrasBus.filter(function(p){ return p.length >= 4; });
+    if (sustantivas.length >= 2) {
+      var pS1 = sustantivas[0], pS2 = sustantivas[sustantivas.length - 1];
+      for (var i = 1; i < datos.length; i++) {
+        var dbP = normDB[i].split(/\s+/);
+        var c1 = dbP.some(function(p){ return p === pS1 || p.substring(0,4) === pS1.substring(0,4); });
+        var c2 = dbP.some(function(p){ return p === pS2 || p.substring(0,4) === pS2.substring(0,4); });
+        if (c1 && c2) return extraer(datos[i]);
+      }
+    }
   }
   return { noEncontrado: true };
 }
