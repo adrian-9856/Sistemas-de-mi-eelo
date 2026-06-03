@@ -2529,49 +2529,48 @@ function _leerHorasReponerExistentes(tabNombre) {
  */
 function _calcularResumenPeriodo(fi, ff) {
   var ss   = SpreadsheetApp.getActiveSpreadsheet();
-  var mapa = _construirMapaTarifas();     // {nombre: {tarifa,categoria,tieneFactura}}
+  var mapa = _construirMapaTarifas(); // {nombre: {id, tarifa, categoria, tieneFactura}}
   var dIni = new Date(fi.getFullYear(), fi.getMonth(), fi.getDate());
   var dFin = new Date(ff.getFullYear(), ff.getMonth(), ff.getDate()); // inclusive
 
-  // ── Estrategia 1: ASISTENCIA ──────────────────────────────────
+  // Siempre inicializar con TODOS los participantes de PARTICIPANTES (horas = 0)
+  // Así aparecen los 33 aunque no hayan registrado asistencia en el período.
+  var resultado = {};
+  Object.keys(mapa).forEach(function(nombre) {
+    var info = mapa[nombre];
+    resultado[nombre] = {
+      horas:        0,
+      tarifa:       info.tarifa,
+      tieneFactura: info.tieneFactura,
+      categoria:    info.categoria,
+      id:           _esCreamos_ID_real(info.id) ? info.id : "",
+      codigo:       _esCreamos_ID_real(info.id) ? info.id : ""
+    };
+  });
+
+  // Sumar horas reales desde ASISTENCIA (estrategia principal)
   var hojaA = ss.getSheetByName(CFG.HOJAS.ASISTENCIA);
   if (hojaA && hojaA.getLastRow() > 1) {
     var asistRows = hojaA.getDataRange().getValues();
-    var porNombre = {};
-    var tieneData = false;
-
     for (var ai = 1; ai < asistRows.length; ai++) {
       var r     = asistRows[ai];
       var fecha = new Date(r[2]);
       if (isNaN(fecha)) continue;
       var dia   = new Date(fecha.getFullYear(), fecha.getMonth(), fecha.getDate());
       if (dia < dIni || dia > dFin) continue;
-
       var nombre = String(r[0]).trim();
       if (!nombre) continue;
-      tieneData = true;
-
-      var horas = parseFloat(r[8]) || 0; // col I = Horas_A_Pagar (idx 8)
-      if (!porNombre[nombre]) porNombre[nombre] = 0;
-      porNombre[nombre] += horas;
+      var horas = parseFloat(r[8]) || 0; // col I = Horas_A_Pagar
+      if (!resultado[nombre]) {
+        // Persona en ASISTENCIA pero no en PARTICIPANTES → agregarla igual
+        var info2 = _buscarInfoParticipante(mapa, nombre);
+        resultado[nombre] = { horas: 0, tarifa: info2.tarifa || CFG.CATEGORIAS.C,
+          tieneFactura: info2.tieneFactura || false, categoria: info2.categoria || "?",
+          id: info2.id || "", codigo: info2.id || "" };
+      }
+      resultado[nombre].horas = Math.round((resultado[nombre].horas + horas) * 100) / 100;
     }
-
-    if (tieneData) {
-      var resultado1 = {};
-      Object.keys(porNombre).forEach(function(nombre) {
-        if (porNombre[nombre] <= 0) return;
-        var info   = _buscarInfoParticipante(mapa, nombre);
-        resultado1[nombre] = {
-          horas:        Math.round(porNombre[nombre] * 100) / 100,
-          tarifa:       info.tarifa    || CFG.CATEGORIAS.C,
-          tieneFactura: info.tieneFactura || false,
-          categoria:    info.categoria || "C",
-          id:           info.id || "",
-          codigo:       info.id || extraerCodigo(nombre) || ""
-        };
-      });
-      return resultado1;
-    }
+    return resultado;
   }
 
   // ── Estrategia 2: DatosKobo (fallback) ───────────────────────
@@ -2610,7 +2609,15 @@ function _calcularResumenPeriodo(fi, ff) {
     porPart[nombre].push({ ts: ts, tsEnd: tsEnd, tipo: tipo });
   });
 
+  // Partir de todos los participantes (horas=0), luego sumar horas reales de Kobo
   var resultado2 = {};
+  Object.keys(mapa).forEach(function(nombre) {
+    var info = mapa[nombre];
+    resultado2[nombre] = { horas: 0, tarifa: info.tarifa, tieneFactura: info.tieneFactura,
+      categoria: info.categoria, id: _esCreamos_ID_real(info.id) ? info.id : "",
+      codigo: _esCreamos_ID_real(info.id) ? info.id : "" };
+  });
+
   Object.keys(porPart).forEach(function(nombre) {
     var regs = porPart[nombre].sort(function(a,b){ return a.ts - b.ts; });
     var totalH = 0;
@@ -2636,16 +2643,13 @@ function _calcularResumenPeriodo(fi, ff) {
       totalH += CFG.HORAS_JORNADA_NORMAL;
     }
 
-    if (totalH <= 0) return;
-    var info = _buscarInfoParticipante(mapa, nombre);
-    resultado2[nombre] = {
-      horas:        Math.round(totalH * 100) / 100,
-      tarifa:       info.tarifa    || CFG.CATEGORIAS.C,
-      tieneFactura: info.tieneFactura || false,
-      categoria:    info.categoria || "C",
-      id:           info.id || "",
-      codigo:       info.id || extraerCodigo(nombre) || ""
-    };
+    if (!resultado2[nombre]) {
+      var info2b = _buscarInfoParticipante(mapa, nombre);
+      resultado2[nombre] = { horas: 0, tarifa: info2b.tarifa || CFG.CATEGORIAS.C,
+        tieneFactura: info2b.tieneFactura || false, categoria: info2b.categoria || "?",
+        id: info2b.id || "", codigo: info2b.id || "" };
+    }
+    resultado2[nombre].horas = Math.round(totalH * 100) / 100;
   });
 
   return resultado2;
@@ -2762,16 +2766,16 @@ function _generarReporteQuincena(fi, ff, label, tabNombre, prevHorasReponer) {
 
     bloqueValores.push([
       num++, nombre, factInd, d.codigo || "", "",
-      horas,
+      horas || "",
       hReponer > 0 ? hReponer : "",
-      hTotal,
-      base,
+      hTotal || "",
+      base || "",
       iva > 0 ? iva : "",
-      orgPaga,
-      redond,
-      neto
+      orgPaga || "",
+      redond || "",
+      neto || ""
     ]);
-    bloqueFilas.push({ fila: filaActual, cat: d.categoria || "?", tieneFactura: d.tieneFactura });
+    bloqueFilas.push({ fila: filaActual, cat: d.categoria || "?", tieneFactura: d.tieneFactura, sinHoras: horas === 0 });
     filaActual++;
   });
 
@@ -2782,9 +2786,12 @@ function _generarReporteQuincena(fi, ff, label, tabNombre, prevHorasReponer) {
 
   // Aplicar formato fila a fila (colores por categoría + números)
   bloqueFilas.forEach(function(bf) {
-    var bg  = BG_CAT[bf.cat] || BG_CAT["?"];
+    // Filas sin horas = gris claro + itálica para distinguirlas
+    var bg = bf.sinHoras ? "#f5f5f5" : (BG_CAT[bf.cat] || BG_CAT["?"]);
     h.getRange(bf.fila, 1, 1, 13)
-     .setBackground(bg).setFontFamily("Arial").setFontSize(10).setVerticalAlignment("middle");
+     .setBackground(bg).setFontFamily("Arial").setFontSize(10).setVerticalAlignment("middle")
+     .setFontStyle(bf.sinHoras ? "italic" : "normal")
+     .setFontColor(bf.sinHoras ? "#9e9e9e" : "#000000");
     h.getRange(bf.fila, 1).setHorizontalAlignment("center").setFontWeight("bold");
     h.getRange(bf.fila, 2, 1, 3).setHorizontalAlignment("left");
     h.getRange(bf.fila, 6, 1, 8).setHorizontalAlignment("right");
@@ -2851,7 +2858,8 @@ function _generarReporteQuincena(fi, ff, label, tabNombre, prevHorasReponer) {
   // ── Fila timestamp ─────────────────────────────────────────────
   filaActual++;
   h.getRange(filaActual, 1, 1, 12).merge()
-   .setValue("Actualizado: " + ts + "  |  " + nombres.length + " participantes")
+   .setValue("Actualizado: " + ts + "  |  " + nombres.length + " participantes  |  " +
+             nombres.filter(function(n){ return resumen[n].horas > 0; }).length + " con horas registradas")
    .setFontSize(8).setFontColor("#9aa0a6").setHorizontalAlignment("right");
 
   // ── Ancho de columnas (13 cols) ────────────────────────────────
