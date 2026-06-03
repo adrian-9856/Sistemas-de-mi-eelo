@@ -147,8 +147,9 @@ function actualizarColoresYIDs() { _run(function() {
 
   var hDE = ss.getSheetByName("DiasEstudio");
   if (hDE && hDE.getLastRow() >= 2) {
-    _colorearHojaApoyo(hDE, 1, 10, mapa);
-    log.push("📚 DiasEstudio: colores actualizados");
+    _actualizarIDsEnHoja(hDE, 2, mapa);
+    _colorearHojaApoyo(hDE, 2, 11, mapa);
+    log.push("📚 DiasEstudio: IDs y colores actualizados");
   }
 
   var hLT = ss.getSheetByName("ListaTerapias");
@@ -236,7 +237,7 @@ function onOpen() {
 
 // onEdit: col I = Categoria → auto-llenar Tarifa_Hora en PARTICIPANTES
 //         col E = Etapa → si "Retiradx" dispara flujo de retiro
-//         DiasEstudio cols B-H → Educacion en PARTICIPANTES
+//         DiasEstudio cols C-I → Educacion en PARTICIPANTES  (A=ID, B=Nombre, C-I=días)
 //         ListaTerapias col C  → Apoyo_Emocional en PARTICIPANTES
 //         InclusionLaboral col C → Inclusion_Laboral en PARTICIPANTES
 function onEdit(e) {
@@ -260,8 +261,8 @@ function onEdit(e) {
     }
   }
 
-  // DIASESTUDIO — cualquier día (cols B-H = 2-8) → Educacion en PARTICIPANTES
-  if (nombre === "DiasEstudio" && col >= 2 && col <= 8 && fila >= 2) {
+  // DIASESTUDIO — cualquier día (cols C-I = 3-9; A=ID, B=Nombre) → Educacion en PARTICIPANTES
+  if (nombre === "DiasEstudio" && col >= 3 && col <= 9 && fila >= 2) {
     try { _syncEducacionFila(sheet, fila); } catch(_) {}
   }
 
@@ -278,14 +279,14 @@ function onEdit(e) {
 
 /** Sincroniza la fila de DiasEstudio hacia col F (Educacion=6) de PARTICIPANTES */
 function _syncEducacionFila(hDE, fila) {
-  var fila_ = hDE.getRange(fila, 1, 1, 8).getValues()[0];
-  var participante = String(fila_[0] || "").trim();
+  var fila_ = hDE.getRange(fila, 1, 1, 9).getValues()[0]; // A=ID, B=Nombre, C-I=días
+  var participante = String(fila_[1] || "").trim(); // col B = Nombre
   if (!participante) return;
 
   var DIAS_NOM = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
   var activos = [];
   for (var d = 0; d < 7; d++) {
-    if (String(fila_[d + 1] || "").trim().toUpperCase() === "X") activos.push(DIAS_NOM[d]);
+    if (String(fila_[d + 2] || "").trim().toUpperCase() === "X") activos.push(DIAS_NOM[d]); // días en cols C-I (índice 2-8)
   }
   var texto = activos.length > 0 ? "Sí — " + activos.join(", ") : "No";
   _actualizarColParticipante(participante, 6, texto); // col F = Educacion
@@ -338,15 +339,15 @@ function sincronizarParticipacion() { _run(function() {
   var DIAS_NOM = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
   var actDE = 0, actLT = 0, actIL = 0;
 
-  // DiasEstudio → Educacion (col F = 6)
+  // DiasEstudio → Educacion (col F = 6)  — A=ID, B=Nombre, C-I=días
   if (hDE && hDE.getLastRow() >= 2) {
-    var datDE = hDE.getRange(2, 1, hDE.getLastRow() - 1, 8).getValues();
+    var datDE = hDE.getRange(2, 1, hDE.getLastRow() - 1, 9).getValues();
     datDE.forEach(function(f) {
-      var participante = String(f[0] || "").trim();
+      var participante = String(f[1] || "").trim(); // col B = Nombre
       if (!participante) return;
       var activos = [];
       for (var d = 0; d < 7; d++) {
-        if (String(f[d + 1] || "").trim().toUpperCase() === "X") activos.push(DIAS_NOM[d]);
+        if (String(f[d + 2] || "").trim().toUpperCase() === "X") activos.push(DIAS_NOM[d]); // días en índice 2-8
       }
       var texto = activos.length > 0 ? "Sí — " + activos.join(", ") : "No";
       _actualizarColParticipante(participante, 6, texto);
@@ -383,7 +384,7 @@ function sincronizarParticipacion() { _run(function() {
   var hDE2 = ss.getSheetByName("DiasEstudio");
   var hLT2 = ss.getSheetByName("ListaTerapias");
   var hIL2 = ss.getSheetByName("InclusionLaboral");
-  if (hDE2) _colorearHojaApoyo(hDE2, 1, 10, mapa);
+  if (hDE2) { _actualizarIDsEnHoja(hDE2, 2, mapa); _colorearHojaApoyo(hDE2, 2, 11, mapa); }
   if (hLT2) { _actualizarIDsEnHoja(hLT2, 2, mapa); _colorearHojaApoyo(hLT2, 2, 4, mapa); }
   if (hIL2) { _actualizarIDsEnHoja(hIL2, 2, mapa); _colorearHojaApoyo(hIL2, 2, 4, mapa); }
 
@@ -1682,11 +1683,12 @@ function _escribirNombresCanonicos(mapeo, ss) {
 }
 function _normalizarNombresEnHojas(mapeo, ss) {
   var act=[];
-  ["DiasEstudio","ListaTerapias"].forEach(function(nm){
-    var h=ss.getSheetByName(nm);if(!h)return;
+  // DiasEstudio col B (idx 1) = Nombre; ListaTerapias col B (idx 1) = Nombre
+  [{nm:"DiasEstudio",col:2},{nm:"ListaTerapias",col:2}].forEach(function(cfg){
+    var h=ss.getSheetByName(cfg.nm);if(!h)return;
     var d=h.getDataRange().getValues(),cam=0;
-    for(var f=1;f<d.length;f++){var n=String(d[f][0]||"").trim();if(n&&mapeo[n]&&mapeo[n]!==n){h.getRange(f+1,1).setValue(mapeo[n]);cam++;}}
-    if(cam>0) act.push(nm+"("+cam+")");
+    for(var f=1;f<d.length;f++){var n=String(d[f][cfg.col-1]||"").trim();if(n&&mapeo[n]&&mapeo[n]!==n){h.getRange(f+1,cfg.col).setValue(mapeo[n]);cam++;}}
+    if(cam>0) act.push(cfg.nm+"("+cam+")");
   });
   return act.join(", ");
 }
@@ -1867,18 +1869,19 @@ function normalizarNombre(nombre, mapeo) {
 // ── Días de estudio y terapias ────────────────────────────────
 
 function obtenerDiasEstudio() {
+  // Esquema: A=Creamos_ID(0), B=Participante(1), C-I=días(2-8), J=Fecha_Inicio(9), K=Fecha_Fin(10)
   var mapa={},h=SpreadsheetApp.getActiveSpreadsheet().getSheetByName("DiasEstudio");
   if(!h)return mapa;
   var d=h.getDataRange().getValues();
   for(var f=1;f<d.length;f++){
-    var p=String(d[f][0]||"").trim();if(!p)continue;
+    var p=String(d[f][1]||"").trim();if(!p)continue; // col B = Participante
     mapa[p]={
-      dias:{1:d[f][1]==="X"||d[f][1]==="x",2:d[f][2]==="X"||d[f][2]==="x",
-             3:d[f][3]==="X"||d[f][3]==="x",4:d[f][4]==="X"||d[f][4]==="x",
-             5:d[f][5]==="X"||d[f][5]==="x",6:d[f][6]==="X"||d[f][6]==="x",
-             0:d[f][7]==="X"||d[f][7]==="x"},
-      fechaInicio:d[f][8]?new Date(d[f][8]):null,
-      fechaFin:d[f][9]?new Date(d[f][9]):null
+      dias:{1:d[f][2]==="X"||d[f][2]==="x",2:d[f][3]==="X"||d[f][3]==="x",
+             3:d[f][4]==="X"||d[f][4]==="x",4:d[f][5]==="X"||d[f][5]==="x",
+             5:d[f][6]==="X"||d[f][6]==="x",6:d[f][7]==="X"||d[f][7]==="x",
+             0:d[f][8]==="X"||d[f][8]==="x"},
+      fechaInicio:d[f][9]?new Date(d[f][9]):null,
+      fechaFin:d[f][10]?new Date(d[f][10]):null
     };
     if(mapa[p].fechaFin) mapa[p].fechaFin.setHours(23,59,59,999);
   }
@@ -4578,8 +4581,8 @@ function crearHojaDiasEstudio() { _run(function() {
   var esNueva = !hoja;
   if (esNueva) hoja = ss.insertSheet("DiasEstudio");
 
-  // Encabezado siempre
-  var enc = ["Participante","Lun","Mar","Mié","Jue","Vie","Sáb","Dom","Fecha_Inicio","Fecha_Fin"];
+  // Encabezado siempre — A=Creamos_ID, B=Participante, C-I=días, J-K=fechas
+  var enc = ["Creamos_ID","Participante","Lun","Mar","Mié","Jue","Vie","Sáb","Dom","Fecha_Inicio","Fecha_Fin"];
   hoja.getRange(1,1,1,enc.length).setValues([enc])
     .setFontWeight("bold").setBackground("#7b1fa2").setFontColor("#fff").setHorizontalAlignment("center");
   hoja.setFrozenRows(1);
@@ -4588,19 +4591,23 @@ function crearHojaDiasEstudio() { _run(function() {
 
   if (esNueva) {
     var filas = LISTA_OFICIAL.map(function(it) {
-      return [it[1], "","","","","","","","",""];
+      var id = (mapa[it[1]] || {}).id || it[3] || "";
+      return [id, it[1], "","","","","","","","",""];
     });
-    hoja.getRange(2, 1, filas.length, 10).setValues(filas);
+    hoja.getRange(2, 1, filas.length, 11).setValues(filas);
     var vX = SpreadsheetApp.newDataValidation().requireValueInList(["X",""],true).build();
-    hoja.getRange(2,2,filas.length,7).setDataValidation(vX).setHorizontalAlignment("center");
+    hoja.getRange(2,3,filas.length,7).setDataValidation(vX).setHorizontalAlignment("center"); // cols C-I
+  } else {
+    _actualizarIDsEnHoja(hoja, 2, mapa); // hoja existente: actualizar IDs
   }
 
-  // Colores por categoría — siempre (nueva o existente), desde PARTICIPANTES
-  _colorearHojaApoyo(hoja, 1, 10, mapa);
+  // Colores por categoría — siempre desde PARTICIPANTES (col B = Nombre)
+  _colorearHojaApoyo(hoja, 2, 11, mapa);
 
-  hoja.setColumnWidth(1, 260);
-  for (var c=2;c<=8;c++) hoja.setColumnWidth(c,55);
-  hoja.setColumnWidth(9,110); hoja.setColumnWidth(10,110);
+  hoja.setColumnWidth(1, 110); // Creamos_ID
+  hoja.setColumnWidth(2, 260); // Participante
+  for (var c=3;c<=9;c++) hoja.setColumnWidth(c,55);
+  hoja.setColumnWidth(10,110); hoja.setColumnWidth(11,110);
   hoja.activate();
 
   _alert(
