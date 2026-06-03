@@ -125,6 +125,7 @@ function onOpen() {
     .addItem("🧾 Configurar IVA (quién tiene factura)",  "configurarFacturacion")
     .addItem("✅ Guardar cambios de facturación",         "aplicarCambiosFacturacion")
     .addSeparator()
+    .addItem("🔼 Cambiar categoría de participante",      "cambiarCategoriaParticipante")
     .addItem("✏️ Cambiar nombre de participante",        "cambiarNombreParticipante")
     .addItem("📄 Generar DP (fila activa)",              "generarDpFilaActiva")
     .addItem("📄 Actualizar todos los DPs",              "actualizarTodosLosDps")
@@ -4533,6 +4534,75 @@ function repararDatosKobo() { _run(function() {
     }
   }
   ui.alert("✅ REPARACIÓN COMPLETADA\n\nEntrada/Salida corregidos: "+cam1+"\nNombres normalizados: "+cam2);
+}); }
+
+function cambiarCategoriaParticipante() { _run(function() {
+  var ui = SpreadsheetApp.getUi();
+  var hP = _sh(CFG.HOJAS.PARTICIPANTES);
+  if (!hP || hP.getLastRow() < 2) { _alert("No hay participantes cargados."); return; }
+
+  // Construir lista de nombres
+  var datos  = hP.getRange(2, 1, hP.getLastRow() - 1, 12).getValues();
+  var lista  = datos.map(function(f, i) {
+    return (i + 1) + ". " + String(f[1] || "").trim() + "  [" + String(f[10] || "?") + "]";
+  }).filter(function(s) { return s.indexOf(". ") !== -1 && s.length > 5; });
+
+  var r1 = ui.prompt(
+    "🔼 Cambiar categoría",
+    "Escribe el número o nombre de la participante:\n\n" + lista.slice(0, 33).join("\n"),
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (r1.getSelectedButton() !== ui.Button.OK) return;
+  var buscar = r1.getResponseText().trim();
+  if (!buscar) return;
+
+  // Encontrar la fila
+  var filaEncontrada = -1, nombreEncontrado = "", catActual = "";
+  var numBuscar = parseInt(buscar, 10);
+  for (var i = 0; i < datos.length; i++) {
+    var nombre = String(datos[i][1] || "").trim();
+    if (!nombre) continue;
+    var coincide = (!isNaN(numBuscar) && numBuscar === i + 1) ||
+                   textoParaComparar(nombre).indexOf(textoParaComparar(buscar)) !== -1;
+    if (coincide) {
+      filaEncontrada = i + 2;
+      nombreEncontrado = nombre;
+      catActual = String(datos[i][10] || "").trim().toUpperCase();
+      break;
+    }
+  }
+  if (filaEncontrada < 0) { _alert("No se encontró: " + buscar); return; }
+
+  var tarifaActual = CFG.CATEGORIAS[catActual] || 0;
+  var r2 = ui.prompt(
+    "🔼 Nueva categoría para " + nombreEncontrado,
+    "Categoría actual: " + catActual + " (Q" + tarifaActual.toFixed(2) + "/hr)\n\n" +
+    "Escribe la nueva categoría:\n" +
+    "  A = Q" + CFG.CATEGORIAS.A.toFixed(2) + "/hr\n" +
+    "  B = Q" + CFG.CATEGORIAS.B.toFixed(2) + "/hr\n" +
+    "  C = Q" + CFG.CATEGORIAS.C.toFixed(2) + "/hr\n" +
+    "  D = Q" + CFG.CATEGORIAS.D.toFixed(2) + "/hr",
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (r2.getSelectedButton() !== ui.Button.OK) return;
+  var nuevaCat = r2.getResponseText().trim().toUpperCase();
+  if (!CFG.CATEGORIAS[nuevaCat]) { _alert("Categoría inválida: " + nuevaCat + "\nDebe ser A, B, C o D."); return; }
+  if (nuevaCat === catActual) { _alert("La categoría ya es " + catActual + ". No hubo cambio."); return; }
+
+  var nuevaTarifa = CFG.CATEGORIAS[nuevaCat];
+  hP.getRange(filaEncontrada, 11).setValue(nuevaCat);    // col K = Categoria
+  hP.getRange(filaEncontrada, 12).setValue(nuevaTarifa); // col L = Tarifa_Hora
+
+  // Actualizar LISTA_OFICIAL en memoria (no persiste pero refleja el cambio visual)
+  _colorearParticipantes(hP, hP.getLastRow() - 1);
+
+  _alert(
+    "✅ Categoría actualizada\n\n" +
+    "Participante: " + nombreEncontrado + "\n" +
+    catActual + " → " + nuevaCat + "\n" +
+    "Q" + tarifaActual.toFixed(2) + " → Q" + nuevaTarifa.toFixed(2) + " / hora\n\n" +
+    "El cambio aplica a partir de la próxima quincena."
+  );
 }); }
 
 function cambiarNombreParticipante() { _run(function() {
