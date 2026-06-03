@@ -507,7 +507,7 @@ function cargarListaParticipantes() { _run(function() {
   });
 
   if (filas.length > 0) {
-    hP.getRange(2, 1, filas.length, 20).setValues(filas);
+    hP.getRange(2, 1, filas.length, 21).setValues(filas);
     hP.getRange(2, 12, filas.length, 1).setNumberFormat("Q#,##0.00");
     _colorearParticipantes(hP, filas.length);
     // Marcar celdas sin Creamos ID
