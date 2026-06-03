@@ -3,7 +3,8 @@
 // ============================================================
 
 const CFG = {
-  ORG:          "mi eelo",
+  ORG:          "mi eelo",   // programa
+  PROYECTO:     "Textil",    // proyecto padre
   CORREO_ADMIN: "adrian@creamosguatemala.org",
   // Tarifas por categoría (Q por hora) — A=Q16.50 B=Q15.75 C=Q15.00 D=Q14.00
   CATEGORIAS:   { A: 16.50, B: 15.75, C: 15.00, D: 14.00 },
@@ -136,6 +137,7 @@ function onOpen() {
     .addSeparator()
     .addItem("📚 Días de estudio",                       "crearHojaDiasEstudio")
     .addItem("🧘 Lista de terapias",                     "crearHojaListaTerapias")
+    .addItem("🔗 Sincronizar participación (→ PARTICIPANTES)", "sincronizarParticipacion")
     .addSeparator()
     .addItem("✏️ Cambiar nombre de participante",        "cambiarNombreParticipante")
     .addItem("📄 Generar DP (fila activa)",              "generarDpFilaActiva")
@@ -158,6 +160,8 @@ function onOpen() {
 }
 
 // onEdit: col R (18) = Pagado en FACTURACION | col K (11) = Categoria en PARTICIPANTES
+//         DiasEstudio cols B-H → Educacion en PARTICIPANTES
+//         ListaTerapias col C  → Apoyo_Emocional en PARTICIPANTES
 function onEdit(e) {
   var sheet = e.range.getSheet();
   var nombre = sheet.getName();
@@ -175,7 +179,104 @@ function onEdit(e) {
     var tarifa = CFG.CATEGORIAS[cat];
     if (tarifa) sheet.getRange(fila, 12).setValue(tarifa);
   }
+
+  // DIASESTUDIO — cualquier día (cols B-H = 2-8) → Educacion en PARTICIPANTES
+  if (nombre === "DiasEstudio" && col >= 2 && col <= 8 && fila >= 2) {
+    try { _syncEducacionFila(sheet, fila); } catch(_) {}
+  }
+
+  // LISTATERAPIAS — col C (Recibe Terapia) → Apoyo_Emocional en PARTICIPANTES
+  if (nombre === "ListaTerapias" && col === 3 && fila >= 2) {
+    try { _syncApoyoFila(sheet, fila); } catch(_) {}
+  }
 }
+
+/** Sincroniza la fila fila de DiasEstudio hacia col H (Educacion) de PARTICIPANTES */
+function _syncEducacionFila(hDE, fila) {
+  var fila_ = hDE.getRange(fila, 1, 1, 8).getValues()[0];
+  var participante = String(fila_[0] || "").trim();
+  if (!participante) return;
+
+  var DIAS_NOM = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
+  var activos = [];
+  for (var d = 0; d < 7; d++) {
+    if (String(fila_[d + 1] || "").trim().toUpperCase() === "X") activos.push(DIAS_NOM[d]);
+  }
+  var texto = activos.length > 0 ? "Sí — " + activos.join(", ") : "No";
+  _actualizarColParticipante(participante, 8, texto); // col H = index 8
+}
+
+/** Sincroniza la fila fila de ListaTerapias hacia col I (Apoyo_Emocional) de PARTICIPANTES */
+function _syncApoyoFila(hLT, fila) {
+  var fila_ = hLT.getRange(fila, 1, 1, 3).getValues()[0];
+  var participante = String(fila_[1] || "").trim(); // col B = Participante
+  if (!participante) return;
+  var texto = String(fila_[2] || "").trim().toUpperCase() === "X" ? "Sí" : "No";
+  _actualizarColParticipante(participante, 9, texto); // col I = index 9
+}
+
+/** Actualiza la celda de colNum (1-based) para el participante con ese nombre en PARTICIPANTES */
+function _actualizarColParticipante(nombreBuscar, colNum, valor) {
+  var hP = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CFG.HOJAS.PARTICIPANTES);
+  if (!hP || hP.getLastRow() < 2) return;
+  var nombres = hP.getRange(2, 2, hP.getLastRow() - 1, 1).getValues();
+  var normBuscar = textoParaComparar(nombreBuscar);
+  for (var i = 0; i < nombres.length; i++) {
+    if (textoParaComparar(String(nombres[i][0])) === normBuscar) {
+      hP.getRange(i + 2, colNum).setValue(valor);
+      return;
+    }
+  }
+}
+
+/**
+ * Sincroniza TODA la participación (DiasEstudio + ListaTerapias → PARTICIPANTES).
+ * Llámalo desde el menú después de llenar las hojas.
+ */
+function sincronizarParticipacion() { _run(function() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var hDE = ss.getSheetByName("DiasEstudio");
+  var hLT = ss.getSheetByName("ListaTerapias");
+  var hP  = _sh(CFG.HOJAS.PARTICIPANTES);
+  if (!hP || hP.getLastRow() < 2) { _alert("No hay participantes cargados."); return; }
+
+  var DIAS_NOM = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
+  var actDE = 0, actLT = 0;
+
+  // DiasEstudio → Educacion (col H = 8)
+  if (hDE && hDE.getLastRow() >= 2) {
+    var datDE = hDE.getRange(2, 1, hDE.getLastRow() - 1, 8).getValues();
+    datDE.forEach(function(f) {
+      var participante = String(f[0] || "").trim();
+      if (!participante) return;
+      var activos = [];
+      for (var d = 0; d < 7; d++) {
+        if (String(f[d + 1] || "").trim().toUpperCase() === "X") activos.push(DIAS_NOM[d]);
+      }
+      var texto = activos.length > 0 ? "Sí — " + activos.join(", ") : "No";
+      _actualizarColParticipante(participante, 8, texto);
+      if (activos.length) actDE++;
+    });
+  }
+
+  // ListaTerapias → Apoyo_Emocional (col I = 9)
+  if (hLT && hLT.getLastRow() >= 2) {
+    var datLT = hLT.getRange(2, 1, hLT.getLastRow() - 1, 3).getValues();
+    datLT.forEach(function(f) {
+      var participante = String(f[1] || "").trim(); // col B
+      if (!participante) return;
+      var texto = String(f[2] || "").trim().toUpperCase() === "X" ? "Sí" : "No";
+      _actualizarColParticipante(participante, 9, texto);
+      if (texto === "Sí") actLT++;
+    });
+  }
+
+  _alert(
+    "✅ Participación sincronizada\n\n" +
+    "📚 Educación (días de estudio): " + actDE + " con asistencia marcada\n" +
+    "🧘 Apoyo Emocional (terapias): " + actLT + " con terapia marcada"
+  );
+}); }
 
 // ── Crear hojas ───────────────────────────────────────────────
 
@@ -304,13 +405,13 @@ function nuevoParticipante() { _run(function() {
   var carpeta = _carpetaDP();
   var doc = _abrirOCrearDocProceso(id || nombre, nombre, carpeta, "");
   var url = doc.getUrl();
-  var part = { id:id, nombre:nombre, proyecto:CFG.ORG, division:"", programa:"", estado:"Activo",
+  var part = { id:id, nombre:nombre, proyecto:CFG.PROYECTO, division:"", programa:CFG.ORG, estado:"Activo",
                etapa:"", educacion:"", apoyoEmocional:"", inclusionLaboral:"",
                categoria:"", tarifa:"", tieneFactura:"No",
                dpi:dpi, nit:"", correo:"", banco:"", numCuenta:"", formaPago:"" };
   _escribirContenidoDP(doc, part, [], []);
 
-  hP.appendRow([id, nombre, CFG.ORG, "", "", "Activo", "", "", "", "", "", "", "No", dpi, "", "", "", "", "", url]);
+  hP.appendRow([id, nombre, CFG.PROYECTO, "", CFG.ORG, "Activo", "", "", "", "", "", "", "No", dpi, "", "", "", "", "", url]);
   hP.setActiveRange(hP.getRange(hP.getLastRow(), 1));
   ui.alert(
     "✅ Participante registrado: " + nombre + "\n\n" +
@@ -425,10 +526,10 @@ function cargarListaParticipantes() { _run(function() {
     else    sinEncontrar.push(item[0] + ". " + nombre);
 
     filas.push([
-      id,       // A: Creamos_ID   ← de la DB oficial
-      nombre,   // B: Nombre
-      CFG.ORG,  // C: Proyecto
-      "", "",   // D: Division, E: Programa
+      id,            // A: Creamos_ID   ← de la DB oficial
+      nombre,        // B: Nombre
+      CFG.PROYECTO,  // C: Proyecto = "Textil"
+      "", CFG.ORG,   // D: Division, E: Programa = "mi eelo"
       "Activo", // F: Estado
       "", "", "", "", // G–J: Etapa, Educacion, Apoyo_Emocional, Inclusion_Laboral
       cat,      // K: Categoria
@@ -1572,8 +1673,8 @@ function obtenerListaTerapias() {
   if(!h)return lista;
   var d=h.getDataRange().getValues();
   for(var f=1;f<d.length;f++){
-    var p=String(d[f][0]||"").trim();
-    if(p&&String(d[f][1]||"").trim().toUpperCase()==="X")lista[p]=true;
+    var nombre=String(d[f][1]||"").trim(); // col B = Participante
+    if(nombre && String(d[f][2]||"").trim().toUpperCase()==="X") lista[nombre]=true; // col C = Recibe Terapia
   }
   return lista;
 }
