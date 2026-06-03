@@ -144,7 +144,7 @@ function onOpen() {
     .addToUi();
 }
 
-// onEdit: col R (18) = Pagado en FACTURACION | col K (11) = Categoria en PARTICIPANTES
+// onEdit: col K = Categoria → auto-llenar Tarifa_Hora en PARTICIPANTES
 //         DiasEstudio cols B-H → Educacion en PARTICIPANTES
 //         ListaTerapias col C  → Apoyo_Emocional en PARTICIPANTES
 function onEdit(e) {
@@ -152,11 +152,6 @@ function onEdit(e) {
   var nombre = sheet.getName();
   var col    = e.range.getColumn();
   var fila   = e.range.getRow();
-
-  // FACTURACION — Pagado cambia → actualizar Dashboard
-  if (nombre === CFG.HOJAS.FACTURACION && col === 18) {
-    try { actualizarDashboard(); } catch(_) {}
-  }
 
   // PARTICIPANTES — Categoria cambia → auto-llenar Tarifa_Hora
   if (nombre === CFG.HOJAS.PARTICIPANTES && col === 11 && fila >= 2) {
@@ -1081,7 +1076,7 @@ function reimportarTodoDesdeKobo() { _run(function() {
   hoja.setFrozenRows(1);
   _limpiarColumnasKobo(hoja, datos[0]);
   _normalizarAccionSilencioso(hoja);
-  _alert("✅ Reimportación completa: " + (datos.length-1) + " registros.\n\nRecuerda ejecutar 'Emparejar entradas/salidas' para recalcular ASISTENCIA.");
+  _alert("✅ Reimportación completa: " + (datos.length-1) + " registros importados desde Kobo.");
 }); }
 
 function _buscarIndice(enc, clave) {
@@ -2408,9 +2403,9 @@ function _leerHorasReponerExistentes(tabNombre) {
 /*
  * Calcula el resumen de horas por participante para un período dado.
  *
- * ESTRATEGIA 1 (preferida): lee desde ASISTENCIA — mismos números que
- * la facturación, ya emparejados y con % aplicados.
- * ESTRATEGIA 2 (fallback): empareja en tiempo real desde DatosKobo.
+ * Calcula horas por participante para el período.
+ * Parte de TODOS los participantes de PARTICIPANTES (horas=0),
+ * luego suma horas reales desde ASISTENCIA (si existe) o DatosKobo.
  *
  * Retorna: { "Nombre": { horas, tarifa, tieneFactura, categoria, codigo } }
  */
@@ -2435,7 +2430,7 @@ function _calcularResumenPeriodo(fi, ff) {
     };
   });
 
-  // Sumar horas reales desde ASISTENCIA (estrategia principal)
+  // Sumar horas reales desde DatosKobo (si no existe ASISTENCIA pre-procesada)
   var hojaA = ss.getSheetByName(CFG.HOJAS.ASISTENCIA);
   if (hojaA && hojaA.getLastRow() > 1) {
     var asistRows = hojaA.getDataRange().getValues();
@@ -2449,7 +2444,7 @@ function _calcularResumenPeriodo(fi, ff) {
       if (!nombre) continue;
       var horas = parseFloat(r[8]) || 0; // col I = Horas_A_Pagar
       if (!resultado[nombre]) {
-        // Persona en ASISTENCIA pero no en PARTICIPANTES → agregarla igual
+        // Persona en DatosKobo pero no en PARTICIPANTES → agregarla igual
         var info2 = _buscarInfoParticipante(mapa, nombre);
         resultado[nombre] = { horas: 0, tarifa: info2.tarifa || CFG.CATEGORIAS.C,
           tieneFactura: info2.tieneFactura || false, categoria: info2.categoria || "?",
@@ -4100,11 +4095,11 @@ function _construirMapaTarifas() {
 
 function instalarTodo() { _run(function() {
   var ui = SpreadsheetApp.getUi();
-  var resp = ui.alert("🚀 INSTALACIÓN COMPLETA — RRHH " + CFG.ORG,
+  var resp = ui.alert("🚀 INSTALACIÓN COMPLETA — " + CFG.PROYECTO + " / " + CFG.ORG,
     "Se ejecutarán 6 pasos automáticamente:\n\n" +
-    "1 — Crear hojas del sistema (PARTICIPANTES, ASISTENCIA, FACTURACION…)\n" +
+    "1 — Crear hojas: PARTICIPANTES, DatosKobo, PERIODOS\n" +
     "2 — Importar datos desde Kobo\n" +
-    "3 — Crear estructura en Drive (Docs_Proceso, Recibos, Reportes)\n" +
+    "3 — Crear estructura en Drive (Docs_Proceso, Reportes)\n" +
     "4 — Crear hoja Días de Estudio\n" +
     "5 — Crear hoja Lista de Terapias\n" +
     "6 — Activar automatizaciones (Kobo cada hora + al abrir)\n\n" +
@@ -4117,7 +4112,7 @@ function instalarTodo() { _run(function() {
 
   // PASO 1
   try {
-    ss.toast("Paso 1/6: Creando hojas del sistema...", "🚀", -1);
+    ss.toast("Paso 1/6: Creando hojas (PARTICIPANTES, DatosKobo, PERIODOS)...", "🚀", -1);
     crearHojas();
     log.push("✅ Paso 1: Hojas del sistema creadas/verificadas");
   } catch(e) { errores.push("❌ Paso 1: " + e.message); }
@@ -4184,15 +4179,15 @@ function instalarTodo() { _run(function() {
   resumen += log.join("\n");
   if (errores.length) resumen += "\n\n--- PROBLEMAS ---\n" + errores.join("\n");
   resumen += "\n\n--- HOJAS DEL SISTEMA ---\n";
-  resumen += "• PARTICIPANTES — agrega personas aquí (Categoría A/B/C/D)\n";
-  resumen += "• ASISTENCIA — horas calculadas al emparejar\n";
-  resumen += "• FACTURACION — pagos por quincena\n";
-  resumen += "• DatosKobo — datos crudos de Kobo\n";
-  resumen += "• DiasEstudio — marca días que no pagan\n";
-  resumen += "• ListaTerapias — marca quién va a terapia\n";
+  resumen += "• PARTICIPANTES   — lista maestra con banco, cuenta, categoría\n";
+  resumen += "• DatosKobo       — datos de Kobo (se actualiza automático cada hora)\n";
+  resumen += "• PERIODOS        — control de quincenas\n";
+  resumen += "• DiasEstudio     — qué días estudia cada participante\n";
+  resumen += "• ListaTerapias   — quién recibe terapia\n";
+  resumen += "• Q_[fecha]       — reporte generado por quincena\n";
   resumen += "\nTarifas: A=Q16.50 | B=Q15.75 | C=Q15.00 | D=Q14.00\n";
-  resumen += "IVA 5%: solo participantes con Tiene_Factura=Sí\n";
-  resumen += "\nYa puedes generar reportes desde el menú 📊";
+  resumen += "IVA 5%: Admin → Configurar IVA (quién tiene factura)\n";
+  resumen += "\n✅ Siguiente paso: Admin → Cargar lista oficial (33 participantes)";
   _alert(resumen);
 }); }
 
