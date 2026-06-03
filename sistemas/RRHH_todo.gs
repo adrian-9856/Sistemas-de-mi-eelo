@@ -113,21 +113,7 @@ function onOpen() {
     .addItem("📊 Reporte por rango de fechas",           "generarReportePorRango");
 
   // ══════════════════════════════════════════════════════════
-  // BLOQUE 3: PAGOS
-  // ══════════════════════════════════════════════════════════
-  var menuPagos = ui.createMenu("💰 Pagos")
-    .addItem("⚡ Checklist + recibos (1 clic)",          "procesarPagoCompleto")
-    .addSeparator()
-    .addItem("📋 Solo checklist de pago",                "generarChecklistPago")
-    .addItem("🧾 Solo generar recibos",                  "generarRecibosMes")
-    .addSeparator()
-    .addItem("🧾 Configurar IVA (quién tiene factura)",  "configurarFacturacion")
-    .addItem("✅ Aplicar cambios de facturación",         "aplicarCambiosFacturacion")
-    .addSeparator()
-    .addItem("📊 Dashboard de indicadores",              "actualizarDashboard");
-
-  // ══════════════════════════════════════════════════════════
-  // BLOQUE 4: ADMIN (uso ocasional)
+  // BLOQUE 3: ADMIN (uso ocasional)
   // ══════════════════════════════════════════════════════════
   var menuAdmin = ui.createMenu("⚙️ Admin")
     .addItem("📋 Cargar lista oficial (33 participantes)","cargarListaParticipantes")
@@ -138,6 +124,9 @@ function onOpen() {
     .addItem("📚 Días de estudio",                       "crearHojaDiasEstudio")
     .addItem("🧘 Lista de terapias",                     "crearHojaListaTerapias")
     .addItem("🔗 Sincronizar participación (→ PARTICIPANTES)", "sincronizarParticipacion")
+    .addSeparator()
+    .addItem("🧾 Configurar IVA (quién tiene factura)",  "configurarFacturacion")
+    .addItem("✅ Guardar cambios de facturación",         "aplicarCambiosFacturacion")
     .addSeparator()
     .addItem("✏️ Cambiar nombre de participante",        "cambiarNombreParticipante")
     .addItem("📄 Generar DP (fila activa)",              "generarDpFilaActiva")
@@ -154,7 +143,6 @@ function onOpen() {
     .addSeparator()
     .addSubMenu(menuAsistencia)
     .addSubMenu(menuQuincena)
-    .addSubMenu(menuPagos)
     .addSubMenu(menuAdmin)
     .addToUi();
 }
@@ -285,24 +273,42 @@ function crearHojas() { _run(function() {
 
   // (CLASIFICACION eliminada — la info de categorías está en el Directorio)
 
-  // PARTICIPANTES — 20 cols (A–T)
+  // PARTICIPANTES — 21 cols (A–U)
   var hP = ss.getSheetByName(CFG.HOJAS.PARTICIPANTES) || ss.insertSheet(CFG.HOJAS.PARTICIPANTES);
-  if (hP.getLastRow() === 0) {
+  var esNuevaP = hP.getLastRow() === 0;
+  if (esNuevaP) {
     hP.appendRow([
       "Creamos_ID","Nombre","Proyecto","Division","Programa","Estado","Etapa",
       "Educacion","Apoyo_Emocional","Inclusion_Laboral",
       "Categoria","Tarifa_Hora","Tiene_Factura",
-      "DPI","NIT","Correo","Banco","Num_Cuenta","Forma_Pago","URL_Doc_Proceso"
+      "DPI","NIT","Correo",
+      "Banco","Tipo_Cuenta","Num_Cuenta","Forma_Pago","URL_Doc_Proceso"
     ]);
-    _fmtEnc(hP, "#639922");
-    var vEstado = SpreadsheetApp.newDataValidation().requireValueInList(["Activo","Inactivo","Egresado"],true).build();
-    var vCat    = SpreadsheetApp.newDataValidation().requireValueInList(["A","B","C","D"],true).build();
-    var vSiNo   = SpreadsheetApp.newDataValidation().requireValueInList(["Sí","No"],true).build();
-    hP.getRange("F2:F500").setDataValidation(vEstado);
-    hP.getRange("K2:K500").setDataValidation(vCat);
-    hP.getRange("M2:M500").setDataValidation(vSiNo);
-    hP.getRange("L2:L500").setNumberFormat("Q#,##0.00");
-    hP.setColumnWidth(20, 300); // URL_Doc_Proceso
+  }
+  _fmtEnc(hP, "#639922");
+  var vEstado  = SpreadsheetApp.newDataValidation().requireValueInList(["Activo","Inactivo","Egresado"],true).build();
+  var vCat     = SpreadsheetApp.newDataValidation().requireValueInList(["A","B","C","D"],true).build();
+  var vSiNo    = SpreadsheetApp.newDataValidation().requireValueInList(["Sí","No"],true).build();
+  var vBanco   = SpreadsheetApp.newDataValidation().requireValueInList([
+    "Banrural","G&T Continental","BAC Credomatic","Industrial","Agromercantil",
+    "Occidente","Promerica","Vivibanco","Bantrab","CHN","Otro"
+  ],true).build();
+  var vTipoCta = SpreadsheetApp.newDataValidation().requireValueInList(["Monetaria","Ahorro",""],true).build();
+  var vPago    = SpreadsheetApp.newDataValidation().requireValueInList(["Transferencia","Efectivo","Cheque"],true).build();
+  hP.getRange("F2:F500").setDataValidation(vEstado);
+  hP.getRange("K2:K500").setDataValidation(vCat);
+  hP.getRange("M2:M500").setDataValidation(vSiNo);
+  hP.getRange("Q2:Q500").setDataValidation(vBanco);
+  hP.getRange("R2:R500").setDataValidation(vTipoCta);
+  hP.getRange("T2:T500").setDataValidation(vPago);
+  hP.getRange("L2:L500").setNumberFormat("Q#,##0.00");
+  if (esNuevaP) {
+    hP.setColumnWidth(2, 220);  // Nombre
+    hP.setColumnWidth(17, 120); // Banco
+    hP.setColumnWidth(18, 100); // Tipo_Cuenta
+    hP.setColumnWidth(19, 130); // Num_Cuenta
+    hP.setColumnWidth(20, 120); // Forma_Pago
+    hP.setColumnWidth(21, 300); // URL_Doc_Proceso
   }
 
   // ASISTENCIA — 10 cols
@@ -314,26 +320,6 @@ function crearHojas() { _run(function() {
       "Hora_Entrada","Hora_Salida"
     ]);
     _fmtEnc(hA, "#1f54a8");
-  }
-
-  // FACTURACION — 21 cols (A–U)
-  var hF = ss.getSheetByName(CFG.HOJAS.FACTURACION) || ss.insertSheet(CFG.HOJAS.FACTURACION);
-  if (hF.getLastRow() === 0) {
-    hF.appendRow([
-      "Creamos_ID","Nombre","Mes","Anio","Quincena",
-      "Horas_Trabajadas","Horas_A_Reponer","Horas_A_Pagar",
-      "Tarifa_Hora","Monto_Base","Tiene_IVA","IVA_5pct","Total_Factura","Monto_Neto",
-      "Factura_Entregada","Numero_Factura","Declaraguate","Pagado",
-      "Fecha_Pago","Comentarios","URL_Recibo"
-    ]);
-    _fmtEnc(hF, "#639922");
-    var v2 = SpreadsheetApp.newDataValidation().requireValueInList(["Sí","No"],true).build();
-    hF.getRange("K2:K2000").setDataValidation(v2); // Tiene_IVA
-    hF.getRange("O2:O2000").setDataValidation(v2); // Factura_Entregada
-    hF.getRange("Q2:Q2000").setDataValidation(v2); // Declaraguate
-    hF.getRange("R2:R2000").setDataValidation(v2); // Pagado
-    hF.getRange("I2:N2000").setNumberFormat("Q#,##0.00"); // tarifa + montos
-    hF.setColumnWidth(21, 300); // URL_Recibo
   }
 
   // PERIODOS — hoja de control de quincenas
@@ -350,12 +336,11 @@ function crearHojas() { _run(function() {
   ss.setActiveSheet(hP);
   _alert(
     "✅ Hojas creadas:\n" +
-    "• PARTICIPANTES (20 cols — incl. Categoría, Tarifa, Tiene_Factura)\n" +
+    "• PARTICIPANTES (21 cols — incluye Banco, Tipo_Cuenta, Num_Cuenta, Forma_Pago)\n" +
     "• ASISTENCIA\n" +
-    "• FACTURACION (21 cols — incl. Horas_A_Reponer, Tarifa por participante)\n" +
     "• PERIODOS (control de quincenas)\n\n" +
     "Tarifas: A=Q16.50 | B=Q15.75 | C=Q15.00 | D=Q14.00\n" +
-    "IVA 5%: solo participantes con Tiene_Factura=Sí"
+    "IVA 5%: solo participantes con Tiene_Factura=Sí (Admin → Configurar IVA)"
   );
 }); }
 
@@ -411,7 +396,7 @@ function nuevoParticipante() { _run(function() {
                dpi:dpi, nit:"", correo:"", banco:"", numCuenta:"", formaPago:"" };
   _escribirContenidoDP(doc, part, [], []);
 
-  hP.appendRow([id, nombre, CFG.PROYECTO, "", CFG.ORG, "Activo", "", "", "", "", "", "", "No", dpi, "", "", "", "", "", url]);
+  hP.appendRow([id, nombre, CFG.PROYECTO, "", CFG.ORG, "Activo", "", "", "", "", "", "", "No", dpi, "", "", "", "", "", "", url]);
   hP.setActiveRange(hP.getRange(hP.getLastRow(), 1));
   ui.alert(
     "✅ Participante registrado: " + nombre + "\n\n" +
@@ -536,7 +521,7 @@ function cargarListaParticipantes() { _run(function() {
       tarifa,   // L: Tarifa_Hora
       "No",     // M: Tiene_Factura
       dpi,      // N: DPI          ← de la DB oficial
-      "", "", "", "", "", ""  // O–T: NIT, Correo, Banco, Num_Cuenta, Forma_Pago, URL
+      "", "", "", "", "", "", ""  // O–U: NIT, Correo, Banco, Tipo_Cuenta, Num_Cuenta, Forma_Pago, URL
     ]);
   });
 
