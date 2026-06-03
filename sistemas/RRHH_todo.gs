@@ -1,9 +1,9 @@
 // ============================================================
-// SISTEMA RRHH — Mi eelo
+// SISTEMA RRHH — mi eelo
 // ============================================================
 
 const CFG = {
-  ORG:          "Mi eelo",
+  ORG:          "mi eelo",
   CORREO_ADMIN: "adrian@creamosguatemala.org",
   // Tarifas por categoría (Q por hora) — A=Q16.50 B=Q15.75 C=Q15.00 D=Q14.00
   CATEGORIAS:   { A: 16.50, B: 15.75, C: 15.00, D: 14.00 },
@@ -130,6 +130,7 @@ function onOpen() {
   // ══════════════════════════════════════════════════════════
   var menuAdmin = ui.createMenu("⚙️ Admin")
     .addItem("📋 Cargar lista oficial (33 participantes)","cargarListaParticipantes")
+    .addItem("🔄 Sincronizar desde Creamos DB",          "sincronizarDesdeCreamos")
     .addItem("➕ Nuevo participante",                     "nuevoParticipante")
     .addItem("👥 Directorio de participantes",           "generarDirectorioParticipantes")
     .addSeparator()
@@ -442,14 +443,23 @@ function cargarListaParticipantes() { _run(function() {
     hP.getRange(2, 1, filas.length, 20).setValues(filas);
     hP.getRange(2, 12, filas.length, 1).setNumberFormat("Q#,##0.00");
     _colorearParticipantes(hP, filas.length);
+    // Marcar celdas sin Creamos ID
+    filas.forEach(function(f, i) {
+      if (!f[0]) {
+        var celdaID = hP.getRange(i + 2, 1);
+        celdaID.setValue("⚠️ Sin perfil Salesforce")
+               .setBackground("#fce8e6").setFontColor("#c0392b").setFontStyle("italic");
+      }
+    });
   }
 
   _alert(
     "✅ Lista oficial cargada — " + filas.length + " participantes.\n\n" +
     "• Encontrados en base Creamos: " + encontrados + "\n" +
     (sinEncontrar.length
-      ? "• Sin ID en base Creamos (" + sinEncontrar.length + "):\n  " + sinEncontrar.join("\n  ") +
-        "\n\nVerifica que el nombre coincida exactamente\ncon 'Copy of CREAMOS ID nuevo'."
+      ? "• Sin perfil en Creamos (" + sinEncontrar.length + "):\n  " + sinEncontrar.join("\n  ") +
+        "\n\n⚠️ Marcadas en rojo — cuando creen el perfil en Salesforce\n" +
+        "usa Administración → Sincronizar desde Creamos DB."
       : "• Todos tienen Creamos ID ✅")
   );
 }); }
@@ -476,7 +486,7 @@ function _buscarEnCreamos_DB(nombre) {
   enc.forEach(function(h, i) {
     var hl = String(h).toLowerCase().trim();
     if (hl.indexOf("nombre") !== -1)               iNombre   = i;
-    if (hl.indexOf("creamos") !== -1 || hl === "id") iID     = i;
+    if ((hl.indexOf("creamos") !== -1 && hl.indexOf("id") !== -1) || hl === "id") iID = i;
     if (hl.indexOf("año") !== -1 || hl.indexOf("anio") !== -1 || hl.indexOf("entró") !== -1) iAnio = i;
     if (hl === "age" || hl === "edad")             iEdad     = i;
     if (hl === "gender" || hl.indexOf("género") !== -1 || hl.indexOf("genero") !== -1) iGenero = i;
@@ -514,7 +524,13 @@ function _buscarEnCreamos_DB(nombre) {
       return extraer(datos[i]);
     }
   }
-  return {};
+  return { noEncontrado: true };
+}
+
+/** Devuelve true si el valor de la celda Creamos_ID es real (no el marcador de "sin perfil") */
+function _esCreamos_ID_real(valor) {
+  var v = String(valor || "").trim();
+  return v.length > 0 && v.indexOf("⚠️") === -1;
 }
 
 /**
@@ -3180,6 +3196,55 @@ function configurarTriggers() { _run(function() {
     "onEdit (automático):\n" +
     "• Categoría → auto-llena Tarifa\n" +
     "• Pagado → actualiza Dashboard");
+}); }
+
+// ── Sincronizar desde Creamos DB ──────────────────────────────
+
+/**
+ * Recorre PARTICIPANTES y para cada fila sin Creamos ID real,
+ * vuelve a buscar en la DB. Si ahora lo encuentra, actualiza ID y DPI.
+ * Útil cuando se crean perfiles nuevos en Salesforce y se sincronizan a la DB.
+ */
+function sincronizarDesdeCreamos() { _run(function() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var hP = _sh(CFG.HOJAS.PARTICIPANTES);
+  if (!hP || hP.getLastRow() < 2) { _alert("No hay participantes cargados."); return; }
+
+  var datos = hP.getRange(2, 1, hP.getLastRow() - 1, 20).getValues();
+  var actualizados = [], sinEncontrar = [];
+
+  datos.forEach(function(fila, i) {
+    var idActual = String(fila[0] || "").trim();
+    if (_esCreamos_ID_real(idActual)) return; // ya tiene ID real, saltar
+
+    var nombre = String(fila[1] || "").trim();
+    if (!nombre) return;
+
+    ss.toast("Buscando: " + nombre, "🔍", -1);
+    var db = _buscarEnCreamos_DB(nombre);
+    if (db.noEncontrado || !db.id) {
+      sinEncontrar.push(nombre);
+      return;
+    }
+
+    // Actualizar ID y DPI en la hoja
+    hP.getRange(i + 2, 1).setValue(db.id).setBackground(null).setFontColor(null).setFontStyle("normal");
+    if (db.dpi) hP.getRange(i + 2, 14).setValue(db.dpi);
+    actualizados.push(nombre + " → " + db.id);
+  });
+
+  ss.toast("", "", 1);
+  _colorearParticipantes(hP, datos.length);
+
+  _alert(
+    "🔄 Sincronización completada\n\n" +
+    (actualizados.length
+      ? "✅ Actualizados (" + actualizados.length + "):\n  " + actualizados.join("\n  ") + "\n\n"
+      : "") +
+    (sinEncontrar.length
+      ? "⚠️ Aún sin perfil (" + sinEncontrar.length + "):\n  " + sinEncontrar.join("\n  ")
+      : "Todos los participantes tienen Creamos ID ✅")
+  );
 }); }
 
 // ── Reinstalar ────────────────────────────────────────────────
