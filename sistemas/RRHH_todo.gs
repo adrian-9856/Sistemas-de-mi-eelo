@@ -10,10 +10,10 @@ const CFG = {
   CATEGORIAS:   { A: 16.50, B: 15.75, C: 15.00, D: 14.00 },
   // Colores oficiales por categoría — usados en TODOS los reportes y hojas
   COLORES_CAT: {
-    A: { bg: "#1e7e34", fg: "#ffffff", bgClaro: "#d4edda" }, // verde oscuro / verde claro
-    B: { bg: "#1565c0", fg: "#ffffff", bgClaro: "#bbdefb" }, // azul oscuro / azul claro
-    C: { bg: "#e65100", fg: "#ffffff", bgClaro: "#ffe0b2" }, // naranja oscuro / naranja claro
-    D: { bg: "#6a1a6a", fg: "#ffffff", bgClaro: "#f3e5f5" }  // morado oscuro / morado claro
+    A: { bg: "#2e7d32", fg: "#ffffff", bgClaro: "#c8e6c9" }, // verde
+    B: { bg: "#f9a825", fg: "#212121", bgClaro: "#fff9c4" }, // amarillo/dorado
+    C: { bg: "#e65100", fg: "#ffffff", bgClaro: "#ffe0b2" }, // naranja
+    D: { bg: "#c62828", fg: "#ffffff", bgClaro: "#ffcdd2" }  // rojo/rosado
   },
   IVA_PCT:      0.05,  // 5% Pequeño Contribuyente Guatemala (solo quien tiene factura)
   HORAS_JORNADA_NORMAL: 7,
@@ -539,12 +539,12 @@ function cargarListaParticipantes() { _run(function() {
     hP.getRange(2, 1, filas.length, 19).setValues(filas);
     hP.getRange(2, 10, filas.length, 1).setNumberFormat("Q#,##0.00");
     _colorearParticipantes(hP, filas.length);
-    // Marcar celdas sin Creamos ID
+    // Marcar celdas sin Creamos ID (no se encontró en la DB)
     filas.forEach(function(f, i) {
       if (!f[0]) {
-        var celdaID = hP.getRange(i + 2, 1);
-        celdaID.setValue("⚠️ Sin perfil Salesforce")
-               .setBackground("#fce8e6").setFontColor("#c0392b").setFontStyle("italic");
+        hP.getRange(i + 2, 1)
+          .setValue("⚠️ Crear perfil en Salesforce")
+          .setBackground("#fff3cd").setFontColor("#856404").setFontStyle("italic");
       }
     });
   }
@@ -566,7 +566,11 @@ function cargarListaParticipantes() { _run(function() {
  */
 /**
  * Busca un participante en la base de datos oficial "Copy of CREAMOS ID nuevo".
- * Estrategias: exacto → normalizado → primeras 2 palabras.
+ * Estrategias (de más a menos estricta):
+ *   1) Exacto  2) Normalizado (sin acentos/mayúsculas)  3) Primeras 2 palabras
+ *   4) Primer nombre + primer apellido en cualquier orden
+ *   5) Todas las palabras del nombre buscado aparecen en el nombre de la DB
+ *   6) Coincidencia por prefijo de 4 letras de cada palabra
  * Retorna: { id, dpi, edad, genero, fechaNac, anioEntrada } o {} si no encontrado.
  */
 function _buscarEnCreamos_DB(nombre) {
@@ -577,7 +581,6 @@ function _buscarEnCreamos_DB(nombre) {
   var datos = hDB.getDataRange().getValues();
   var enc   = datos[0];
 
-  // Detectar índices de columnas por encabezado
   var iNombre = -1, iID = -1, iAnio = -1, iEdad = -1, iGenero = -1, iFechaNac = -1, iDPI = -1;
   enc.forEach(function(h, i) {
     var hl = String(h).toLowerCase().trim();
@@ -591,9 +594,6 @@ function _buscarEnCreamos_DB(nombre) {
   });
   if (iNombre === -1) return {};
 
-  var normBuscar = textoParaComparar(nombre);
-  var palabras   = normBuscar.split(/\s+/).slice(0, 2).join(" ");
-
   function extraer(fila) {
     return {
       id:        iID      >= 0 ? String(fila[iID]      || "").trim() : "",
@@ -605,20 +605,63 @@ function _buscarEnCreamos_DB(nombre) {
     };
   }
 
-  // 1) Exacto
+  var normBuscar  = textoParaComparar(nombre);
+  var palabrasBus = normBuscar.split(/\s+/).filter(function(p){ return p.length > 1; });
+  var p2          = palabrasBus.slice(0, 2).join(" ");
+
+  // Construir cache normalizado una sola vez
+  var normDB = [];
+  for (var i = 1; i < datos.length; i++) {
+    normDB[i] = textoParaComparar(String(datos[i][iNombre] || ""));
+  }
+
+  // Estrategia 1: Exacto
   for (var i = 1; i < datos.length; i++) {
     if (String(datos[i][iNombre]).trim() === nombre) return extraer(datos[i]);
   }
-  // 2) Normalizado
+  // Estrategia 2: Normalizado completo
   for (var i = 1; i < datos.length; i++) {
-    if (textoParaComparar(String(datos[i][iNombre])) === normBuscar) return extraer(datos[i]);
+    if (normDB[i] === normBuscar) return extraer(datos[i]);
   }
-  // 3) Primeras 2 palabras
+  // Estrategia 3: Primeras 2 palabras coinciden al inicio
   for (var i = 1; i < datos.length; i++) {
-    var normDB = textoParaComparar(String(datos[i][iNombre]));
-    if (normDB.indexOf(palabras) === 0 || palabras.indexOf(normDB.split(/\s+/).slice(0,2).join(" ")) === 0) {
-      return extraer(datos[i]);
+    var db2 = normDB[i].split(/\s+/).slice(0, 2).join(" ");
+    if (normDB[i].indexOf(p2) === 0 || p2.indexOf(db2) === 0) return extraer(datos[i]);
+  }
+  // Estrategia 4: Primer nombre + primer apellido en cualquier posición
+  if (palabrasBus.length >= 2) {
+    var pNombre   = palabrasBus[0];
+    var pApellido = palabrasBus[1];
+    for (var i = 1; i < datos.length; i++) {
+      var dbPals = normDB[i].split(/\s+/);
+      var tieneNombre   = dbPals.some(function(p){ return p === pNombre; });
+      var tieneApellido = dbPals.some(function(p){ return p === pApellido; });
+      if (tieneNombre && tieneApellido) return extraer(datos[i]);
     }
+  }
+  // Estrategia 5: Todas las palabras del buscado aparecen en el nombre DB
+  if (palabrasBus.length >= 3) {
+    for (var i = 1; i < datos.length; i++) {
+      var dbPals = normDB[i].split(/\s+/);
+      var todas = palabrasBus.every(function(p) {
+        return dbPals.some(function(d){ return d === p; });
+      });
+      if (todas) return extraer(datos[i]);
+    }
+  }
+  // Estrategia 6: Coincidencia por prefijo de 4 letras de las primeras 2 palabras
+  if (palabrasBus.length >= 2) {
+    var pref1 = palabrasBus[0].substring(0, 4);
+    var pref2 = palabrasBus[1].substring(0, 4);
+    var mejorPuntaje = 0, mejorFila = -1;
+    for (var i = 1; i < datos.length; i++) {
+      var dbPals = normDB[i].split(/\s+/);
+      var tiene1 = dbPals.some(function(p){ return p.substring(0,4) === pref1; });
+      var tiene2 = dbPals.some(function(p){ return p.substring(0,4) === pref2; });
+      var puntaje = (tiene1 ? 1 : 0) + (tiene2 ? 1 : 0);
+      if (puntaje > mejorPuntaje) { mejorPuntaje = puntaje; mejorFila = i; }
+    }
+    if (mejorPuntaje === 2) return extraer(datos[mejorFila]);
   }
   return { noEncontrado: true };
 }
