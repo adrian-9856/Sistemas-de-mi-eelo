@@ -93,10 +93,7 @@ function onOpen() {
   // BLOQUE 1: ASISTENCIA
   // ══════════════════════════════════════════════════════════
   var menuAsistencia = ui.createMenu("📥 Asistencia")
-    .addItem("⚡ Importar + emparejar todo (1 clic)",     "importarYEmparejar")
-    .addSeparator()
     .addItem("📥 Importar desde Kobo",                   "importarDesdeKobo")
-    .addItem("🔗 Emparejar entradas / salidas",          "emparejarAsistencia")
     .addSeparator()
     .addItem("🔍 Diagnosticar registros Kobo",           "diagnosticarDatosKobo")
     .addItem("🔧 Reparar datos Kobo",                    "repararDatosKobo");
@@ -311,17 +308,6 @@ function crearHojas() { _run(function() {
     hP.setColumnWidth(21, 300); // URL_Doc_Proceso
   }
 
-  // ASISTENCIA — 10 cols
-  var hA = ss.getSheetByName(CFG.HOJAS.ASISTENCIA) || ss.insertSheet(CFG.HOJAS.ASISTENCIA);
-  if (hA.getLastRow() === 0) {
-    hA.appendRow([
-      "Nombre","Creamos_ID","Fecha","Tipo",
-      "Horas_Trabajadas","Es_Dia_Estudio","Es_Terapia","Porcentaje_Pago","Horas_A_Pagar","Clave_Dia",
-      "Hora_Entrada","Hora_Salida"
-    ]);
-    _fmtEnc(hA, "#1f54a8");
-  }
-
   // PERIODOS — hoja de control de quincenas
   crearHojaPeriodos();
 
@@ -337,7 +323,7 @@ function crearHojas() { _run(function() {
   _alert(
     "✅ Hojas creadas:\n" +
     "• PARTICIPANTES (21 cols — incluye Banco, Tipo_Cuenta, Num_Cuenta, Forma_Pago)\n" +
-    "• ASISTENCIA\n" +
+    "• DatosKobo (importación automática cada hora desde Kobo)\n" +
     "• PERIODOS (control de quincenas)\n\n" +
     "Tarifas: A=Q16.50 | B=Q15.75 | C=Q15.00 | D=Q14.00\n" +
     "IVA 5%: solo participantes con Tiene_Factura=Sí (Admin → Configurar IVA)"
@@ -800,49 +786,17 @@ function _sincronizarDP(hP, fila) {
     tieneFactura:     String(f[12] || ""),
     dpi:              String(f[13] || ""), nit:              String(f[14] || ""),
     correo:           String(f[15] || ""), banco:            String(f[16] || ""),
-    numCuenta:        String(f[17] || ""), formaPago:        String(f[18] || "")
+    tipoCuenta:       String(f[17] || ""), numCuenta:        String(f[18] || ""),
+    formaPago:        String(f[19] || "")
   };
-  var urlActual = String(f[19] || "");
-
-  // Asistencia del participante
-  var hA    = _sh(CFG.HOJAS.ASISTENCIA);
-  var aRows = hA.getDataRange().getValues();
-  var asistencia = [];
-  for (var i = 1; i < aRows.length; i++) {
-    if (String(aRows[i][0]).trim() !== nombre && String(aRows[i][1]).trim() !== id) continue;
-    asistencia.push({
-      fecha:       aRows[i][2], tipo:         aRows[i][3],
-      horas:       aRows[i][4], esDiaEstudio: aRows[i][5],
-      esTerapia:   aRows[i][6], pct:          aRows[i][7], horasAPagar: aRows[i][8]
-    });
-  }
-  asistencia.sort(function(a,b){ return new Date(b.fecha) - new Date(a.fecha); });
-
-  // Facturación del participante
-  var hF    = _sh(CFG.HOJAS.FACTURACION);
-  var fRows = hF.getDataRange().getValues();
-  var facturacion = [];
-  for (var j = 1; j < fRows.length; j++) {
-    if (String(fRows[j][0]).trim() !== id && String(fRows[j][1]).trim() !== nombre) continue;
-    facturacion.push({
-      mes:          fRows[j][2],  anio:         fRows[j][3],
-      quincena:     fRows[j][4],  horasTrab:    fRows[j][5],
-      horasReponer: fRows[j][6],  horasPagar:   fRows[j][7],
-      tarifa:       fRows[j][8],  montoBase:    fRows[j][9],
-      tieneIVA:     fRows[j][10], iva:          fRows[j][11],
-      totalFactura: fRows[j][12], montoNeto:    fRows[j][13],
-      facturaEnt:   fRows[j][14], numFactura:   fRows[j][15],
-      declaraguate: fRows[j][16], pagado:       fRows[j][17],
-      fechaPago:    fRows[j][18]
-    });
-  }
+  var urlActual = String(f[20] || "");
 
   var carpeta = _carpetaDP();
   var doc = _abrirOCrearDocProceso(id, nombre, carpeta, urlActual);
-  _escribirContenidoDP(doc, part, asistencia, facturacion);
+  _escribirContenidoDP(doc, part);
 
   var urlNueva = doc.getUrl();
-  if (urlNueva !== urlActual) hP.getRange(fila, 20).setValue(urlNueva);
+  if (urlNueva !== urlActual) hP.getRange(fila, 21).setValue(urlNueva);
   return urlNueva;
 }
 
@@ -866,7 +820,7 @@ function _abrirOCrearDocProceso(id, nombre, carpeta, urlExistente) {
   return doc;
 }
 
-function _escribirContenidoDP(doc, part, asistencia, facturacion) {
+function _escribirContenidoDP(doc, part) {
   var body = doc.getBody();
   body.clear();
   body.setMarginTop(36).setMarginBottom(36).setMarginLeft(54).setMarginRight(54);
@@ -900,7 +854,8 @@ function _escribirContenidoDP(doc, part, asistencia, facturacion) {
     ["Tarifa/hora",    tarifahora,              "Tiene Factura", part.tieneFactura||"—"],
     ["DPI",            part.dpi         ||"—", "NIT",           part.nit         ||"—"],
     ["Correo",         part.correo      ||"—", "Forma de pago", part.formaPago   ||"—"],
-    ["Banco",          part.banco       ||"—", "Núm. cuenta",   part.numCuenta   ||"—"],
+    ["Banco",          part.banco       ||"—", "Tipo cuenta",   part.tipoCuenta  ||"—"],
+    ["Núm. cuenta",    part.numCuenta   ||"—", "",              ""],
   ]);
   for (var r=0; r<tD.getNumRows(); r++) {
     tD.getRow(r).getCell(0).setBackgroundColor("#639922").editAsText().setForegroundColor("#fff").setBold(true);
@@ -921,75 +876,22 @@ function _escribirContenidoDP(doc, part, asistencia, facturacion) {
     tA.getRow(r).getCell(0).setBackgroundColor("#1f54a8").editAsText().setForegroundColor("#fff").setBold(true);
   }
 
-  // 3. Asistencia (últimos 90 días)
+  // 3. Información de pago
   body.appendParagraph("");
-  body.appendParagraph("3.  HISTORIAL DE ASISTENCIA  (últimos 90 días)")
-      .setHeading(DocumentApp.ParagraphHeading.HEADING3)
-      .editAsText().setForegroundColor("#1f54a8");
-  var hace90 = new Date(); hace90.setDate(hace90.getDate() - 90);
-  var asistRec = asistencia.filter(function(a) {
-    var d = new Date(a.fecha); return !isNaN(d) && d >= hace90;
-  }).slice(0, 60);
-  if (asistRec.length === 0) {
-    body.appendParagraph("Sin registros en los últimos 90 días.")
-        .editAsText().setItalic(true).setFontSize(9).setForegroundColor("#888888");
-  } else {
-    var totalHrsDP = 0;
-    var filaAss = [["Fecha","Tipo","Horas Trab.","Día Estudio","Terapia","Horas a Pagar"]];
-    asistRec.forEach(function(a) {
-      var fecha = a.fecha instanceof Date
-        ? Utilities.formatDate(a.fecha, tz, "dd/MM/yyyy") : String(a.fecha||"—");
-      totalHrsDP += parseFloat(a.horasAPagar) || 0;
-      filaAss.push([fecha, String(a.tipo||"—"), _n2(a.horas),
-                    String(a.esDiaEstudio||"—"), String(a.esTerapia||"—"), _n2(a.horasAPagar)]);
-    });
-    _estilTablaEnc(body.appendTable(filaAss), "#1f54a8");
-    body.appendParagraph("Total horas a pagar (período): " + _n2(totalHrsDP))
-        .editAsText().setBold(true).setFontSize(10);
-  }
-
-  // 4. Historial de pagos
-  body.appendParagraph("");
-  body.appendParagraph("4.  HISTORIAL DE PAGOS  (" + tarifahora +
-      (part.tieneFactura==="Sí" ? " · IVA 5% Pcv." : " · sin IVA") + ")")
+  body.appendParagraph("3.  INFORMACIÓN DE PAGO")
       .setHeading(DocumentApp.ParagraphHeading.HEADING3)
       .editAsText().setForegroundColor("#639922");
-  if (facturacion.length === 0) {
-    body.appendParagraph("Sin registros de pago.")
-        .editAsText().setItalic(true).setFontSize(9).setForegroundColor("#888888");
-  } else {
-    var totPagado = 0, totPend = 0, totIVA = 0;
-    var filasPago = [["Mes","Q","Hrs Trab","Hrs Pagar","Tarifa","Base (Q)","IVA 5%","Total Fact.","Neto Part.","Pagado","Fecha"]];
-    facturacion.slice(0, 30).forEach(function(p) {
-      var fp = p.fechaPago instanceof Date
-        ? Utilities.formatDate(p.fechaPago, tz, "dd/MM/yyyy") : String(p.fechaPago||"—");
-      var tot  = parseFloat(p.totalFactura) || 0;
-      var iva  = parseFloat(p.iva)          || 0;
-      var base = parseFloat(p.montoBase)    || 0;
-      var neto = parseFloat(p.montoNeto)    || 0;
-      if (p.pagado === "Sí") totPagado += tot; else totPend += tot;
-      totIVA += iva;
-      filasPago.push([
-        String(p.mes||"—") + " " + String(p.anio||""),
-        String(p.quincena||"—"),
-        _n2(p.horasTrab),
-        _n2(p.horasPagar),
-        "Q " + (parseFloat(p.tarifa)||0).toFixed(2),
-        "Q " + base.toFixed(2),
-        iva > 0 ? "Q " + iva.toFixed(2) : "—",
-        "Q " + tot.toFixed(2),
-        "Q " + neto.toFixed(2),
-        String(p.pagado||"No"), fp
-      ]);
-    });
-    _estilTablaEnc(body.appendTable(filasPago), "#639922");
-    body.appendParagraph("");
-    body.appendTable([
-      ["Total pagado (factura)",  "Q " + totPagado.toFixed(2)],
-      ["Pendiente",               "Q " + totPend.toFixed(2)],
-      ["IVA total declarado",     "Q " + totIVA.toFixed(2)],
-    ]).editAsText().setFontSize(10);
-  }
+  body.appendTable([
+    ["Tarifa",        tarifahora],
+    ["IVA 5%",        part.tieneFactura === "Sí" ? "Sí — Pequeño Contribuyente" : "No aplica"],
+    ["Banco",         part.banco || "—"],
+    ["Tipo cuenta",   part.tipoCuenta || "—"],
+    ["Núm. cuenta",   part.numCuenta || "—"],
+    ["Forma de pago", part.formaPago || "—"],
+  ]);
+  body.appendParagraph("");
+  body.appendParagraph("Ver reportes de quincena en el Spreadsheet para historial de horas y montos.")
+      .editAsText().setItalic(true).setFontSize(9).setForegroundColor("#888888");
 
   body.appendParagraph("");
   body.appendParagraph("Generado por Sistema RRHH — " + CFG.ORG + "  ·  " + hoy)
@@ -3722,17 +3624,13 @@ function _calcularKpis(ss) {
   }
 
   // ── KPI 5: Horas de formación ─────────────────────────────────
-  // Cuenta desde ASISTENCIA: filas del mes donde Es_Dia_Estudio="Sí" o Es_Terapia="Sí"
-  var hojaA = ss.getSheetByName(CFG.HOJAS.ASISTENCIA);
-  if (hojaA && hojaA.getLastRow() > 1) {
-    hojaA.getDataRange().getValues().slice(1).forEach(function(a) {
-      var fecha = new Date(a[2]);
-      if (isNaN(fecha) || fecha.getMonth()+1 !== mesNum || fecha.getFullYear() !== anio) return;
-      var esEstudio  = String(a[5]).toLowerCase() === "sí" || String(a[5]) === "TRUE";
-      var esTerapia  = String(a[6]).toLowerCase() === "sí" || String(a[6]) === "TRUE";
-      if (esEstudio || esTerapia) {
-        kpi.horasFormacion += parseFloat(a[4]) || 0; // Horas_Trabajadas (idx 4)
-      }
+  // Cuenta participantes activas con Educacion o Apoyo_Emocional marcados en PARTICIPANTES
+  var hojaP2 = ss.getSheetByName(CFG.HOJAS.PARTICIPANTES);
+  if (hojaP2 && hojaP2.getLastRow() > 1) {
+    hojaP2.getDataRange().getValues().slice(1).forEach(function(p) {
+      var edu   = String(p[7] || "").trim(); // col H = Educacion
+      var apoyo = String(p[8] || "").trim(); // col I = Apoyo_Emocional
+      if (edu.indexOf("Sí") === 0 || apoyo === "Sí") kpi.horasFormacion++;
     });
   }
 
