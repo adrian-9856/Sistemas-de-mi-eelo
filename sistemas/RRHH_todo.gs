@@ -7,6 +7,13 @@ const CFG = {
   CORREO_ADMIN: "adrian@creamosguatemala.org",
   // Tarifas por categoría (Q por hora) — A=Q16.50 B=Q15.75 C=Q15.00 D=Q14.00
   CATEGORIAS:   { A: 16.50, B: 15.75, C: 15.00, D: 14.00 },
+  // Colores oficiales por categoría — usados en TODOS los reportes y hojas
+  COLORES_CAT: {
+    A: { bg: "#1e7e34", fg: "#ffffff", bgClaro: "#d4edda" }, // verde oscuro / verde claro
+    B: { bg: "#1565c0", fg: "#ffffff", bgClaro: "#bbdefb" }, // azul oscuro / azul claro
+    C: { bg: "#e65100", fg: "#ffffff", bgClaro: "#ffe0b2" }, // naranja oscuro / naranja claro
+    D: { bg: "#6a1a6a", fg: "#ffffff", bgClaro: "#f3e5f5" }  // morado oscuro / morado claro
+  },
   IVA_PCT:      0.05,  // 5% Pequeño Contribuyente Guatemala (solo quien tiene factura)
   HORAS_JORNADA_NORMAL: 7,
   KOBO_URL_CSV: "https://kf.kobotoolbox.org/api/v2/assets/agi395bJj6ojXJzPPDT9n6/export-settings/es4oUjEmPvovgLd6Y5yrQ4K/data.csv",
@@ -81,77 +88,71 @@ function onOpen() {
   var ui;
   try { ui = SpreadsheetApp.getUi(); } catch(_) { return; }
 
-  // ── Submenú: Más reportes ─────────────────────────────────────
-  var menuReportes = ui.createMenu("📊 Más reportes")
-    .addItem("📊 Reporte por día",                     "generarReportePorDia")
-    .addItem("📊 Reporte por semana",                  "generarReportePorSemana")
-    .addItem("📊 Reporte por mes",                     "generarReportePorMes")
-    .addItem("📊 Reporte completo (todos los datos)",  "generarReporteTodo");
+  // ══════════════════════════════════════════════════════════
+  // BLOQUE 1: ASISTENCIA
+  // ══════════════════════════════════════════════════════════
+  var menuAsistencia = ui.createMenu("📥 Asistencia")
+    .addItem("⚡ Importar + emparejar todo (1 clic)",     "importarYEmparejar")
+    .addSeparator()
+    .addItem("📥 Importar desde Kobo",                   "importarDesdeKobo")
+    .addItem("🔗 Emparejar entradas / salidas",          "emparejarAsistencia")
+    .addSeparator()
+    .addItem("🔍 Diagnosticar registros Kobo",           "diagnosticarDatosKobo")
+    .addItem("🔧 Reparar datos Kobo",                    "repararDatosKobo");
 
-  // ── Submenú: Facturación ──────────────────────────────────────
-  var menuFact = ui.createMenu("💰 Facturación y recibos")
-    .addItem("📋 Checklist de pago (flujo facturación)", "generarChecklistPago")
-    .addItem("🧾 Configurar quién emite factura (IVA)",  "configurarFacturacion")
+  // ══════════════════════════════════════════════════════════
+  // BLOQUE 2: QUINCENA
+  // ══════════════════════════════════════════════════════════
+  var menuQuincena = ui.createMenu("📅 Quincena")
+    .addItem("📊 Ver / actualizar quincena actual",      "verQuincenaActual")
+    .addItem("✅ Cerrar y abrir siguiente",               "cerrarQuincenaYCrearSiguiente")
+    .addSeparator()
+    .addItem("🗓️ Nueva quincena (manual)",               "configurarNuevaQuincena")
+    .addItem("🔍 Reporte de quincena pasada",            "generarReporteQuincenaPasada")
+    .addItem("📊 Reporte por rango de fechas",           "generarReportePorRango");
+
+  // ══════════════════════════════════════════════════════════
+  // BLOQUE 3: PAGOS
+  // ══════════════════════════════════════════════════════════
+  var menuPagos = ui.createMenu("💰 Pagos")
+    .addItem("⚡ Checklist + recibos (1 clic)",          "procesarPagoCompleto")
+    .addSeparator()
+    .addItem("📋 Solo checklist de pago",                "generarChecklistPago")
+    .addItem("🧾 Solo generar recibos",                  "generarRecibosMes")
+    .addSeparator()
+    .addItem("🧾 Configurar IVA (quién tiene factura)",  "configurarFacturacion")
     .addItem("✅ Aplicar cambios de facturación",         "aplicarCambiosFacturacion")
     .addSeparator()
-    .addItem("📅 Proceso mensual completo",             "procesarMesCompleto")
-    .addSeparator()
-    .addItem("💰 Calcular facturación del mes",         "calcularFacturacionMes")
-    .addItem("📑 Resumen facturación en hoja",          "generarResumenFacturacionEnHoja")
-    .addItem("🧾 Generar recibos de pago",              "generarRecibosMes")
-    .addSeparator()
-    .addItem("🔔 Recordatorio de pagos pendientes",     "enviarRecordatorioPagos")
-    .addItem("📬 Resumen mensual al admin",             "enviarResumenMensual");
+    .addItem("📊 Dashboard de indicadores",              "actualizarDashboard");
 
-  // ── Submenú: Configuración avanzada ──────────────────────────
-  var menuConfig = ui.createMenu("⚙️ Configuración avanzada")
-    .addItem("📚 Configurar Días de Estudio",           "crearHojaDiasEstudio")
-    .addItem("🧘 Configurar Lista de Terapias",         "crearHojaListaTerapias")
+  // ══════════════════════════════════════════════════════════
+  // BLOQUE 4: ADMIN (uso ocasional)
+  // ══════════════════════════════════════════════════════════
+  var menuAdmin = ui.createMenu("⚙️ Admin")
+    .addItem("📋 Cargar lista oficial (33 participantes)","cargarListaParticipantes")
+    .addItem("➕ Nuevo participante",                     "nuevoParticipante")
+    .addItem("👥 Directorio de participantes",           "generarDirectorioParticipantes")
     .addSeparator()
-    .addItem("👥 Directorio de participantes",          "generarDirectorioParticipantes")
-    .addItem("📄 Generar DP (fila activa)",             "generarDpFilaActiva")
-    .addItem("📄 Actualizar todos los DPs",             "actualizarTodosLosDps")
+    .addItem("📚 Días de estudio",                       "crearHojaDiasEstudio")
+    .addItem("🧘 Lista de terapias",                     "crearHojaListaTerapias")
     .addSeparator()
-    .addItem("✏️  Cambiar nombre de participante",      "cambiarNombreParticipante")
-    .addItem("✨ Normalizar nombres y datos Kobo",       "normalizarTodo")
-    .addItem("🔗 Emparejar entradas/salidas (manual)",  "emparejarAsistencia")
-    .addItem("🔄 Reimportar todo desde Kobo",           "reimportarTodoDesdeKobo")
+    .addItem("✏️ Cambiar nombre de participante",        "cambiarNombreParticipante")
+    .addItem("📄 Generar DP (fila activa)",              "generarDpFilaActiva")
+    .addItem("📄 Actualizar todos los DPs",              "actualizarTodosLosDps")
     .addSeparator()
-    .addItem("🔍 Diagnosticar Datos Kobo",              "diagnosticarDatosKobo")
-    .addItem("🔧 Reparar Datos Kobo",                   "repararDatosKobo")
-    .addSeparator()
-    .addItem("⚡ Activar automatizaciones",             "configurarTriggers")
-    .addSeparator()
-    .addItem("🗑️  Reinstalar sistema (borra TODO)",     "reinstalarSistema");
+    .addItem("⚡ Activar automatizaciones",              "configurarTriggers")
+    .addItem("🗑️ Reinstalar sistema (borra TODO)",       "reinstalarSistema");
 
+  // ══════════════════════════════════════════════════════════
+  // MENÚ PRINCIPAL
+  // ══════════════════════════════════════════════════════════
   ui.createMenu("👥 RRHH")
-    // ── Configuración inicial ──
-    .addItem("🚀 Instalación completa",                 "instalarTodo")
+    .addItem("🚀 Instalación completa",                  "instalarTodo")
     .addSeparator()
-    // ── Participantes ──
-    .addItem("➕ Nuevo participante",                    "nuevoParticipante")
-    .addItem("📋 Cargar lista oficial",                  "cargarListaParticipantes")
-    .addSeparator()
-    // ── Kobo ──
-    .addItem("📥 Importar asistencia desde Kobo",        "importarDesdeKobo")
-    .addSeparator()
-    // ── QUINCENAS (flujo principal) ──
-    .addItem("📅 Ver quincena actual",                   "verQuincenaActual")
-    .addItem("✅ Cerrar quincena y crear siguiente",      "cerrarQuincenaYCrearSiguiente")
-    .addItem("🗓️ Configurar nueva quincena",             "configurarNuevaQuincena")
-    .addItem("🔍 Reporte de quincena pasada",            "generarReporteQuincenaPasada")
-    .addSeparator()
-    // ── Reportes ──
-    .addItem("📊 Reporte por rango de fechas",           "generarReportePorRango")
-    .addSubMenu(menuReportes)
-    .addSeparator()
-    // ── Finanzas ──
-    .addSubMenu(menuFact)
-    .addSeparator()
-    // ── Dashboard ──
-    .addItem("🔄 Actualizar Dashboard",                  "actualizarDashboard")
-    .addSeparator()
-    .addSubMenu(menuConfig)
+    .addSubMenu(menuAsistencia)
+    .addSubMenu(menuQuincena)
+    .addSubMenu(menuPagos)
+    .addSubMenu(menuAdmin)
     .addToUi();
 }
 
@@ -541,10 +542,9 @@ function _protegerHojaCreamos_DB() {
 
 /** Colorea filas de PARTICIPANTES según categoría */
 function _colorearParticipantes(hP, total) {
-  var COLORES = { A: "#d9ead3", B: "#c9daf8", C: "#fff2cc", D: "#f4cccc" };
   for (var i = 0; i < total; i++) {
     var cat = String(hP.getRange(i + 2, 11).getValue()).trim().toUpperCase();
-    var color = COLORES[cat] || "#ffffff";
+    var color = (CFG.COLORES_CAT[cat] || {}).bgClaro || "#ffffff";
     hP.getRange(i + 2, 1, 1, 20).setBackground(color);
   }
 }
@@ -592,8 +592,8 @@ function generarDirectorioParticipantes() { _run(function() {
   push(["#", "CREAMOS ID", "NOMBRE", "CATEGORÍA", "TARIFA Q/HR", "ESTADO"], "enc");
 
   var num = 1;
-  var COLORES_CAT = { A: "#e6f4ea", B: "#e8f0fe", C: "#fef7e0", D: "#fce8e6" };
-  var TITULO_CAT  = { A: "#34a853", B: "#4285f4", C: "#fbbc04", D: "#ea4335" };
+  var COLORES_CAT = { A: CFG.COLORES_CAT.A.bgClaro, B: CFG.COLORES_CAT.B.bgClaro, C: CFG.COLORES_CAT.C.bgClaro, D: CFG.COLORES_CAT.D.bgClaro };
+  var TITULO_CAT  = { A: CFG.COLORES_CAT.A.bg, B: CFG.COLORES_CAT.B.bg, C: CFG.COLORES_CAT.C.bg, D: CFG.COLORES_CAT.D.bg };
 
   ["A","B","C","D"].forEach(function(cat) {
     var lista = (porCat[cat] || []).slice().sort(function(a,b){ return a.nombre.localeCompare(b.nombre,"es"); });
@@ -905,6 +905,98 @@ function _estilTablaEnc(tabla, color) {
 }
 
 // ── Importar desde Kobo (CSV — sin token) ────────────────────
+
+/**
+ * ⚡ IMPORTAR + EMPAREJAR TODO (1 clic)
+ * Hace en secuencia: importar Kobo → normalizar nombres → emparejar entradas/salidas
+ */
+function importarYEmparejar() { _run(function() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var log = [], errores = [];
+
+  ss.toast("Paso 1/3: Importando desde Kobo...", "⚡", -1);
+  try {
+    var resp = UrlFetchApp.fetch(CFG.KOBO_URL_CSV, { muteHttpExceptions: true });
+    var code = resp.getResponseCode();
+    if (code === 503) { _alert("⏳ Kobo ocupado (503). Espera 2 min e intenta."); return; }
+    if (code !== 200) throw new Error("HTTP " + code);
+    var datos = Utilities.parseCsv(resp.getContentText(), ";");
+    if (datos.length < 2) throw new Error("Kobo sin registros");
+    var hK = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO) || ss.insertSheet(CFG.HOJAS.DATOS_KOBO);
+    hK.clearContents();
+    hK.getRange(1,1,datos.length,datos[0].length).setValues(datos);
+    hK.getRange(1,1,1,datos[0].length).setFontWeight("bold").setBackground("#4a86e8").setFontColor("#fff");
+    hK.setFrozenRows(1);
+    _limpiarColumnasKobo(hK, datos[0]);   // ocultar cols irrelevantes + normalizar nombres
+    _normalizarAccionSilencioso(hK);
+    log.push("✅ Paso 1: " + (datos.length-1) + " registros importados y normalizados");
+  } catch(e) { errores.push("❌ Paso 1: " + e.message); }
+
+  ss.toast("Paso 2/3: Emparejando entradas y salidas...", "⚡", -1);
+  try {
+    emparejarAsistencia();  // llama directamente sin _run (ya estamos dentro de uno)
+    log.push("✅ Paso 2: Emparejamiento completado → hoja ASISTENCIA actualizada");
+  } catch(e) { errores.push("❌ Paso 2: " + e.message); }
+
+  ss.toast("Paso 3/3: Actualizando quincena actual...", "⚡", -1);
+  try {
+    var periodo = _periodoActivo();
+    if (periodo) {
+      var fi = new Date(periodo.fi), ff = new Date(periodo.ff);
+      var horasReponer = _leerHorasReponerExistentes(periodo.tab);
+      _generarReporteQuincena(fi, ff, periodo.label, periodo.tab, horasReponer);
+      log.push("✅ Paso 3: Quincena '" + periodo.label + "' actualizada");
+    } else {
+      log.push("ℹ️ Paso 3: Sin quincena activa — ve a 📅 Quincena → Nueva quincena");
+    }
+  } catch(e) { errores.push("❌ Paso 3: " + e.message); }
+
+  _alert(
+    "⚡ IMPORTAR + EMPAREJAR TODO\n\n" +
+    log.join("\n") +
+    (errores.length ? "\n\n" + errores.join("\n") : "")
+  );
+}); }
+
+/**
+ * ⚡ CHECKLIST + RECIBOS (1 clic)
+ * Genera el checklist de pago y los recibos del período activo en secuencia.
+ */
+function procesarPagoCompleto() { _run(function() {
+  var ui = SpreadsheetApp.getUi();
+  var periodo = _periodoActivo();
+  var label   = periodo ? periodo.label : "período actual";
+
+  var resp = ui.alert(
+    "⚡ Procesar pago completo",
+    "Se generará:\n" +
+    "1. Checklist de pago (Checklist_...)\n" +
+    "2. Recibos individuales en Drive\n\n" +
+    "Período: " + label + "\n\n¿Continuar?",
+    ui.ButtonSet.YES_NO
+  );
+  if (resp !== ui.Button.YES) return;
+
+  var log = [], errores = [];
+
+  SpreadsheetApp.getActiveSpreadsheet().toast("Paso 1/2: Generando checklist...", "💰", -1);
+  try {
+    generarChecklistPago();
+    log.push("✅ Paso 1: Checklist generado");
+  } catch(e) { errores.push("❌ Paso 1 checklist: " + e.message); }
+
+  SpreadsheetApp.getActiveSpreadsheet().toast("Paso 2/2: Generando recibos...", "💰", -1);
+  try {
+    generarRecibosMes();
+    log.push("✅ Paso 2: Recibos generados en Drive");
+  } catch(e) { errores.push("❌ Paso 2 recibos: " + e.message); }
+
+  _alert(
+    "💰 PROCESO DE PAGO COMPLETO\n\n" +
+    log.join("\n") +
+    (errores.length ? "\n\n" + errores.join("\n") : "")
+  );
+}); }
 
 function importarDesdeKobo() { _run(function() {
   var resp = UrlFetchApp.fetch(CFG.KOBO_URL_CSV, { muteHttpExceptions: true });
@@ -1850,8 +1942,8 @@ function generarResumenFacturacionEnHoja(mes, anio) { _run(function() {
         "","","","","","","","","","","","","","",""], "sub");
   push(cols, "enc");
 
-  var COLORES = { A:"#e6f4ea", B:"#e8f0fe", C:"#fef7e0", D:"#fce8e6", "?":"#f1f3f4" };
-  var TITULO_CAT = { A:"#34a853", B:"#4285f4", C:"#fbbc04", D:"#ea4335", "?":"#9aa0a6" };
+  var COLORES = { A: CFG.COLORES_CAT.A.bgClaro, B: CFG.COLORES_CAT.B.bgClaro, C: CFG.COLORES_CAT.C.bgClaro, D: CFG.COLORES_CAT.D.bgClaro, "?":"#f1f3f4" };
+  var TITULO_CAT = { A: CFG.COLORES_CAT.A.bg, B: CFG.COLORES_CAT.B.bg, C: CFG.COLORES_CAT.C.bg, D: CFG.COLORES_CAT.D.bg, "?":"#9aa0a6" };
   var num = 1;
   var totalBase=0, totalIVA=0, totalMes=0, pendientes=0;
 
@@ -2517,7 +2609,7 @@ function _generarReporteQuincena(fi, ff, label, tabNombre, prevHorasReponer) {
    .setBorder(true,true,true,true,null,null,"#37474f",SpreadsheetApp.BorderStyle.SOLID);
 
   // Colores de fondo por categoría (claro = lectura fácil)
-  var BG_CAT = { A: "#d9ead3", B: "#c9daf8", C: "#fff2cc", D: "#f4cccc", "?": "#f3f3f3" };
+  var BG_CAT = { A: CFG.COLORES_CAT.A.bgClaro, B: CFG.COLORES_CAT.B.bgClaro, C: CFG.COLORES_CAT.C.bgClaro, D: CFG.COLORES_CAT.D.bgClaro, "?": "#f3f3f3" };
 
   // ── Filas de datos: una por participante ───────────────────────
   var nombres = Object.keys(resumen).sort(function(a,b){ return a.localeCompare(b,"es"); });
@@ -2707,7 +2799,7 @@ function configurarFacturacion() { _run(function() {
   // Validación desplegable Sí/No
   var vSN = SpreadsheetApp.newDataValidation().requireValueInList(["Sí","No"],true).build();
 
-  var COLORES = { A:"#d9ead3", B:"#c9daf8", C:"#fff2cc", D:"#f4cccc" };
+  var COLORES = { A: CFG.COLORES_CAT.A.bgClaro, B: CFG.COLORES_CAT.B.bgClaro, C: CFG.COLORES_CAT.C.bgClaro, D: CFG.COLORES_CAT.D.bgClaro };
   var filas   = [];
   datos.forEach(function(r, i) {
     var id     = String(r[0] || "").trim();
@@ -4077,7 +4169,7 @@ function crearHojaDiasEstudio() { _run(function() {
     hoja.getRange(2,2,filas.length,7).setDataValidation(vX).setHorizontalAlignment("center");
 
     // Colores por categoría
-    var CAT_BG = { A:"#e8d5f5", B:"#d5e8f5", C:"#f5f5d5", D:"#f5d5d5" };
+    var CAT_BG = { A: CFG.COLORES_CAT.A.bgClaro, B: CFG.COLORES_CAT.B.bgClaro, C: CFG.COLORES_CAT.C.bgClaro, D: CFG.COLORES_CAT.D.bgClaro };
     LISTA_OFICIAL.forEach(function(it, i) {
       hoja.getRange(i+2, 1, 1, 10).setBackground(CAT_BG[it[2]] || "#ffffff");
     });
