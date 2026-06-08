@@ -37,19 +37,20 @@ const CFG = {
 
 /*
  PARTICIPANTES — 22 columnas (A–V)
- A  Creamos_ID (0)           J  Tarifa_Hora (9)      — Q/hr (auto desde Categoria)
- B  Nombre (1)               K  Tiene_Factura (10)   — Sí/No (aplica IVA)
- C  Proyecto (2)             L  DPI (11)
- D  Programa (3)             M  NIT (12)
- E  Etapa (4)                N  Correo (13)
- F  Educacion (5)            O  Banco (14)
- G  Apoyo_Emocional (6)      P  Tipo_Cuenta (15)
- H  Inclusion_Laboral (7)    Q  Num_Cuenta (16)
- I  Categoria (8)            R  Forma_Pago (17)
-                             S  URL_Doc_Proceso (18)
-                             T  Estipendio (19)      — Q fijos por quincena
-                             U  Hijos_CCI (20)      — Sí/No
-                             V  Num_Hijos_CCI (21)  — número
+ A  Creamos_ID (0)           I  Hijos_CCI (8)        — Sí/No
+ B  Nombre (1)               J  Num_Hijos_CCI (9)    — número
+ C  Proyecto (2)             K  Categoria (10)
+ D  Programa (3)             L  Tarifa_Hora (11)     — Q/hr (auto desde Categoria)
+ E  Etapa (4)                M  Tiene_Factura (12)   — Sí/No (aplica IVA)
+ F  Educacion (5)            N  DPI (13)
+ G  Apoyo_Emocional (6)      O  NIT (14)
+ H  Inclusion_Laboral (7)    P  Correo (15)
+                             Q  Banco (16)
+                             R  Tipo_Cuenta (17)
+                             S  Num_Cuenta (18)
+                             T  Forma_Pago (19)
+                             U  URL_Doc_Proceso (20)
+                             V  Estipendio (21)      — Q fijos por quincena
  Etapa: Inscritx / Retiradx / Empleadx / Ciclo de Vida Terminado
 */
 
@@ -85,12 +86,12 @@ function _mapaDatosParticipantes(ss) {
   var mapa = {};
   var hP = ss.getSheetByName(CFG.HOJAS.PARTICIPANTES);
   if (hP && hP.getLastRow() >= 2) {
-    var datos = hP.getRange(2, 1, hP.getLastRow() - 1, 9).getValues(); // A–I
+    var datos = hP.getRange(2, 1, hP.getLastRow() - 1, 11).getValues(); // A–K
     datos.forEach(function(f) {
       var nombre = String(f[1] || "").trim();
       if (!nombre) return;
       var id  = _esCreamos_ID_real(String(f[0] || "").trim()) ? String(f[0]).trim() : "";
-      var cat = String(f[8] || "").trim().toUpperCase(); // col I = Categoria
+      var cat = String(f[10] || "").trim().toUpperCase(); // col K = Categoria
       mapa[nombre] = { id: id, cat: cat };
     });
   }
@@ -465,10 +466,11 @@ function crearHojas() { _run(function() {
     hP.appendRow([
       "Creamos_ID","Nombre","Proyecto","Programa","Etapa",
       "Educacion","Apoyo_Emocional","Inclusion_Laboral",
+      "Hijos_CCI","Num_Hijos_CCI",
       "Categoria","Tarifa_Hora","Tiene_Factura",
       "DPI","NIT","Correo",
       "Banco","Tipo_Cuenta","Num_Cuenta","Forma_Pago","URL_Doc_Proceso",
-      "Estipendio","Hijos_CCI","Num_Hijos_CCI"
+      "Estipendio"
     ]);
   }
   _fmtEnc(hP, "#639922");
