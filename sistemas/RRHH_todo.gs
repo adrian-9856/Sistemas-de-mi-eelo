@@ -218,6 +218,7 @@ function onOpen() {
   var menuAdmin = ui.createMenu("⚙️ Admin")
     .addItem("📋 Cargar lista oficial (33 participantes)","cargarListaParticipantes")
     .addItem("🔄 Sincronizar desde Creamos DB",          "sincronizarDesdeCreamos")
+    .addItem("🔍 Diagnosticar IDs no encontrados",        "diagnosticarBusquedaCreamos")
     .addItem("➕ Nuevo participante",                     "nuevoParticipante")
     .addItem("👥 Directorio de participantes",           "generarDirectorioParticipantes")
     .addSeparator()
@@ -885,8 +886,95 @@ function _buscarEnCreamos_DB(nombre) {
       }
     }
   }
+  // Estrategia 9: cualquier 2 palabras largas (>=4 letras) del buscado aparecen en la fila DB
+  // Captura casos donde el nombre tiene palabras en distinto orden o incompleto
+  if (palabrasBus.length >= 2) {
+    var largas = palabrasBus.filter(function(p){ return p.length >= 4; });
+    if (largas.length >= 2) {
+      var mejorE9 = 0, mejorI9 = -1;
+      for (var i = 1; i < datos.length; i++) {
+        var dbP = normDB[i].split(/\s+/);
+        var hits = largas.filter(function(p) {
+          return dbP.some(function(d){ return d.indexOf(p) !== -1 || p.indexOf(d) !== -1; });
+        }).length;
+        if (hits > mejorE9) { mejorE9 = hits; mejorI9 = i; }
+      }
+      if (mejorE9 >= 2) return extraer(datos[mejorI9]);
+    }
+  }
   return { noEncontrado: true };
 }
+
+/**
+ * Diagnóstico: para cada participante sin Creamos_ID muestra los 5 mejores
+ * candidatos que encontró en la base de datos. Útil cuando la sincronización
+ * reporta "sin perfil" aunque la persona sí está en la DB.
+ */
+function diagnosticarBusquedaCreamos() { _run(function() {
+  var ss  = SpreadsheetApp.getActiveSpreadsheet();
+  var hP  = ss.getSheetByName(CFG.HOJAS.PARTICIPANTES);
+  var hDB = ss.getSheetByName(CFG.HOJAS.CREAMOS_DB);
+  if (!hP || !hDB || hDB.getLastRow() < 2) {
+    _alert("Faltan hojas PARTICIPANTES o Creamos DB.");
+    return;
+  }
+
+  var partDatos = hP.getRange(2, 1, Math.max(hP.getLastRow()-1,1), 2).getValues();
+  var dbDatos   = hDB.getDataRange().getValues();
+
+  var enc = dbDatos[0];
+  var iNombre = -1, iID = -1;
+  enc.forEach(function(h, i) {
+    var hl = String(h).toLowerCase().trim();
+    if (hl.indexOf("nombre") !== -1) iNombre = i;
+    if ((hl.indexOf("creamos") !== -1 && hl.indexOf("id") !== -1) || hl === "id") iID = i;
+  });
+  if (iNombre === -1) { _alert("No se encontró columna 'Nombre' en la DB."); return; }
+
+  var dbNombres = [];
+  for (var i = 1; i < dbDatos.length; i++) {
+    var nm = String(dbDatos[i][iNombre] || "").trim();
+    if (nm) dbNombres.push({
+      original: nm,
+      norm: textoParaComparar(nm),
+      id: iID >= 0 ? String(dbDatos[i][iID] || "").trim() : ""
+    });
+  }
+
+  var lineas = [];
+  partDatos.forEach(function(f) {
+    var id     = String(f[0] || "").trim();
+    var nombre = String(f[1] || "").trim();
+    if (!nombre) return;
+    if (_esCreamos_ID_real(id)) return;
+
+    var normBusc = textoParaComparar(nombre);
+    var palabras = normBusc.split(/\s+/).filter(function(p){ return p.length >= 3; });
+
+    var scores = dbNombres.map(function(d) {
+      var dbP = d.norm.split(/\s+/);
+      var hits = palabras.filter(function(p) {
+        return dbP.some(function(dp){ return dp.indexOf(p) !== -1 || p.indexOf(dp) !== -1; });
+      }).length;
+      return { nombre: d.original, id: d.id, score: hits };
+    }).sort(function(a, b){ return b.score - a.score; }).slice(0, 5);
+
+    lineas.push("❓ " + nombre);
+    scores.forEach(function(s, idx) {
+      lineas.push("  " + (idx+1) + ". [" + s.score + " pts] " + s.nombre +
+        (s.id ? "  ←  " + s.id : ""));
+    });
+    lineas.push("");
+  });
+
+  if (lineas.length === 0) {
+    _alert("✅ Todos los participantes tienen Creamos ID. Nada que diagnosticar.");
+    return;
+  }
+  _alert("🔍 Diagnóstico — mejores candidatos en DB:\n\n" + lineas.join("\n") +
+    "\nSi el nombre correcto aparece en la lista, anota su Creamos ID\n" +
+    "y ponlo manualmente en col A de PARTICIPANTES.");
+}); }
 
 /** Devuelve true si el valor de la celda Creamos_ID es real (no el marcador de "sin perfil") */
 function _esCreamos_ID_real(valor) {
