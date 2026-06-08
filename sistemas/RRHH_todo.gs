@@ -238,6 +238,8 @@ function onOpen() {
     .addItem("📄 Actualizar todos los DPs",              "actualizarTodosLosDps")
     .addSeparator()
     .addItem("⚡ Activar automatizaciones",              "configurarTriggers")
+    .addSeparator()
+    .addItem("⬆️ Migrar sistema (actualizar sin borrar)", "migrarSistema")
     .addItem("🗑️ Reinstalar sistema (borra TODO)",       "reinstalarSistema");
 
   // ══════════════════════════════════════════════════════════
@@ -4694,6 +4696,146 @@ function _construirMapaTarifas() {
   }
   return map;
 }
+
+// ══════════════════════════════════════════════════════════════════
+// MIGRACIÓN — actualiza instalación existente sin borrar datos
+// ══════════════════════════════════════════════════════════════════
+
+/**
+ * Actualiza la estructura del sistema a la versión más reciente.
+ * NO borra datos existentes. Seguro correr sobre una instalación ya en uso.
+ *
+ * Qué hace:
+ *  1. Agrega cols T/U/V a PARTICIPANTES si faltan (Estipendio, Hijos_CCI, Num_Hijos_CCI)
+ *  2. Crea hoja "Bonos" si no existe
+ *  3. Crea hoja "HijosCCI" si no existe
+ *  4. Aplica validaciones y formatos nuevos en PARTICIPANTES
+ *  5. Actualiza colores e IDs en todas las hojas auxiliares
+ */
+function migrarSistema() { _run(function() {
+  var ui = SpreadsheetApp.getUi();
+  var resp = ui.alert(
+    "⬆️ Migrar sistema",
+    "Esto actualiza la estructura a la versión más reciente.\n\n" +
+    "• NO se borran participantes ni registros existentes\n" +
+    "• Se agregan columnas T, U, V a PARTICIPANTES (si faltan)\n" +
+    "• Se crean hojas Bonos y HijosCCI (si no existen)\n\n" +
+    "¿Continuar?",
+    ui.ButtonSet.YES_NO
+  );
+  if (resp !== ui.Button.YES) return;
+
+  var ss  = SpreadsheetApp.getActiveSpreadsheet();
+  var log = [], errores = [];
+
+  // ── PASO 1: Ampliar PARTICIPANTES a 22 cols ───────────────────
+  try {
+    var hP = _sh(CFG.HOJAS.PARTICIPANTES);
+    var lastCol = hP.getLastColumn();
+    var lastRow = hP.getLastRow();
+    var nDatos  = Math.max(0, lastRow - 1);
+
+    // Verificar qué columnas faltan leyendo la fila de encabezado
+    var enc = lastRow >= 1
+      ? hP.getRange(1, 1, 1, lastCol).getValues()[0].map(function(v){ return String(v||"").trim(); })
+      : [];
+
+    var necesita = {
+      T: enc.indexOf("Estipendio")    === -1,
+      U: enc.indexOf("Hijos_CCI")     === -1,
+      V: enc.indexOf("Num_Hijos_CCI") === -1
+    };
+
+    if (necesita.T || necesita.U || necesita.V) {
+      // Agregar columnas que faltan a partir de la col 20
+      var colT = enc.indexOf("Estipendio")    >= 0 ? enc.indexOf("Estipendio")    + 1 : 20;
+      var colU = enc.indexOf("Hijos_CCI")     >= 0 ? enc.indexOf("Hijos_CCI")     + 1 : 21;
+      var colV = enc.indexOf("Num_Hijos_CCI") >= 0 ? enc.indexOf("Num_Hijos_CCI") + 1 : 22;
+
+      // Asegurar que la hoja tenga al menos 22 columnas
+      if (hP.getMaxColumns() < 22) {
+        hP.insertColumnsAfter(hP.getMaxColumns(), 22 - hP.getMaxColumns());
+      }
+
+      // Encabezados
+      if (necesita.T) {
+        hP.getRange(1, 20).setValue("Estipendio")
+          .setBackground("#639922").setFontColor("#ffffff").setFontWeight("bold");
+        if (nDatos > 0) hP.getRange(2, 20, nDatos, 1).setValue(0);
+        hP.setColumnWidth(20, 110);
+      }
+      if (necesita.U) {
+        hP.getRange(1, 21).setValue("Hijos_CCI")
+          .setBackground("#639922").setFontColor("#ffffff").setFontWeight("bold");
+        if (nDatos > 0) hP.getRange(2, 21, nDatos, 1).setValue("No");
+        hP.setColumnWidth(21, 100);
+      }
+      if (necesita.V) {
+        hP.getRange(1, 22).setValue("Num_Hijos_CCI")
+          .setBackground("#639922").setFontColor("#ffffff").setFontWeight("bold");
+        if (nDatos > 0) hP.getRange(2, 22, nDatos, 1).setValue(0);
+        hP.setColumnWidth(22, 110);
+      }
+
+      // Validaciones y formatos
+      var vSiNo = SpreadsheetApp.newDataValidation().requireValueInList(["Sí","No"],true).build();
+      hP.getRange("T2:T500").setNumberFormat('"Q"#,##0.00');
+      hP.getRange("U2:U500").setDataValidation(vSiNo);
+
+      log.push("✅ PARTICIPANTES: columnas T/U/V agregadas" +
+        (nDatos > 0 ? " (" + nDatos + " filas actualizadas con valores vacíos/0)" : ""));
+    } else {
+      log.push("ℹ️ PARTICIPANTES: columnas T/U/V ya existían — sin cambios");
+    }
+  } catch(e) { errores.push("❌ PARTICIPANTES: " + e.message); }
+
+  // ── PASO 2: Crear hoja Bonos si no existe ────────────────────
+  try {
+    if (!ss.getSheetByName("Bonos")) {
+      crearHojaBonos();
+      log.push("✅ Hoja 'Bonos' creada");
+    } else {
+      log.push("ℹ️ Hoja 'Bonos' ya existe — sin cambios");
+    }
+  } catch(e) { errores.push("❌ Bonos: " + e.message); }
+
+  // ── PASO 3: Crear hoja HijosCCI si no existe ─────────────────
+  try {
+    if (!ss.getSheetByName("HijosCCI")) {
+      crearHojaHijosCCI();
+      log.push("✅ Hoja 'HijosCCI' creada");
+    } else {
+      log.push("ℹ️ Hoja 'HijosCCI' ya existe — sin cambios");
+    }
+  } catch(e) { errores.push("❌ HijosCCI: " + e.message); }
+
+  // ── PASO 4: Actualizar colores e IDs en hojas auxiliares ─────
+  try {
+    var mapa = _mapaDatosParticipantes(ss);
+    ["DiasEstudio","ListaTerapias","InclusionLaboral","HijosCCI"].forEach(function(nm) {
+      var h = ss.getSheetByName(nm);
+      if (!h || h.getLastRow() < 2) return;
+      var nCols = (nm === "DiasEstudio") ? 11 : (nm === "HijosCCI") ? 5 : 4;
+      _actualizarIDsEnHoja(h, 2, mapa);
+      _colorearHojaApoyo(h, 2, nCols, mapa);
+    });
+    log.push("✅ Colores e IDs actualizados en hojas auxiliares");
+  } catch(e) { errores.push("❌ Colores/IDs: " + e.message); }
+
+  _alert(
+    "⬆️ MIGRACIÓN COMPLETADA\n\n" +
+    log.join("\n") +
+    (errores.length ? "\n\n❌ ERRORES:\n" + errores.join("\n") : "") +
+    "\n\n✅ Tus datos existentes no fueron modificados.\n\n" +
+    "Qué tienes ahora:\n" +
+    "• PARTICIPANTES col T = Estipendio (Q fijos/quincena — por defecto 0)\n" +
+    "• PARTICIPANTES col U = Hijos_CCI (Sí/No — por defecto No)\n" +
+    "• PARTICIPANTES col V = Num_Hijos_CCI (número — por defecto 0)\n" +
+    "• Hoja 'Bonos' para registrar bonos individuales\n" +
+    "• Hoja 'HijosCCI' sincronizada con PARTICIPANTES\n" +
+    "• Reporte de quincena ahora muestra Bono, Estipendio y Total de horas"
+  );
+}); }
 
 // ══════════════════════════════════════════════════════════════════
 // INSTALACIÓN COMPLETA — wizard de 3 pasos
