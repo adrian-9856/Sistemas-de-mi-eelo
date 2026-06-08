@@ -22,7 +22,6 @@ const CFG = {
   KOBO_TIPO_SALIDA:  "🔴 Salida",    // Kobo exporta "Entrada"/"Salida" — detectarColumnas detecta ambos
   HOJAS: {
     PARTICIPANTES: "PARTICIPANTES",
-    ASISTENCIA:    "ASISTENCIA",
     FACTURACION:   "FACTURACION",
     DASHBOARD:     "DASHBOARD",
     DATOS_KOBO:    "DatosKobo",
@@ -504,15 +503,6 @@ function crearHojas() { _run(function() {
     hP.setColumnWidth(20, 120); // Forma_Pago
     hP.setColumnWidth(21, 300); // URL_Doc_Proceso
     hP.setColumnWidth(22, 110); // Estipendio
-  }
-
-  // ASISTENCIA — generada por emparejarAsistencia(); se crea vacía si no existe
-  var hA = ss.getSheetByName(CFG.HOJAS.ASISTENCIA);
-  if (!hA) {
-    hA = ss.insertSheet(CFG.HOJAS.ASISTENCIA);
-    hA.appendRow(["Nombre","Creamos_ID","Fecha","Tipo","Horas","Dia_Estudio","Terapia","Pct","Horas_Pct","Clave","Entrada","Salida"]);
-    _fmtEnc(hA, "#4a86e8");
-    hA.setFrozenRows(1);
   }
 
   // PERIODOS — hoja de control de quincenas
@@ -1498,14 +1488,14 @@ function _estilTablaEnc(tabla, color) {
 // ── Importar desde Kobo (CSV — sin token) ────────────────────
 
 /**
- * ⚡ IMPORTAR + EMPAREJAR TODO (1 clic)
- * Hace en secuencia: importar Kobo → normalizar nombres → emparejar entradas/salidas
+ * ⚡ IMPORTAR TODO (1 clic)
+ * Hace en secuencia: importar Kobo → normalizar nombres → actualizar quincena
  */
 function importarYEmparejar() { _run(function() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var log = [], errores = [];
 
-  ss.toast("Paso 1/3: Importando desde Kobo...", "⚡", -1);
+  ss.toast("Paso 1/2: Importando desde Kobo...", "⚡", -1);
   try {
     var resp = UrlFetchApp.fetch(CFG.KOBO_URL_CSV, { muteHttpExceptions: true });
     var code = resp.getResponseCode();
@@ -1523,27 +1513,21 @@ function importarYEmparejar() { _run(function() {
     log.push("✅ Paso 1: " + (datos.length-1) + " registros importados y normalizados");
   } catch(e) { errores.push("❌ Paso 1: " + e.message); }
 
-  ss.toast("Paso 2/3: Emparejando entradas y salidas...", "⚡", -1);
-  try {
-    emparejarAsistencia();  // llama directamente sin _run (ya estamos dentro de uno)
-    log.push("✅ Paso 2: Emparejamiento completado → hoja ASISTENCIA actualizada");
-  } catch(e) { errores.push("❌ Paso 2: " + e.message); }
-
-  ss.toast("Paso 3/3: Actualizando quincena actual...", "⚡", -1);
+  ss.toast("Paso 2/2: Actualizando quincena actual...", "⚡", -1);
   try {
     var periodo = _periodoActivo();
     if (periodo) {
       var fi = new Date(periodo.fi), ff = new Date(periodo.ff);
       var horasReponer = _leerHorasReponerExistentes(periodo.tab);
       _generarReporteQuincena(fi, ff, periodo.label, periodo.tab, horasReponer);
-      log.push("✅ Paso 3: Quincena '" + periodo.label + "' actualizada");
+      log.push("✅ Paso 2: Quincena '" + periodo.label + "' actualizada");
     } else {
-      log.push("ℹ️ Paso 3: Sin quincena activa — ve a 📅 Quincena → Nueva quincena");
+      log.push("ℹ️ Paso 2: Sin quincena activa — ve a 📅 Quincena → Nueva quincena");
     }
-  } catch(e) { errores.push("❌ Paso 3: " + e.message); }
+  } catch(e) { errores.push("❌ Paso 2: " + e.message); }
 
   _alert(
-    "⚡ IMPORTAR + EMPAREJAR TODO\n\n" +
+    "⚡ IMPORTAR TODO\n\n" +
     log.join("\n") +
     (errores.length ? "\n\n" + errores.join("\n") : "")
   );
