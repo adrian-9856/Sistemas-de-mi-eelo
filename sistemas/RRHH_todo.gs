@@ -206,7 +206,9 @@ function onOpen() {
     .addSeparator()
     .addItem("🗓️ Nueva quincena (manual)",               "configurarNuevaQuincena")
     .addItem("🔍 Reporte de quincena pasada",            "generarReporteQuincenaPasada")
-    .addItem("📊 Reporte por rango de fechas",           "generarReportePorRango");
+    .addItem("📊 Reporte por rango de fechas",           "generarReportePorRango")
+    .addSeparator()
+    .addItem("💳 Registrar pagos de quincena",           "registrarPagosQuincena");
 
   // ══════════════════════════════════════════════════════════
   // BLOQUE 3: ADMIN (uso ocasional)
@@ -223,6 +225,8 @@ function onOpen() {
     .addItem("💼 Inclusión Laboral",                     "crearHojaInclusionLaboral")
     .addItem("🔴 Hoja Retiradx",                         "crearHojaRetiradx")
     .addItem("💵 Hoja Bonos",                             "crearHojaBonos")
+    .addItem("🏦 Hoja Cheques",                           "crearHojaCheques")
+    .addItem("🔄 Hoja Transferencias",                    "crearHojaTransferencias")
     .addItem("👶 Hijos CCI",                             "crearHojaHijosCCI")
     .addItem("🔗 Sincronizar participación (→ PARTICIPANTES)", "sincronizarParticipacion")
     .addItem("🎨 Actualizar colores e IDs en todas las hojas", "actualizarColoresYIDs")
@@ -479,7 +483,7 @@ function crearHojas() { _run(function() {
     "Occidente","Promerica","Vivibanco","Bantrab","CHN","Otro"
   ],true).build();
   var vTipoCta = SpreadsheetApp.newDataValidation().requireValueInList(["Monetaria","Ahorro",""],true).build();
-  var vPago    = SpreadsheetApp.newDataValidation().requireValueInList(["Transferencia","Efectivo","Cheque"],true).build();
+  var vPago    = SpreadsheetApp.newDataValidation().requireValueInList(["Transferencia","Cheque"],true).build();
   hP.getRange("E2:E500").setDataValidation(vEtapa);   // col E = Etapa
   hP.getRange("I2:I500").setDataValidation(vSiNo);    // col I = Hijos_CCI
   hP.getRange("K2:K500").setDataValidation(vCat);     // col K = Categoria
@@ -1125,6 +1129,365 @@ function crearHojaBonos() { _run(function() {
     "El bono aparece automáticamente en el reporte de quincena (col Bono) " +
     "y se suma al total que paga la organización."
   );
+}); }
+
+// ── Hojas de pago: Cheques y Transferencias ──────────────────────
+
+/**
+ * Hoja "Cheques" — registra cheques emitidos por quincena.
+ * Columnas: Fecha | Numero | Nombre | Valor | Mes | Quincena | Programa | Cta_Cheques | Status
+ */
+function crearHojaCheques() { _run(function() {
+  var ss   = SpreadsheetApp.getActiveSpreadsheet();
+  var hoja = ss.getSheetByName("Cheques");
+  var esNueva = !hoja;
+  if (esNueva) hoja = ss.insertSheet("Cheques");
+
+  var enc = ["Fecha","Numero","Nombre","Valor","Mes","Quincena","Programa","Cta_Cheques","Status"];
+  hoja.getRange(1, 1, 1, enc.length).setValues([enc])
+    .setBackground("#1a237e").setFontColor("#ffffff").setFontWeight("bold")
+    .setHorizontalAlignment("center");
+  hoja.setFrozenRows(1);
+
+  var vStatus = SpreadsheetApp.newDataValidation()
+    .requireValueInList(["Pendiente","Entregado","Cobrado","Cancelado"], true).build();
+  hoja.getRange("I2:I1000").setDataValidation(vStatus);
+
+  hoja.getRange("A2:A1000").setNumberFormat("dd/MM/yyyy");    // col A = Fecha
+  hoja.getRange("D2:D1000").setNumberFormat('"Q"#,##0.00');   // col D = Valor
+
+  if (esNueva) {
+    hoja.setColumnWidth(1, 110); // Fecha
+    hoja.setColumnWidth(2, 100); // Numero
+    hoja.setColumnWidth(3, 250); // Nombre
+    hoja.setColumnWidth(4, 100); // Valor
+    hoja.setColumnWidth(5, 110); // Mes
+    hoja.setColumnWidth(6, 100); // Quincena
+    hoja.setColumnWidth(7, 140); // Programa
+    hoja.setColumnWidth(8, 160); // Cta_Cheques
+    hoja.setColumnWidth(9, 110); // Status
+  }
+
+  hoja.activate();
+  _alert(
+    "🏦 CHEQUES — Hoja lista.\n\n" +
+    "Columnas:\n" +
+    "• Fecha: fecha de emisión del cheque\n" +
+    "• Numero: número de cheque (llenar manualmente)\n" +
+    "• Nombre: participante\n" +
+    "• Valor: monto en quetzales\n" +
+    "• Mes / Quincena: período correspondiente\n" +
+    "• Programa: área del programa\n" +
+    "• Cta_Cheques: cuenta bancaria origen\n" +
+    "• Status: Pendiente / Entregado / Cobrado / Cancelado\n\n" +
+    "Usa 📅 Quincena → 💳 Registrar pagos de quincena para poblar automáticamente."
+  );
+}); }
+
+/**
+ * Hoja "Transferencias" — registra transferencias electrónicas por mes.
+ * Columnas: Nombre | Tipo_Pago | Servicio | Banco | Tipo_Cuenta | Num_Cta |
+ *           Cta_Pago | Quincena_1 | Quincena_2 | Total_Mes | Mes | Año
+ */
+function crearHojaTransferencias() { _run(function() {
+  var ss   = SpreadsheetApp.getActiveSpreadsheet();
+  var hoja = ss.getSheetByName("Transferencias");
+  var esNueva = !hoja;
+  if (esNueva) hoja = ss.insertSheet("Transferencias");
+
+  var enc = ["Nombre","Tipo_Pago","Servicio","Banco","Tipo_Cuenta","Num_Cta",
+             "Cta_Pago","Quincena_1","Quincena_2","Total_Mes","Mes","Año"];
+  hoja.getRange(1, 1, 1, enc.length).setValues([enc])
+    .setBackground("#1b5e20").setFontColor("#ffffff").setFontWeight("bold")
+    .setHorizontalAlignment("center");
+  hoja.setFrozenRows(1);
+
+  hoja.getRange("H2:J1000").setNumberFormat('"Q"#,##0.00'); // Q1, Q2, Total_Mes
+
+  if (esNueva) {
+    hoja.setColumnWidth(1, 250);  // Nombre
+    hoja.setColumnWidth(2, 120);  // Tipo_Pago
+    hoja.setColumnWidth(3, 160);  // Servicio
+    hoja.setColumnWidth(4, 140);  // Banco
+    hoja.setColumnWidth(5, 110);  // Tipo_Cuenta
+    hoja.setColumnWidth(6, 160);  // Num_Cta
+    hoja.setColumnWidth(7, 160);  // Cta_Pago
+    hoja.setColumnWidth(8, 110);  // Quincena_1
+    hoja.setColumnWidth(9, 110);  // Quincena_2
+    hoja.setColumnWidth(10, 110); // Total_Mes
+    hoja.setColumnWidth(11, 110); // Mes
+    hoja.setColumnWidth(12, 80);  // Año
+  }
+
+  hoja.activate();
+  _alert(
+    "🔄 TRANSFERENCIAS — Hoja lista.\n\n" +
+    "Columnas:\n" +
+    "• Nombre: participante\n" +
+    "• Tipo_Pago: Transferencia\n" +
+    "• Servicio: categoría de servicio (Educacion, Apoyo Emocional, etc.)\n" +
+    "• Banco / Tipo_Cuenta / Num_Cta: datos bancarios del participante\n" +
+    "• Cta_Pago: cuenta de la organización origen del pago\n" +
+    "• Quincena_1 / Quincena_2: montos por quincena\n" +
+    "• Total_Mes: suma automática de Q1 + Q2\n" +
+    "• Mes / Año: período mensual\n\n" +
+    "Usa 📅 Quincena → 💳 Registrar pagos de quincena para poblar automáticamente."
+  );
+}); }
+
+/**
+ * Registra los pagos de una quincena seleccionada en las hojas Cheques y Transferencias.
+ * Lee el reporte de quincena ya calculado (hoja con tab name de PERIODOS col G),
+ * y para cada participante con monto > 0 lo enruta según Forma_Pago en PARTICIPANTES.
+ */
+function registrarPagosQuincena() { _run(function() {
+  var ui = SpreadsheetApp.getUi();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var tz = Session.getScriptTimeZone();
+
+  // ── Paso 1: Obtener lista de quincenas desde PERIODOS ─────────
+  var hPeriodos = ss.getSheetByName(CFG.HOJAS.PERIODOS);
+  var periodos  = [];
+  if (hPeriodos && hPeriodos.getLastRow() >= 2) {
+    var datPer = hPeriodos.getRange(2, 1, hPeriodos.getLastRow() - 1, 7).getValues();
+    datPer.forEach(function(r, i) {
+      var label  = String(r[1] || "").trim();
+      var estado = String(r[4] || "").trim();
+      var tab    = String(r[6] || "").trim();
+      if (!label || !tab) return;
+      periodos.push({ fila: i + 2, label: label, estado: estado, tab: tab });
+    });
+  }
+
+  // ── Paso 2: Mostrar lista y pedir selección ───────────────────
+  var promptMsg;
+  if (periodos.length === 0) {
+    promptMsg = "No hay quincenas en PERIODOS.\nEscribe el nombre de la hoja del reporte manualmente:";
+  } else {
+    var lista = periodos.map(function(p, i) {
+      return (i + 1) + ". " + p.label + " [" + p.estado + "]";
+    }).join("\n");
+    promptMsg = "Quincenas disponibles:\n\n" + lista +
+      "\n\nEscribe el número de la quincena a registrar:";
+  }
+
+  var resp = ui.prompt("💳 Registrar pagos de quincena", promptMsg, ui.ButtonSet.OK_CANCEL);
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+  var entrada = resp.getResponseText().trim();
+  if (!entrada) { _alert("No ingresaste ningún valor."); return; }
+
+  var periodoSel, tabNombre;
+  if (periodos.length > 0) {
+    var idx = parseInt(entrada);
+    if (!isNaN(idx) && idx >= 1 && idx <= periodos.length) {
+      periodoSel = periodos[idx - 1];
+      tabNombre  = periodoSel.tab;
+    } else {
+      // Intento de coincidencia por texto
+      var entradaNorm = entrada.toLowerCase();
+      for (var pi = 0; pi < periodos.length; pi++) {
+        if (periodos[pi].label.toLowerCase().indexOf(entradaNorm) !== -1 ||
+            periodos[pi].tab.toLowerCase().indexOf(entradaNorm) !== -1) {
+          periodoSel = periodos[pi];
+          tabNombre  = periodoSel.tab;
+          break;
+        }
+      }
+      if (!tabNombre) { tabNombre = entrada; } // Usar como nombre de hoja directo
+    }
+  } else {
+    tabNombre = entrada;
+  }
+
+  // ── Paso 3: Leer reporte de quincena ─────────────────────────
+  var hReporte = ss.getSheetByName(tabNombre);
+  if (!hReporte) {
+    _alert("No se encontró la hoja de reporte: '" + tabNombre + "'\n\n" +
+           "Verifica que la quincena haya sido calculada (📅 Quincena → Ver / actualizar quincena).");
+    return;
+  }
+
+  // El reporte tiene: fila 1=tarifas, 2=título, 3=encabezados, 4+=datos
+  // Col B (idx 1)=Participante, Col O (idx 14)=Neto part.
+  var repData = hReporte.getDataRange().getValues();
+  var pagosReporte = {}; // {nombre: montoNeto}
+  for (var ri = 3; ri < repData.length; ri++) {
+    var nombre = String(repData[ri][1] || "").trim();
+    var neto   = parseFloat(repData[ri][14]) || 0;
+    if (!nombre || neto <= 0) continue;
+    // Ignorar filas de totales/leyenda (sin número en col A)
+    var numFila = repData[ri][0];
+    if (!numFila || isNaN(Number(numFila))) continue;
+    pagosReporte[nombre] = neto;
+  }
+
+  if (Object.keys(pagosReporte).length === 0) {
+    _alert("No se encontraron participantes con pago > 0 en la hoja '" + tabNombre + "'.\n" +
+           "Verifica que el reporte esté calculado correctamente.");
+    return;
+  }
+
+  // ── Paso 4: Leer datos de pago de PARTICIPANTES ───────────────
+  // Cols: A(1)=ID, B(2)=Nombre, D(4)=Programa, F(6)=Educacion, G(7)=Apoyo_Emocional,
+  //       H(8)=Inclusion_Laboral, K(11)=Categoria
+  //       Q(17)=Banco, R(18)=Tipo_Cuenta, S(19)=Num_Cuenta, T(20)=Forma_Pago
+  var hP = _sh(CFG.HOJAS.PARTICIPANTES);
+  if (hP.getLastRow() < 2) { _alert("PARTICIPANTES está vacía."); return; }
+  var datosP = hP.getRange(2, 1, hP.getLastRow() - 1, 20).getValues();
+  var mapaPago = {}; // {nombre: {formaPago, banco, tipoCuenta, numCuenta, programa, servicio}}
+  datosP.forEach(function(r) {
+    var nombre = String(r[1] || "").trim();
+    if (!nombre) return;
+    var programa    = String(r[3]  || "").trim();  // col D
+    var educacion   = String(r[5]  || "").trim();  // col F
+    var apoyo       = String(r[6]  || "").trim();  // col G
+    var inclusion   = String(r[7]  || "").trim();  // col H
+    var categoria   = String(r[10] || "").trim();  // col K
+    var banco       = String(r[16] || "").trim();  // col Q
+    var tipoCuenta  = String(r[17] || "").trim();  // col R
+    var numCuenta   = String(r[18] || "").trim();  // col S
+    var formaPago   = String(r[19] || "").trim();  // col T
+
+    // Determinar servicio desde las columnas de participación
+    var servicio = "RRHH";
+    if (educacion && educacion.toLowerCase().indexOf("sí") !== -1) servicio = "Educacion";
+    else if (apoyo && apoyo.toLowerCase().indexOf("sí") !== -1) servicio = "Apoyo Emocional";
+    else if (inclusion && inclusion.toLowerCase().indexOf("sí") !== -1) servicio = "Inclusion Laboral";
+
+    mapaPago[nombre] = { formaPago: formaPago, banco: banco, tipoCuenta: tipoCuenta,
+                         numCuenta: numCuenta, programa: programa, servicio: servicio };
+  });
+
+  // ── Paso 5: Determinar mes, año y quincena_label ──────────────
+  var labelPeriodo = periodoSel ? periodoSel.label : tabNombre;
+  // Inferir mes/año desde la fecha_inicio del período
+  var mesNombre = "—", anioNum = new Date().getFullYear(), quincenaLabel = "Q1";
+  if (periodoSel) {
+    var datPerFull = hPeriodos.getRange(2, 1, hPeriodos.getLastRow() - 1, 4).getValues();
+    var filaIdx = periodoSel.fila - 2;
+    if (filaIdx >= 0 && filaIdx < datPerFull.length) {
+      var fecIni = new Date(datPerFull[filaIdx][2]); // col C = Fecha_Inicio
+      var fecFin = new Date(datPerFull[filaIdx][3]); // col D = Fecha_Fin
+      if (!isNaN(fecIni)) {
+        var mesIdx = fecIni.getMonth();
+        mesNombre = CFG.MESES[mesIdx];
+        anioNum   = fecIni.getFullYear();
+        // Si fecha inicio <= 15 del mes → Q1, si > 15 → Q2
+        quincenaLabel = fecIni.getDate() <= 15 ? "Q1" : "Q2";
+      }
+    }
+  }
+
+  // ── Paso 6: Crear hojas si no existen ────────────────────────
+  if (!ss.getSheetByName("Cheques"))       crearHojaCheques();
+  if (!ss.getSheetByName("Transferencias")) crearHojaTransferencias();
+  var hCheques = ss.getSheetByName("Cheques");
+  var hTransf  = ss.getSheetByName("Transferencias");
+
+  // Leer datos existentes para deduplicación
+  var existCheques = [];
+  if (hCheques.getLastRow() >= 2) {
+    existCheques = hCheques.getRange(2, 1, hCheques.getLastRow() - 1, 9).getValues();
+  }
+  var existTransf = [];
+  if (hTransf.getLastRow() >= 2) {
+    existTransf = hTransf.getRange(2, 1, hTransf.getLastRow() - 1, 12).getValues();
+  }
+
+  // ── Paso 7: Enrutar pagos ─────────────────────────────────────
+  var hoy = new Date();
+  var cuentaPago = "Cuenta mi eelo";
+  var nCheques = 0, nTransferencias = 0;
+  var erroresPago = [];
+
+  Object.keys(pagosReporte).forEach(function(nombre) {
+    var monto = pagosReporte[nombre];
+    var info  = mapaPago[nombre];
+    if (!info) {
+      erroresPago.push("⚠️ " + nombre + ": no encontrado en PARTICIPANTES");
+      return;
+    }
+    var forma = info.formaPago;
+
+    if (forma === "Cheque") {
+      // Deduplicar: buscar fila con mismo Nombre + Mes + Quincena
+      var existe = existCheques.some(function(r) {
+        return String(r[2]).trim() === nombre &&
+               String(r[4]).trim() === mesNombre &&
+               String(r[5]).trim() === quincenaLabel;
+      });
+      if (existe) {
+        erroresPago.push("ℹ️ Cheque ya registrado para " + nombre + " (" + mesNombre + " " + quincenaLabel + ")");
+        return;
+      }
+      hCheques.appendRow([hoy, "", nombre, monto, mesNombre, quincenaLabel,
+                          info.programa, "", "Pendiente"]);
+      // Aplicar formato de fecha y moneda a la nueva fila
+      var newRow = hCheques.getLastRow();
+      hCheques.getRange(newRow, 1).setNumberFormat("dd/MM/yyyy");
+      hCheques.getRange(newRow, 4).setNumberFormat('"Q"#,##0.00');
+      // Agregar al array existente para deduplicar en la misma ejecución
+      existCheques.push([hoy, "", nombre, monto, mesNombre, quincenaLabel, info.programa, "", "Pendiente"]);
+      nCheques++;
+
+    } else if (forma === "Transferencia") {
+      // Buscar fila existente en Transferencias para (nombre, mes, año)
+      var filaExist = -1;
+      for (var ti = 0; ti < existTransf.length; ti++) {
+        if (String(existTransf[ti][0]).trim() === nombre &&
+            String(existTransf[ti][10]).trim() === mesNombre &&
+            String(existTransf[ti][11]).toString().trim() === String(anioNum)) {
+          filaExist = ti;
+          break;
+        }
+      }
+
+      if (filaExist >= 0) {
+        // Actualizar fila existente: llenar Q1 o Q2
+        var filaReal = filaExist + 2; // 1-indexed + encabezado
+        if (quincenaLabel === "Q1") {
+          hTransf.getRange(filaReal, 8).setValue(monto);
+          existTransf[filaExist][7] = monto;
+        } else {
+          hTransf.getRange(filaReal, 9).setValue(monto);
+          existTransf[filaExist][8] = monto;
+        }
+        // Recalcular Total_Mes
+        var q1 = parseFloat(existTransf[filaExist][7]) || 0;
+        var q2 = parseFloat(existTransf[filaExist][8]) || 0;
+        hTransf.getRange(filaReal, 10).setValue(q1 + q2);
+        existTransf[filaExist][9] = q1 + q2;
+        nTransferencias++;
+
+      } else {
+        // Insertar nueva fila
+        var q1new = quincenaLabel === "Q1" ? monto : 0;
+        var q2new = quincenaLabel === "Q2" ? monto : 0;
+        var nuevaFila = [nombre, "Transferencia", info.servicio, info.banco,
+                         info.tipoCuenta, info.numCuenta, cuentaPago,
+                         q1new, q2new, q1new + q2new, mesNombre, anioNum];
+        hTransf.appendRow(nuevaFila);
+        var newRowT = hTransf.getLastRow();
+        hTransf.getRange(newRowT, 8, 1, 3).setNumberFormat('"Q"#,##0.00');
+        existTransf.push(nuevaFila);
+        nTransferencias++;
+      }
+
+    } else {
+      erroresPago.push("⚠️ " + nombre + ": Forma_Pago '" + forma + "' no reconocida (no es Cheque ni Transferencia)");
+    }
+  });
+
+  // ── Paso 8: Resumen ───────────────────────────────────────────
+  var msg = "✅ Pagos de quincena registrados\n\n" +
+    "Período: " + labelPeriodo + "\n" +
+    "Quincena: " + quincenaLabel + " — " + mesNombre + " " + anioNum + "\n\n" +
+    "🏦 Cheques registrados: " + nCheques + "\n" +
+    "🔄 Transferencias registradas/actualizadas: " + nTransferencias;
+  if (erroresPago.length > 0) {
+    msg += "\n\n⚠️ Avisos:\n" + erroresPago.join("\n");
+  }
+  _alert(msg);
 }); }
 
 /**
@@ -4916,13 +5279,17 @@ function instalarTodo() { _run(function() {
   } catch(e) { errores.push("❌ Paso 6: " + e.message); }
   Utilities.sleep(300);
 
-  // PASO 7: Bonos + HijosCCI
+  // PASO 7: Bonos + HijosCCI + Cheques + Transferencias
   try {
-    ss.toast("Paso 7/9: Creando hojas Bonos y HijosCCI...", "🚀", -1);
+    ss.toast("Paso 7/9: Creando hojas Bonos, HijosCCI, Cheques y Transferencias...", "🚀", -1);
     if (!ss.getSheetByName("Bonos")) { crearHojaBonos(); log.push("✅ Paso 7a: Hoja Bonos creada"); }
     else { log.push("ℹ️ Paso 7a: Hoja Bonos ya existe"); }
     if (!ss.getSheetByName("HijosCCI")) { crearHojaHijosCCI(); log.push("✅ Paso 7b: Hoja HijosCCI creada"); }
     else { log.push("ℹ️ Paso 7b: Hoja HijosCCI ya existe"); }
+    if (!ss.getSheetByName("Cheques")) { crearHojaCheques(); log.push("✅ Paso 7c: Hoja Cheques creada"); }
+    else { log.push("ℹ️ Paso 7c: Hoja Cheques ya existe"); }
+    if (!ss.getSheetByName("Transferencias")) { crearHojaTransferencias(); log.push("✅ Paso 7d: Hoja Transferencias creada"); }
+    else { log.push("ℹ️ Paso 7d: Hoja Transferencias ya existe"); }
   } catch(e) { errores.push("❌ Paso 7: " + e.message); }
   Utilities.sleep(300);
 
