@@ -234,6 +234,7 @@ function onOpen() {
     .addItem("🧾 Configurar IVA (quién tiene factura)",  "configurarFacturacion")
     .addItem("✅ Guardar cambios de facturación",         "aplicarCambiosFacturacion")
     .addSeparator()
+    .addItem("🧹 Limpiar duplicados en PARTICIPANTES",    "limpiarDuplicadosParticipantes")
     .addItem("🔼 Cambiar categoría de participante",      "cambiarCategoriaParticipante")
     .addItem("✏️ Cambiar nombre de participante",        "cambiarNombreParticipante")
     .addItem("📄 Generar DP (fila activa)",              "generarDpFilaActiva")
@@ -675,9 +676,9 @@ function cargarListaParticipantes() { _run(function() {
 
   var hP = _sh(CFG.HOJAS.PARTICIPANTES);
 
-  // Borrar datos anteriores (preservar encabezado)
+  // Borrar datos anteriores (preservar encabezado) — deleteRows para no dejar filas vacías
   var lastRow = hP.getLastRow();
-  if (lastRow > 1) hP.getRange(2, 1, lastRow - 1, 22).clearContent();
+  if (lastRow > 1) hP.deleteRows(2, lastRow - 1);
 
   // Construir filas buscando cada participante en la DB de Creamos
   SpreadsheetApp.getActiveSpreadsheet().toast("Buscando en base de datos Creamos...", "⏳", -1);
@@ -5003,13 +5004,31 @@ function _obtenerTextoPeriodo(tipo, fi, ff) {
 }
 
 function _construirMapaTarifas() {
-  var map = {};
+  var map = {};       // clave: nombre original
+  var normMap = {};   // clave: nombre normalizado → nombre original en map
   var hojaP = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CFG.HOJAS.PARTICIPANTES);
   if (!hojaP) return map;
   var datos = hojaP.getDataRange().getValues();
   for (var i = 1; i < datos.length; i++) {
     var nombre = String(datos[i][1]||"").trim();
     if (!nombre) continue;
+
+    var norm = textoParaComparar(nombre);
+    // Si ya existe una entrada con el mismo nombre normalizado, conservar la que tenga ID real
+    if (normMap[norm]) {
+      var existing = map[normMap[norm]];
+      var newId = String(datos[i][0]||"").trim();
+      if (!_esCreamos_ID_real(existing.id) && _esCreamos_ID_real(newId)) {
+        // La nueva fila tiene mejor ID — reemplazar
+        delete map[normMap[norm]];
+        normMap[norm] = nombre;
+      } else {
+        continue; // conservar la existente
+      }
+    } else {
+      normMap[norm] = nombre;
+    }
+
     var tarifa = parseFloat(datos[i][11]); // col L = Tarifa_Hora
     if (isNaN(tarifa) || tarifa <= 0) {
       var cat = String(datos[i][10]).trim().toUpperCase(); // col K = Categoria
@@ -5018,7 +5037,7 @@ function _construirMapaTarifas() {
     var t = String(datos[i][12]).trim().toLowerCase(); // col M = Tiene_Factura
     var est = parseFloat(datos[i][21]) || 0;           // col V = Estipendio
     map[nombre] = {
-      id:           String(datos[i][0]||"").trim(),  // col A = Creamos_ID
+      id:           String(datos[i][0]||"").trim(),
       tarifa:       tarifa,
       categoria:    String(datos[i][10]).trim().toUpperCase(),
       tieneFactura: t === "sí" || t === "si",
@@ -5666,6 +5685,63 @@ function repararDatosKobo() { _run(function() {
     }
   }
   ui.alert("✅ REPARACIÓN COMPLETADA\n\nEntrada/Salida corregidos: "+cam1+"\nNombres normalizados: "+cam2);
+}); }
+
+/**
+ * Elimina filas duplicadas de PARTICIPANTES.
+ * Agrupa por nombre normalizado, conserva la fila con Creamos_ID real;
+ * si ninguna lo tiene, conserva la primera. Borra las demás.
+ */
+function limpiarDuplicadosParticipantes() { _run(function() {
+  var ui = SpreadsheetApp.getUi();
+  var hP = _sh(CFG.HOJAS.PARTICIPANTES);
+  if (hP.getLastRow() < 3) { _alert("No hay datos que limpiar."); return; }
+
+  var datos = hP.getRange(2, 1, hP.getLastRow()-1, 22).getValues();
+  var normMap = {}; // norma → índice ganador (0-based en datos)
+
+  datos.forEach(function(f, i) {
+    var nombre = String(f[1]||"").trim();
+    if (!nombre) return;
+    var norm = textoParaComparar(nombre);
+    if (normMap[norm] === undefined) {
+      normMap[norm] = i;
+    } else {
+      // Conservar quien tenga Creamos_ID real
+      var winner = normMap[norm];
+      var idNew  = String(f[0]||"").trim();
+      var idOld  = String(datos[winner][0]||"").trim();
+      if (_esCreamos_ID_real(idNew) && !_esCreamos_ID_real(idOld)) {
+        normMap[norm] = i; // nuevo gana
+      }
+      // Si ambos tienen ID o ninguno, conservar el primero (winner queda igual)
+    }
+  });
+
+  var filasAConservar = {};
+  Object.keys(normMap).forEach(function(k){ filasAConservar[normMap[k]] = true; });
+
+  // Recolectar filas a eliminar (en orden descendente para no desplazar índices)
+  var aEliminar = [];
+  datos.forEach(function(f, i) {
+    var nombre = String(f[1]||"").trim();
+    if (!nombre) { aEliminar.push(i); return; } // vacías también
+    if (!filasAConservar[i]) aEliminar.push(i);
+  });
+
+  if (aEliminar.length === 0) { _alert("✅ No hay duplicados. PARTICIPANTES está limpio."); return; }
+
+  var resp = ui.alert("🧹 Limpiar duplicados",
+    "Se encontraron " + aEliminar.length + " fila(s) duplicadas o vacías en PARTICIPANTES.\n\n¿Eliminarlas?",
+    ui.ButtonSet.YES_NO);
+  if (resp !== ui.Button.YES) return;
+
+  // Borrar de abajo hacia arriba
+  aEliminar.reverse().forEach(function(i) {
+    hP.deleteRow(i + 2); // +2 porque la fila 1 es encabezado
+  });
+
+  _alert("✅ " + aEliminar.length + " filas duplicadas/vacías eliminadas.\n\nRecalcula la quincena para ver el reporte limpio.");
 }); }
 
 function cambiarCategoriaParticipante() { _run(function() {
