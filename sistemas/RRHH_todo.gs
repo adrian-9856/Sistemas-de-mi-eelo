@@ -36,7 +36,7 @@ const CFG = {
 };
 
 /*
- PARTICIPANTES — 19 columnas (A–S)
+ PARTICIPANTES — 22 columnas (A–V)
  A  Creamos_ID (0)           J  Tarifa_Hora (9)      — Q/hr (auto desde Categoria)
  B  Nombre (1)               K  Tiene_Factura (10)   — Sí/No (aplica IVA)
  C  Proyecto (2)             L  DPI (11)
@@ -47,6 +47,9 @@ const CFG = {
  H  Inclusion_Laboral (7)    Q  Num_Cuenta (16)
  I  Categoria (8)            R  Forma_Pago (17)
                              S  URL_Doc_Proceso (18)
+                             T  Estipendio (19)      — Q fijos por quincena
+                             U  Hijos_CCSS (20)      — Sí/No
+                             V  Num_Hijos_CCSS (21)  — número
  Etapa: Inscritx / Retiradx / Empleadx / Ciclo de Vida Terminado
 */
 
@@ -166,6 +169,18 @@ function actualizarColoresYIDs() { _run(function() {
     log.push("💼 InclusionLaboral: IDs y colores actualizados");
   }
 
+  var hHC = ss.getSheetByName("HijosCCSS");
+  if (hHC && hHC.getLastRow() >= 2) {
+    _actualizarIDsEnHoja(hHC, 2, mapa);
+    _colorearHojaApoyo(hHC, 2, 5, mapa);
+    log.push("👶 HijosCCSS: IDs y colores actualizados");
+  }
+
+  var hBon = ss.getSheetByName("Bonos");
+  if (hBon && hBon.getLastRow() >= 2) {
+    log.push("💵 Bonos: hoja presente (" + (hBon.getLastRow()-1) + " registros)");
+  }
+
   _alert("✅ Sincronización completa\n\n" + log.join("\n") +
     "\n\nLos colores y Creamos IDs están al día en todas las hojas.");
 }); }
@@ -209,6 +224,8 @@ function onOpen() {
     .addItem("🧘 Lista de terapias",                     "crearHojaListaTerapias")
     .addItem("💼 Inclusión Laboral",                     "crearHojaInclusionLaboral")
     .addItem("🔴 Hoja Retiradx",                         "crearHojaRetiradx")
+    .addItem("💵 Hoja Bonos",                             "crearHojaBonos")
+    .addItem("👶 Hijos CCSS",                             "crearHojaHijosCCSS")
     .addItem("🔗 Sincronizar participación (→ PARTICIPANTES)", "sincronizarParticipacion")
     .addItem("🎨 Actualizar colores e IDs en todas las hojas", "actualizarColoresYIDs")
     .addSeparator()
@@ -240,6 +257,7 @@ function onOpen() {
 //         DiasEstudio cols C-I → Educacion en PARTICIPANTES  (A=ID, B=Nombre, C-I=días)
 //         ListaTerapias col C  → Apoyo_Emocional en PARTICIPANTES
 //         InclusionLaboral col C → Inclusion_Laboral en PARTICIPANTES
+//         HijosCCSS cols C-D → Hijos_CCSS y Num_Hijos_CCSS en PARTICIPANTES
 function onEdit(e) {
   var sheet = e.range.getSheet();
   var nombre = sheet.getName();
@@ -274,6 +292,11 @@ function onEdit(e) {
   // INCLUSIONLABORAL — col C (Participa) → Inclusion_Laboral en PARTICIPANTES
   if (nombre === "InclusionLaboral" && col === 3 && fila >= 2) {
     try { _syncInclusionFila(sheet, fila); } catch(_) {}
+  }
+
+  // HIJOSCCSS — col C (Tiene hijos) o col D (Cuántos) → PARTICIPANTES cols U/V
+  if (nombre === "HijosCCSS" && (col === 3 || col === 4) && fila >= 2) {
+    try { _syncHijosCCSSFila(sheet, fila); } catch(_) {}
   }
 }
 
@@ -310,6 +333,17 @@ function _syncInclusionFila(hIL, fila) {
   _actualizarColParticipante(participante, 8, texto); // col H = Inclusion_Laboral
 }
 
+/** Sincroniza la fila de HijosCCSS hacia cols U/V (21/22) de PARTICIPANTES */
+function _syncHijosCCSSFila(hHC, fila) {
+  var fila_ = hHC.getRange(fila, 1, 1, 4).getValues()[0];
+  var participante = String(fila_[1] || "").trim(); // col B = Participante
+  if (!participante) return;
+  var tiene = String(fila_[2] || "").trim().toUpperCase() === "X" ? "Sí" : "No";
+  var cuantos = parseInt(fila_[3]) || 0;
+  _actualizarColParticipante(participante, 21, tiene);   // col U = Hijos_CCSS
+  _actualizarColParticipante(participante, 22, cuantos); // col V = Num_Hijos_CCSS
+}
+
 /** Actualiza la celda de colNum (1-based) para el participante con ese nombre en PARTICIPANTES */
 function _actualizarColParticipante(nombreBuscar, colNum, valor) {
   var hP = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CFG.HOJAS.PARTICIPANTES);
@@ -333,11 +367,12 @@ function sincronizarParticipacion() { _run(function() {
   var hDE = ss.getSheetByName("DiasEstudio");
   var hLT = ss.getSheetByName("ListaTerapias");
   var hIL = ss.getSheetByName("InclusionLaboral");
+  var hHC = ss.getSheetByName("HijosCCSS");
   var hP  = _sh(CFG.HOJAS.PARTICIPANTES);
   if (!hP || hP.getLastRow() < 2) { _alert("No hay participantes cargados."); return; }
 
   var DIAS_NOM = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
-  var actDE = 0, actLT = 0, actIL = 0;
+  var actDE = 0, actLT = 0, actIL = 0, actHC = 0;
 
   // DiasEstudio → Educacion (col F = 6)  — A=ID, B=Nombre, C-I=días
   if (hDE && hDE.getLastRow() >= 2) {
@@ -347,7 +382,7 @@ function sincronizarParticipacion() { _run(function() {
       if (!participante) return;
       var activos = [];
       for (var d = 0; d < 7; d++) {
-        if (String(f[d + 2] || "").trim().toUpperCase() === "X") activos.push(DIAS_NOM[d]); // días en índice 2-8
+        if (String(f[d + 2] || "").trim().toUpperCase() === "X") activos.push(DIAS_NOM[d]);
       }
       var texto = activos.length > 0 ? "Sí — " + activos.join(", ") : "No";
       _actualizarColParticipante(participante, 6, texto);
@@ -379,20 +414,37 @@ function sincronizarParticipacion() { _run(function() {
     });
   }
 
+  // HijosCCSS → Hijos_CCSS (col U = 21) y Num_Hijos_CCSS (col V = 22)
+  if (hHC && hHC.getLastRow() >= 2) {
+    var datHC = hHC.getRange(2, 1, hHC.getLastRow() - 1, 4).getValues();
+    datHC.forEach(function(f) {
+      var participante = String(f[1] || "").trim(); // col B
+      if (!participante) return;
+      var tiene   = String(f[2] || "").trim().toUpperCase() === "X" ? "Sí" : "No";
+      var cuantos = parseInt(f[3]) || 0;
+      _actualizarColParticipante(participante, 21, tiene);
+      _actualizarColParticipante(participante, 22, cuantos);
+      if (tiene === "Sí") actHC++;
+    });
+  }
+
   // Actualizar colores e IDs en todas las hojas auxiliares
   var mapa = _mapaDatosParticipantes(ss);
   var hDE2 = ss.getSheetByName("DiasEstudio");
   var hLT2 = ss.getSheetByName("ListaTerapias");
   var hIL2 = ss.getSheetByName("InclusionLaboral");
+  var hHC2 = ss.getSheetByName("HijosCCSS");
   if (hDE2) { _actualizarIDsEnHoja(hDE2, 2, mapa); _colorearHojaApoyo(hDE2, 2, 11, mapa); }
   if (hLT2) { _actualizarIDsEnHoja(hLT2, 2, mapa); _colorearHojaApoyo(hLT2, 2, 4, mapa); }
   if (hIL2) { _actualizarIDsEnHoja(hIL2, 2, mapa); _colorearHojaApoyo(hIL2, 2, 4, mapa); }
+  if (hHC2) { _actualizarIDsEnHoja(hHC2, 2, mapa); _colorearHojaApoyo(hHC2, 2, 5, mapa); }
 
   _alert(
     "✅ Participación sincronizada\n\n" +
     "📚 Educación (días de estudio): " + actDE + " con asistencia marcada\n" +
     "🧘 Apoyo Emocional (terapias): " + actLT + " con terapia marcada\n" +
-    "💼 Inclusión Laboral: " + actIL + " participando\n\n" +
+    "💼 Inclusión Laboral: " + actIL + " participando\n" +
+    "👶 Hijos CCSS: " + actHC + " con hijos en CCSS\n\n" +
     "🎨 Colores e IDs actualizados en todas las hojas"
   );
 }); }
@@ -413,7 +465,8 @@ function crearHojas() { _run(function() {
       "Educacion","Apoyo_Emocional","Inclusion_Laboral",
       "Categoria","Tarifa_Hora","Tiene_Factura",
       "DPI","NIT","Correo",
-      "Banco","Tipo_Cuenta","Num_Cuenta","Forma_Pago","URL_Doc_Proceso"
+      "Banco","Tipo_Cuenta","Num_Cuenta","Forma_Pago","URL_Doc_Proceso",
+      "Estipendio","Hijos_CCSS","Num_Hijos_CCSS"
     ]);
   }
   _fmtEnc(hP, "#639922");
@@ -432,7 +485,9 @@ function crearHojas() { _run(function() {
   hP.getRange("O2:O500").setDataValidation(vBanco);   // col O = Banco
   hP.getRange("P2:P500").setDataValidation(vTipoCta); // col P = Tipo_Cuenta
   hP.getRange("R2:R500").setDataValidation(vPago);    // col R = Forma_Pago
+  hP.getRange("U2:U500").setDataValidation(vSiNo);    // col U = Hijos_CCSS
   hP.getRange("J2:J500").setNumberFormat("Q#,##0.00"); // col J = Tarifa_Hora
+  hP.getRange("T2:T500").setNumberFormat("Q#,##0.00"); // col T = Estipendio
   if (esNuevaP) {
     hP.setColumnWidth(2, 220);  // Nombre
     hP.setColumnWidth(15, 120); // Banco
@@ -440,6 +495,9 @@ function crearHojas() { _run(function() {
     hP.setColumnWidth(17, 130); // Num_Cuenta
     hP.setColumnWidth(18, 120); // Forma_Pago
     hP.setColumnWidth(19, 300); // URL_Doc_Proceso
+    hP.setColumnWidth(20, 110); // Estipendio
+    hP.setColumnWidth(21, 100); // Hijos_CCSS
+    hP.setColumnWidth(22, 110); // Num_Hijos_CCSS
   }
 
   // PERIODOS — hoja de control de quincenas
@@ -456,7 +514,7 @@ function crearHojas() { _run(function() {
   ss.setActiveSheet(hP);
   _alert(
     "✅ Hojas creadas:\n" +
-    "• PARTICIPANTES (19 cols — Etapa, Banco, Tipo_Cuenta, Num_Cuenta, Forma_Pago)\n" +
+    "• PARTICIPANTES (22 cols — Etapa, Banco, Cuenta, Estipendio, Hijos CCSS)\n" +
     "• DatosKobo (importación automática cada hora desde Kobo)\n" +
     "• PERIODOS (control de quincenas)\n\n" +
     "Tarifas: A=Q16.50 | B=Q15.75 | C=Q15.00 | D=Q14.00\n" +
@@ -516,7 +574,7 @@ function nuevoParticipante() { _run(function() {
                dpi:dpi, nit:"", correo:"", banco:"", tipoCuenta:"", numCuenta:"", formaPago:"" };
   _escribirContenidoDP(doc, part, [], []);
 
-  hP.appendRow([id, nombre, CFG.PROYECTO, CFG.ORG, "Inscritx", "", "", "", "", "", "Sí", dpi, "", "", "", "", "", "", url]);
+  hP.appendRow([id, nombre, CFG.PROYECTO, CFG.ORG, "Inscritx", "", "", "", "", "", "Sí", dpi, "", "", "", "", "", "", url, 0, "No", 0]);
   hP.setActiveRange(hP.getRange(hP.getLastRow(), 1));
   ui.alert(
     "✅ Participante registrado: " + nombre + "\n\n" +
@@ -613,7 +671,7 @@ function cargarListaParticipantes() { _run(function() {
 
   // Borrar datos anteriores (preservar encabezado)
   var lastRow = hP.getLastRow();
-  if (lastRow > 1) hP.getRange(2, 1, lastRow - 1, 19).clearContent();
+  if (lastRow > 1) hP.getRange(2, 1, lastRow - 1, 22).clearContent();
 
   // Construir filas buscando cada participante en la DB de Creamos
   SpreadsheetApp.getActiveSpreadsheet().toast("Buscando en base de datos Creamos...", "⏳", -1);
@@ -642,13 +700,15 @@ function cargarListaParticipantes() { _run(function() {
       tarifa,        // J: Tarifa_Hora
       "Sí",          // K: Tiene_Factura (default Sí)
       dpi,           // L: DPI          ← de la DB oficial
-      "", "", "", "", "", "", ""  // M–S: NIT, Correo, Banco, Tipo_Cuenta, Num_Cuenta, Forma_Pago, URL
+      "", "", "", "", "", "", "",  // M–S: NIT, Correo, Banco, Tipo_Cuenta, Num_Cuenta, Forma_Pago, URL
+      0, "No", 0     // T–V: Estipendio, Hijos_CCSS, Num_Hijos_CCSS
     ]);
   });
 
   if (filas.length > 0) {
-    hP.getRange(2, 1, filas.length, 19).setValues(filas);
+    hP.getRange(2, 1, filas.length, 22).setValues(filas);
     hP.getRange(2, 10, filas.length, 1).setNumberFormat("Q#,##0.00");
+    hP.getRange(2, 20, filas.length, 1).setNumberFormat("Q#,##0.00");
     _colorearParticipantes(hP, filas.length);
     // Marcar celdas sin Creamos ID (no se encontró en la DB)
     filas.forEach(function(f, i) {
@@ -666,9 +726,11 @@ function cargarListaParticipantes() { _run(function() {
   var hDE2 = ss2.getSheetByName("DiasEstudio");
   var hLT2 = ss2.getSheetByName("ListaTerapias");
   var hIL2 = ss2.getSheetByName("InclusionLaboral");
-  if (hDE2) _colorearHojaApoyo(hDE2, 1, 10, mapa2);
+  var hHC2 = ss2.getSheetByName("HijosCCSS");
+  if (hDE2) { _actualizarIDsEnHoja(hDE2, 2, mapa2); _colorearHojaApoyo(hDE2, 2, 11, mapa2); }
   if (hLT2) { _actualizarIDsEnHoja(hLT2, 2, mapa2); _colorearHojaApoyo(hLT2, 2, 4, mapa2); }
   if (hIL2) { _actualizarIDsEnHoja(hIL2, 2, mapa2); _colorearHojaApoyo(hIL2, 2, 4, mapa2); }
+  if (hHC2) { _actualizarIDsEnHoja(hHC2, 2, mapa2); _colorearHojaApoyo(hHC2, 2, 5, mapa2); }
 
   _alert(
     "✅ Lista oficial cargada — " + filas.length + " participantes.\n\n" +
@@ -856,7 +918,7 @@ function _colorearParticipantes(hP, total) {
     if (etapa === "Retiradx") continue; // ya coloreadas en rojo por el flujo de retiro
     var cat   = String(hP.getRange(i + 2, 9).getValue()).trim().toUpperCase(); // col I = Categoria
     var color = (CFG.COLORES_CAT[cat] || {}).bgClaro || "#ffffff";
-    hP.getRange(i + 2, 1, 1, 19).setBackground(color);
+    hP.getRange(i + 2, 1, 1, 22).setBackground(color);
   }
 }
 
@@ -912,7 +974,7 @@ function _iniciarRetiro(sheet, fila) {
     : "Otra";
 
   // Colorear fila rojo vivo
-  sheet.getRange(fila, 1, 1, 19).setBackground("#ff1744").setFontColor("#ffffff");
+  sheet.getRange(fila, 1, 1, 22).setBackground("#ff1744").setFontColor("#ffffff");
 
   // Registrar en hoja Retiradx
   var hR = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Retiradx");
@@ -936,6 +998,90 @@ function crearHojaRetiradx() { _run(function() {
   }
   hoja.activate();
   _alert("✅ Hoja 'Retiradx' creada.\n\nSe llena automáticamente cuando se marca una participante como Retiradx en PARTICIPANTES.");
+}); }
+
+/**
+ * Hoja "Bonos" — registra bonos individuales que se suman al pago de la quincena correspondiente.
+ * Columnas: Fecha | Creamos_ID | Participante | Monto | Tipo_Bono | Notas
+ */
+function crearHojaBonos() { _run(function() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var hoja = ss.getSheetByName("Bonos");
+  var esNueva = !hoja;
+  if (esNueva) hoja = ss.insertSheet("Bonos");
+
+  hoja.getRange(1,1,1,6).setValues([["Fecha","Creamos_ID","Participante","Monto","Tipo_Bono","Notas"]])
+    .setFontWeight("bold").setBackground("#1565c0").setFontColor("#fff").setHorizontalAlignment("center");
+  hoja.setFrozenRows(1);
+
+  if (esNueva) {
+    hoja.setColumnWidth(1, 120); hoja.setColumnWidth(2, 110);
+    hoja.setColumnWidth(3, 240); hoja.setColumnWidth(4, 110);
+    hoja.setColumnWidth(5, 160); hoja.setColumnWidth(6, 300);
+    hoja.getRange("A2:A500").setNumberFormat("dd/MM/yyyy");
+    hoja.getRange("D2:D500").setNumberFormat('"Q"#,##0.00');
+  }
+
+  hoja.activate();
+  _alert(
+    "💵 BONOS — Para qué sirve:\n\n" +
+    "Registra bonos o incentivos individuales que se suman al pago del período.\n\n" +
+    "Columnas:\n" +
+    "• Fecha: fecha del bono (debe caer dentro de la quincena)\n" +
+    "• Participante: nombre exacto como aparece en PARTICIPANTES\n" +
+    "• Monto: Q a pagar adicionalmente\n" +
+    "• Tipo_Bono: ej. 'Desempeño', 'Asistencia perfecta', 'Puntualidad', etc.\n\n" +
+    "El bono aparece automáticamente en el reporte de quincena (col Bono) " +
+    "y se suma al total que paga la organización."
+  );
+}); }
+
+/**
+ * Hoja "HijosCCSS" — registra si cada participante tiene hijos en CCSS y cuántos.
+ * Se sincroniza automáticamente con cols U/V de PARTICIPANTES.
+ */
+function crearHojaHijosCCSS() { _run(function() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var hoja = ss.getSheetByName("HijosCCSS");
+  var esNueva = !hoja;
+  if (esNueva) hoja = ss.insertSheet("HijosCCSS");
+
+  hoja.getRange(1,1,1,5).setValues([["Creamos_ID","Participante","¿Tiene hijos en CCSS? (X)","¿Cuántos?","Notas"]])
+    .setFontWeight("bold").setBackground("#6a1b9a").setFontColor("#fff").setHorizontalAlignment("center");
+  hoja.setFrozenRows(1);
+
+  var mapa = _mapaDatosParticipantes(ss);
+
+  if (esNueva) {
+    var filas = LISTA_OFICIAL.map(function(it) {
+      var id  = (mapa[it[1]] || {}).id || it[3] || "";
+      // Leer valor actual desde PARTICIPANTES si existe
+      return [id, it[1], "", "", ""];
+    });
+    hoja.getRange(2, 1, filas.length, 5).setValues(filas);
+    var vX = SpreadsheetApp.newDataValidation().requireValueInList(["X",""],true).build();
+    hoja.getRange(2, 3, filas.length, 1).setDataValidation(vX).setHorizontalAlignment("center");
+    hoja.getRange(2, 4, filas.length, 1).setDataValidation(
+      SpreadsheetApp.newDataValidation().requireNumberGreaterThanOrEqualTo(0).build()
+    ).setHorizontalAlignment("center");
+  } else {
+    _actualizarIDsEnHoja(hoja, 2, mapa);
+  }
+
+  _colorearHojaApoyo(hoja, 2, 5, mapa);
+
+  hoja.setColumnWidth(1, 110); hoja.setColumnWidth(2, 260);
+  hoja.setColumnWidth(3, 160); hoja.setColumnWidth(4, 110);
+  hoja.setColumnWidth(5, 300);
+  hoja.activate();
+  _alert(
+    "👶 HIJOS CCSS — Para qué sirve:\n\n" +
+    "Registra si la participante tiene hijos en el CCSS (Seguro Social) y cuántos.\n\n" +
+    "• Marca X en col C si tiene hijos en CCSS\n" +
+    "• Escribe el número en col D\n\n" +
+    "Se sincroniza automáticamente con las columnas U (Hijos_CCSS) y V (Num_Hijos_CCSS) " +
+    "de PARTICIPANTES cada vez que editas una celda."
+  );
 }); }
 
 function crearHojaInclusionLaboral() { _run(function() {
@@ -2770,9 +2916,29 @@ function _calcularResumenPeriodo(fi, ff) {
       tieneFactura: info.tieneFactura,
       categoria:    info.categoria,
       id:           _esCreamos_ID_real(info.id) ? info.id : "",
-      codigo:       _esCreamos_ID_real(info.id) ? info.id : ""
+      codigo:       _esCreamos_ID_real(info.id) ? info.id : "",
+      estipendio:   info.estipendio || 0,
+      bono:         0
     };
   });
+
+  // Sumar bonos del período desde hoja "Bonos"
+  var hBonos = ss.getSheetByName("Bonos");
+  if (hBonos && hBonos.getLastRow() >= 2) {
+    var datBonos = hBonos.getRange(2, 1, hBonos.getLastRow() - 1, 4).getValues();
+    datBonos.forEach(function(b) {
+      var fecha = new Date(b[0]);
+      if (isNaN(fecha)) return;
+      var dia = new Date(fecha.getFullYear(), fecha.getMonth(), fecha.getDate());
+      if (dia < dIni || dia > dFin) return;
+      var nombreBono = String(b[2] || "").trim(); // col C = Participante
+      var monto = parseFloat(b[3]) || 0;          // col D = Monto
+      if (!nombreBono || !monto) return;
+      if (resultado[nombreBono]) {
+        resultado[nombreBono].bono = Math.round((resultado[nombreBono].bono + monto) * 100) / 100;
+      }
+    });
+  }
 
   // Sumar horas reales desde DatosKobo (si no existe ASISTENCIA pre-procesada)
   var hojaA = ss.getSheetByName(CFG.HOJAS.ASISTENCIA);
@@ -2841,8 +3007,27 @@ function _calcularResumenPeriodo(fi, ff) {
     var info = mapa[nombre];
     resultado2[nombre] = { horas: 0, tarifa: info.tarifa, tieneFactura: info.tieneFactura,
       categoria: info.categoria, id: _esCreamos_ID_real(info.id) ? info.id : "",
-      codigo: _esCreamos_ID_real(info.id) ? info.id : "" };
+      codigo: _esCreamos_ID_real(info.id) ? info.id : "",
+      estipendio: info.estipendio || 0, bono: 0 };
   });
+
+  // Sumar bonos del período (Kobo-path fallback)
+  var hBonos2 = ss.getSheetByName("Bonos");
+  if (hBonos2 && hBonos2.getLastRow() >= 2) {
+    var datBonos2 = hBonos2.getRange(2, 1, hBonos2.getLastRow() - 1, 4).getValues();
+    datBonos2.forEach(function(b) {
+      var fecha = new Date(b[0]);
+      if (isNaN(fecha)) return;
+      var dia = new Date(fecha.getFullYear(), fecha.getMonth(), fecha.getDate());
+      if (dia < dIni || dia > dFin) return;
+      var nombreBono = String(b[2] || "").trim();
+      var monto = parseFloat(b[3]) || 0;
+      if (!nombreBono || !monto) return;
+      if (resultado2[nombreBono]) {
+        resultado2[nombreBono].bono = Math.round((resultado2[nombreBono].bono + monto) * 100) / 100;
+      }
+    });
+  }
 
   Object.keys(porPart).forEach(function(nombre) {
     var regs = porPart[nombre].sort(function(a,b){ return a.ts - b.ts; });
@@ -2873,7 +3058,8 @@ function _calcularResumenPeriodo(fi, ff) {
       var info2b = _buscarInfoParticipante(mapa, nombre);
       resultado2[nombre] = { horas: 0, tarifa: info2b.tarifa || CFG.CATEGORIAS.C,
         tieneFactura: info2b.tieneFactura || false, categoria: info2b.categoria || "?",
-        id: info2b.id || "", codigo: info2b.id || "" };
+        id: info2b.id || "", codigo: info2b.id || "",
+        estipendio: info2b.estipendio || 0, bono: 0 };
     }
     resultado2[nombre].horas = Math.round(totalH * 100) / 100;
   });
@@ -2926,31 +3112,31 @@ function _generarReporteQuincena(fi, ff, label, tabNombre, prevHorasReponer) {
     h = ss.insertSheet(tabNombre);
   }
 
-  // Asegurar suficientes columnas (ahora usamos 13)
-  if (h.getMaxColumns() < 13) h.insertColumnsAfter(h.getMaxColumns(), 13 - h.getMaxColumns());
+  // Asegurar suficientes columnas (ahora usamos 15)
+  if (h.getMaxColumns() < 15) h.insertColumnsAfter(h.getMaxColumns(), 15 - h.getMaxColumns());
 
   // ── Fila 1: referencia de tarifas ──────────────────────────────
-  h.getRange(1, 1, 1, 13).setValues([["Q16.50","Q15.75","Q15.00","Q14.00","","","","","","","","",""]]);
+  h.getRange(1, 1, 1, 15).setValues([["Q16.50","Q15.75","Q15.00","Q14.00","","","","","","","","","","",""]]);
   ["#639922","#4285f4","#fbbc04","#ea4335"].forEach(function(c, i) {
     h.getRange(1, i+1).setBackground(c).setFontColor("#ffffff").setFontWeight("bold")
      .setHorizontalAlignment("center");
   });
 
   // ── Fila 2: título del período ─────────────────────────────────
-  h.getRange(2, 1, 1, 13).merge()
+  h.getRange(2, 1, 1, 15).merge()
    .setValue("Período: " + label)
    .setBackground("#f8f9fa").setFontWeight("bold").setFontSize(11)
    .setHorizontalAlignment("center")
    .setBorder(true,true,true,true,null,null,"#dadce0",SpreadsheetApp.BorderStyle.SOLID);
 
   // ── Fila 3: encabezados de columnas ───────────────────────────
-  // A=#  B=Participante  C=Fact.  D-E=spacers
+  // A=#  B=Participante  C=Fact.  D=ID  E=spacer
   // F=Total hrs  G=Hrs reponer  H=Total a pagar
-  // I=Monto Base  J=IVA 5%  K=Total org paga  L=Redondeo  M=Neto part.
+  // I=Monto Base  J=IVA 5%  K=Bono  L=Estipendio  M=Total org paga  N=Redondeo  O=Neto part.
   var encabezados = ["#","Participante","Fact.","ID","",
     "Total hrs","Hrs reponer","Total a pagar",
-    "Monto Base","IVA 5%","Total org paga","Redondeo","Neto part."];
-  h.getRange(3, 1, 1, 13).setValues([encabezados])
+    "Monto Base","IVA 5%","Bono","Estipendio","Total org paga","Redondeo","Neto part."];
+  h.getRange(3, 1, 1, 15).setValues([encabezados])
    .setBackground("#546e7a").setFontColor("#ffffff").setFontWeight("bold")
    .setHorizontalAlignment("center")
    .setBorder(true,true,true,true,null,null,"#37474f",SpreadsheetApp.BorderStyle.SOLID);
@@ -2961,13 +3147,13 @@ function _generarReporteQuincena(fi, ff, label, tabNombre, prevHorasReponer) {
   // ── Filas de datos: una por participante ───────────────────────
   var nombres = Object.keys(resumen).sort(function(a,b){ return a.localeCompare(b,"es"); });
   var filaActual = 4;
-  var sumBase = 0, sumIVA = 0, sumTotal = 0, totalGeneral = 0;
+  var sumBase = 0, sumIVA = 0, sumBono = 0, sumEstip = 0, sumTotal = 0, totalGeneral = 0, sumHoras = 0;
   var num = 1;
   var conFactura = 0, sinFactura = 0;
 
   // Acumular todo en un array para un solo setValues masivo (más rápido)
   var bloqueValores = [];
-  var bloqueFilas   = [];   // {fila, cat, tieneFactura}
+  var bloqueFilas   = [];   // {fila, cat, tieneFactura, tieneBono, tieneEstip}
 
   nombres.forEach(function(nombre) {
     var d = resumen[nombre];
@@ -2978,14 +3164,19 @@ function _generarReporteQuincena(fi, ff, label, tabNombre, prevHorasReponer) {
     var hTotal  = Math.round((horas + hReponer) * 100) / 100;
     var base    = Math.round(hTotal * d.tarifa * 100) / 100;
     var iva     = d.tieneFactura ? Math.round(base * CFG.IVA_PCT * 100) / 100 : 0;
-    var orgPaga = Math.round((base + iva) * 100) / 100;
+    var bono    = Math.round((d.bono || 0) * 100) / 100;
+    var estip   = Math.round((d.estipendio || 0) * 100) / 100;
+    var orgPaga = Math.round((base + iva + bono + estip) * 100) / 100;
     var redond  = Math.round(orgPaga);
-    var neto    = base;  // participante retiene base; IVA va a SAT vía Declaraguate
+    var neto    = Math.round((base + bono + estip) * 100) / 100; // participante retiene base+bono+estip; IVA va a SAT
 
     sumBase  += base;
     sumIVA   += iva;
+    sumBono  += bono;
+    sumEstip += estip;
     sumTotal += redond;
     totalGeneral += redond;
+    sumHoras += horas;
     if (d.tieneFactura) conFactura++; else sinFactura++;
 
     var factInd = d.tieneFactura ? "★ Sí" : "—";
@@ -2997,30 +3188,33 @@ function _generarReporteQuincena(fi, ff, label, tabNombre, prevHorasReponer) {
       hTotal || "",
       base || "",
       iva > 0 ? iva : "",
+      bono > 0 ? bono : "",
+      estip > 0 ? estip : "",
       orgPaga || "",
       redond || "",
       neto || ""
     ]);
-    bloqueFilas.push({ fila: filaActual, cat: d.categoria || "?", tieneFactura: d.tieneFactura, sinHoras: horas === 0 });
+    bloqueFilas.push({ fila: filaActual, cat: d.categoria || "?", tieneFactura: d.tieneFactura,
+                       tieneBono: bono > 0, tieneEstip: estip > 0, sinHoras: horas === 0 });
     filaActual++;
   });
 
   // Escribir todos los valores de una vez
   if (bloqueValores.length > 0) {
-    h.getRange(4, 1, bloqueValores.length, 13).setValues(bloqueValores);
+    h.getRange(4, 1, bloqueValores.length, 15).setValues(bloqueValores);
   }
 
   // Aplicar formato fila a fila (colores por categoría + números)
   bloqueFilas.forEach(function(bf) {
     // Filas sin horas = gris claro + itálica para distinguirlas
     var bg = bf.sinHoras ? "#f5f5f5" : (BG_CAT[bf.cat] || BG_CAT["?"]);
-    h.getRange(bf.fila, 1, 1, 13)
+    h.getRange(bf.fila, 1, 1, 15)
      .setBackground(bg).setFontFamily("Arial").setFontSize(10).setVerticalAlignment("middle")
      .setFontStyle(bf.sinHoras ? "italic" : "normal")
      .setFontColor(bf.sinHoras ? "#9e9e9e" : "#000000");
     h.getRange(bf.fila, 1).setHorizontalAlignment("center").setFontWeight("bold");
     h.getRange(bf.fila, 2, 1, 3).setHorizontalAlignment("left");
-    h.getRange(bf.fila, 6, 1, 8).setHorizontalAlignment("right");
+    h.getRange(bf.fila, 6, 1, 10).setHorizontalAlignment("right");
     // Col C (Fact.) — color especial si tiene factura
     if (bf.tieneFactura) {
       h.getRange(bf.fila, 3)
@@ -3029,51 +3223,91 @@ function _generarReporteQuincena(fi, ff, label, tabNombre, prevHorasReponer) {
     } else {
       h.getRange(bf.fila, 3).setFontColor("#9aa0a6").setHorizontalAlignment("center");
     }
-    // Formato moneda cols I–M (9–13)
-    h.getRange(bf.fila, 9, 1, 5).setNumberFormat('"Q"#,##0.00');
-    h.getRange(bf.fila, 1, 1, 13)
+    // Bono (col 11) — azul si tiene bono
+    if (bf.tieneBono) {
+      h.getRange(bf.fila, 11).setBackground("#e3f2fd").setFontColor("#1565c0").setFontWeight("bold");
+    }
+    // Estipendio (col 12) — verde si tiene estipendio
+    if (bf.tieneEstip) {
+      h.getRange(bf.fila, 12).setBackground("#e8f5e9").setFontColor("#2e7d32").setFontWeight("bold");
+    }
+    // Formato moneda cols I–O (9–15)
+    h.getRange(bf.fila, 9, 1, 7).setNumberFormat('"Q"#,##0.00');
+    h.getRange(bf.fila, 1, 1, 15)
      .setBorder(null,null,true,null,null,null,"#cccccc",SpreadsheetApp.BorderStyle.SOLID);
   });
 
   // ── Bloque de totales desglosados ──────────────────────────────
   filaActual++;
 
+  // Fila: total de horas
+  h.getRange(filaActual, 1, 1, 15).setValues([
+    ["","Total de horas registradas","","","","",
+     Math.round(sumHoras*100)/100,"","","","","","","",""]
+  ]);
+  h.getRange(filaActual,2).setFontStyle("italic").setFontColor("#555555");
+  h.getRange(filaActual,7).setBackground("#e8eaf6").setFontWeight("bold")
+   .setHorizontalAlignment("right").setNumberFormat('#,##0.00" hrs"');
+  filaActual++;
+
   // Fila: subtotal monto base
-  h.getRange(filaActual, 1, 1, 13).setValues([
+  h.getRange(filaActual, 1, 1, 15).setValues([
     ["","Monto base (sin IVA)","","","","","","",
-     Math.round(sumBase*100)/100,"","","",""]
+     Math.round(sumBase*100)/100,"","","","","",""]
   ]);
   h.getRange(filaActual,2).setFontStyle("italic").setFontColor("#555555");
   h.getRange(filaActual,9).setNumberFormat('"Q"#,##0.00').setBackground("#f8f9fa");
   filaActual++;
 
   // Fila: total IVA (Declaraguate)
-  h.getRange(filaActual, 1, 1, 13).setValues([
+  h.getRange(filaActual, 1, 1, 15).setValues([
     ["","IVA 5% total a declarar (Declaraguate)","","","","","","",
-     "","",Math.round(sumIVA*100)/100,"",""]
+     "","","","",Math.round(sumIVA*100)/100,"",""]
   ]);
   h.getRange(filaActual,2).setFontWeight("bold").setFontColor("#c5221f");
-  h.getRange(filaActual,11)
+  h.getRange(filaActual,13)
    .setNumberFormat('"Q"#,##0.00').setBackground("#fce8e6").setFontColor("#c5221f").setFontWeight("bold");
   filaActual++;
 
+  // Fila: total bonos (si hay)
+  if (sumBono > 0) {
+    h.getRange(filaActual, 1, 1, 15).setValues([
+      ["","Total bonos","","","","","","",
+       "","",Math.round(sumBono*100)/100,"","","",""]
+    ]);
+    h.getRange(filaActual,2).setFontStyle("italic").setFontColor("#1565c0");
+    h.getRange(filaActual,11).setNumberFormat('"Q"#,##0.00').setBackground("#e3f2fd").setFontColor("#1565c0");
+    filaActual++;
+  }
+
+  // Fila: total estipendios (si hay)
+  if (sumEstip > 0) {
+    h.getRange(filaActual, 1, 1, 15).setValues([
+      ["","Total estipendios","","","","","","",
+       "","","",Math.round(sumEstip*100)/100,"","",""]
+    ]);
+    h.getRange(filaActual,2).setFontStyle("italic").setFontColor("#2e7d32");
+    h.getRange(filaActual,12).setNumberFormat('"Q"#,##0.00').setBackground("#e8f5e9").setFontColor("#2e7d32");
+    filaActual++;
+  }
+
   // Fila: GRAN TOTAL (lo que paga la organización)
-  h.getRange(filaActual, 1, 1, 13).setValues([
+  h.getRange(filaActual, 1, 1, 15).setValues([
     ["","TOTAL QUE PAGA LA ORGANIZACIÓN","","","","","","",
-     "","","",totalGeneral,""]
+     "","","","","",totalGeneral,""]
   ]);
   h.getRange(filaActual,2).setFontWeight("bold").setFontSize(11);
-  h.getRange(filaActual,12)
+  h.getRange(filaActual,14)
    .setBackground("#00c853").setFontColor("#ffffff").setFontWeight("bold")
    .setFontSize(12).setHorizontalAlignment("center").setNumberFormat('"Q"#,##0.00');
   filaActual++;
 
   // ── Fila leyenda + resumen ─────────────────────────────────────
   filaActual++;
-  h.getRange(filaActual, 1, 1, 13).setValues([[
+  h.getRange(filaActual, 1, 1, 15).setValues([[
     "A=Q16.50","B=Q15.75","C=Q15.00","D=Q14.00","",
     "★ = emite factura","","",
-    "Con factura: "+conFactura,"Sin factura: "+sinFactura,"","",""
+    "Con factura: "+conFactura,"Sin factura: "+sinFactura,"","","","",""
   ]]);
   [BG_CAT.A,BG_CAT.B,BG_CAT.C,BG_CAT.D].forEach(function(c,i){
     h.getRange(filaActual,i+1).setBackground(c).setFontSize(9)
@@ -3083,13 +3317,13 @@ function _generarReporteQuincena(fi, ff, label, tabNombre, prevHorasReponer) {
 
   // ── Fila timestamp ─────────────────────────────────────────────
   filaActual++;
-  h.getRange(filaActual, 1, 1, 12).merge()
+  h.getRange(filaActual, 1, 1, 15).merge()
    .setValue("Actualizado: " + ts + "  |  " + nombres.length + " participantes  |  " +
              nombres.filter(function(n){ return resumen[n].horas > 0; }).length + " con horas registradas")
    .setFontSize(8).setFontColor("#9aa0a6").setHorizontalAlignment("right");
 
-  // ── Ancho de columnas (13 cols) ────────────────────────────────
-  [35, 220, 60, 20, 20, 90, 100, 95, 95, 80, 95, 90, 90]
+  // ── Ancho de columnas (15 cols) ────────────────────────────────
+  [35, 220, 60, 20, 20, 90, 100, 95, 95, 80, 90, 90, 95, 90, 90]
     .forEach(function(w, i) { h.setColumnWidth(i+1, w); });
   h.setRowHeight(2, 28);
   h.setRowHeight(3, 24);
@@ -3342,7 +3576,9 @@ function generarChecklistPago() { _run(function() {
       var d    = resumen[nombre];
       var base = Math.round(d.horas * d.tarifa * 100) / 100;
       var iva  = d.tieneFactura ? Math.round(base * CFG.IVA_PCT * 100) / 100 : 0;
-      var org  = Math.round((base + iva) * 100) / 100;
+      var bono = Math.round((d.bono || 0) * 100) / 100;
+      var estip = Math.round((d.estipendio || 0) * 100) / 100;
+      var org  = Math.round((base + iva + bono + estip) * 100) / 100;
       totalBase += base; totalIVA += iva; totalOrg += org;
 
       h.getRange(filaActual,1,1,12).setValues([[
@@ -3400,7 +3636,9 @@ function generarChecklistPago() { _run(function() {
     var d   = resumen[n];
     var base= Math.round(d.horas * d.tarifa * 100) / 100;
     var iva = d.tieneFactura ? Math.round(base * CFG.IVA_PCT * 100) / 100 : 0;
-    gBase += base; gIVA += iva; gOrg += Math.round((base+iva)*100)/100;
+    var bono2 = Math.round((d.bono || 0) * 100) / 100;
+    var estip2 = Math.round((d.estipendio || 0) * 100) / 100;
+    gBase += base; gIVA += iva; gOrg += Math.round((base+iva+bono2+estip2)*100)/100;
   });
 
   h.getRange(filaActual,1,1,12).setValues([
@@ -3545,7 +3783,7 @@ function sincronizarDesdeCreamos() { _run(function() {
   var hP = _sh(CFG.HOJAS.PARTICIPANTES);
   if (!hP || hP.getLastRow() < 2) { _alert("No hay participantes cargados."); return; }
 
-  var datos = hP.getRange(2, 1, hP.getLastRow() - 1, 19).getValues();
+  var datos = hP.getRange(2, 1, hP.getLastRow() - 1, 22).getValues();
   var actualizados = [], sinEncontrar = [];
   var mapaNombreAID = {};
 
@@ -3591,7 +3829,7 @@ function sincronizarDesdeCreamos() { _run(function() {
 }); }
 
 function _propagarIDsAHojas(ss, mapaNombreAID) {
-  ["ListaTerapias", "InclusionLaboral"].forEach(function(nm) {
+  ["ListaTerapias", "InclusionLaboral", "HijosCCSS"].forEach(function(nm) {
     var h = ss.getSheetByName(nm);
     if (!h || h.getLastRow() < 2) return;
     var datos = h.getRange(2, 1, h.getLastRow() - 1, 2).getValues();
@@ -4445,11 +4683,13 @@ function _construirMapaTarifas() {
       tarifa = CFG.CATEGORIAS[cat] || CFG.CATEGORIAS.C;
     }
     var t = String(datos[i][10]).trim().toLowerCase(); // col K = Tiene_Factura
+    var est = parseFloat(datos[i][19]) || 0;           // col T = Estipendio
     map[nombre] = {
       id:           String(datos[i][0]||"").trim(),  // col A = Creamos_ID
       tarifa:       tarifa,
       categoria:    String(datos[i][8]).trim().toUpperCase(),
-      tieneFactura: t === "sí" || t === "si"
+      tieneFactura: t === "sí" || t === "si",
+      estipendio:   est
     };
   }
   return map;
@@ -4462,14 +4702,15 @@ function _construirMapaTarifas() {
 function instalarTodo() { _run(function() {
   var ui = SpreadsheetApp.getUi();
   var resp = ui.alert("🚀 INSTALACIÓN COMPLETA — " + CFG.PROYECTO + " / " + CFG.ORG,
-    "Se ejecutarán 7 pasos automáticamente:\n\n" +
-    "1 — Crear hojas: PARTICIPANTES (19 cols), DatosKobo, PERIODOS\n" +
+    "Se ejecutarán 9 pasos automáticamente:\n\n" +
+    "1 — Crear hojas: PARTICIPANTES (22 cols), DatosKobo, PERIODOS\n" +
     "2 — Importar datos desde Kobo\n" +
     "3 — Crear estructura en Drive (Docs_Proceso, Reportes)\n" +
     "4 — Crear hoja Días de Estudio\n" +
     "5 — Crear hoja Lista de Terapias\n" +
     "6 — Crear hojas Inclusión Laboral y Retiradx\n" +
-    "7 — Activar automatizaciones (Kobo cada hora + al abrir)\n\n" +
+    "7 — Crear hojas Bonos y HijosCCSS\n" +
+    "8 — Activar automatizaciones (Kobo cada hora + al abrir)\n\n" +
     "Los datos existentes NO se borran.\n\n¿Continuar?",
     ui.ButtonSet.YES_NO);
   if (resp !== ui.Button.YES) return;
@@ -4536,7 +4777,7 @@ function instalarTodo() { _run(function() {
 
   // PASO 6: InclusionLaboral + Retiradx
   try {
-    ss.toast("Paso 6/7: Creando hojas Inclusión Laboral y Retiradx...", "🚀", -1);
+    ss.toast("Paso 6/9: Creando hojas Inclusión Laboral y Retiradx...", "🚀", -1);
     if (!ss.getSheetByName("InclusionLaboral")) { crearHojaInclusionLaboral(); log.push("✅ Paso 6a: Hoja InclusionLaboral creada"); }
     else { log.push("ℹ️ Paso 6a: Hoja InclusionLaboral ya existe"); }
     if (!ss.getSheetByName("Retiradx")) { crearHojaRetiradx(); log.push("✅ Paso 6b: Hoja Retiradx creada"); }
@@ -4544,26 +4785,38 @@ function instalarTodo() { _run(function() {
   } catch(e) { errores.push("❌ Paso 6: " + e.message); }
   Utilities.sleep(300);
 
-  // PASO 7: Triggers
+  // PASO 7: Bonos + HijosCCSS
   try {
-    ss.toast("Paso 7/7: Activando automatizaciones...", "🚀", -1);
-    configurarTriggers();
-    log.push("✅ Paso 7: Triggers activados (cada hora + al abrir)");
+    ss.toast("Paso 7/9: Creando hojas Bonos y HijosCCSS...", "🚀", -1);
+    if (!ss.getSheetByName("Bonos")) { crearHojaBonos(); log.push("✅ Paso 7a: Hoja Bonos creada"); }
+    else { log.push("ℹ️ Paso 7a: Hoja Bonos ya existe"); }
+    if (!ss.getSheetByName("HijosCCSS")) { crearHojaHijosCCSS(); log.push("✅ Paso 7b: Hoja HijosCCSS creada"); }
+    else { log.push("ℹ️ Paso 7b: Hoja HijosCCSS ya existe"); }
   } catch(e) { errores.push("❌ Paso 7: " + e.message); }
+  Utilities.sleep(300);
+
+  // PASO 8: Triggers
+  try {
+    ss.toast("Paso 8/9: Activando automatizaciones...", "🚀", -1);
+    configurarTriggers();
+    log.push("✅ Paso 8: Triggers activados (cada hora + al abrir)");
+  } catch(e) { errores.push("❌ Paso 8: " + e.message); }
 
   ss.toast("", "", 1);
   var resumen = "🚀 INSTALACIÓN COMPLETA — " + CFG.ORG + "\n\n";
   resumen += log.join("\n");
   if (errores.length) resumen += "\n\n--- PROBLEMAS ---\n" + errores.join("\n");
   resumen += "\n\n--- HOJAS DEL SISTEMA ---\n";
-  resumen += "• PARTICIPANTES     — lista maestra (19 cols: Etapa, Banco, cuenta, categoría)\n";
+  resumen += "• PARTICIPANTES     — lista maestra (22 cols: Etapa, Banco, cuenta, Estipendio, Hijos CCSS)\n";
   resumen += "• DatosKobo         — datos de Kobo (se actualiza automático cada hora)\n";
   resumen += "• PERIODOS          — control de quincenas\n";
   resumen += "• DiasEstudio       — qué días estudia cada participante\n";
   resumen += "• ListaTerapias     — quién recibe terapia\n";
   resumen += "• InclusionLaboral  — quién participa en Inclusión Laboral\n";
   resumen += "• Retiradx          — registro de retiros con razón\n";
-  resumen += "• Q_[fecha]         — reporte generado por quincena\n";
+  resumen += "• Bonos             — bonos individuales (se suman al pago de quincena)\n";
+  resumen += "• HijosCCSS         — hijos en CCSS (se refleja en PARTICIPANTES)\n";
+  resumen += "• Q_[fecha]         — reporte generado por quincena (15 cols + bono/estip)\n";
   resumen += "\nTarifas: A=Q16.50 | B=Q15.75 | C=Q15.00 | D=Q14.00\n";
   resumen += "IVA 5%: Admin → Configurar IVA (quién tiene factura)\n";
   resumen += "Etapa: Inscritx / Retiradx / Empleadx / Ciclo de Vida Terminado\n";
