@@ -48,8 +48,8 @@ const CFG = {
  I  Categoria (8)            R  Forma_Pago (17)
                              S  URL_Doc_Proceso (18)
                              T  Estipendio (19)      — Q fijos por quincena
-                             U  Hijos_CCSS (20)      — Sí/No
-                             V  Num_Hijos_CCSS (21)  — número
+                             U  Hijos_CCI (20)      — Sí/No
+                             V  Num_Hijos_CCI (21)  — número
  Etapa: Inscritx / Retiradx / Empleadx / Ciclo de Vida Terminado
 */
 
@@ -169,11 +169,11 @@ function actualizarColoresYIDs() { _run(function() {
     log.push("💼 InclusionLaboral: IDs y colores actualizados");
   }
 
-  var hHC = ss.getSheetByName("HijosCCSS");
+  var hHC = ss.getSheetByName("HijosCCI");
   if (hHC && hHC.getLastRow() >= 2) {
     _actualizarIDsEnHoja(hHC, 2, mapa);
     _colorearHojaApoyo(hHC, 2, 5, mapa);
-    log.push("👶 HijosCCSS: IDs y colores actualizados");
+    log.push("👶 HijosCCI: IDs y colores actualizados");
   }
 
   var hBon = ss.getSheetByName("Bonos");
@@ -225,7 +225,7 @@ function onOpen() {
     .addItem("💼 Inclusión Laboral",                     "crearHojaInclusionLaboral")
     .addItem("🔴 Hoja Retiradx",                         "crearHojaRetiradx")
     .addItem("💵 Hoja Bonos",                             "crearHojaBonos")
-    .addItem("👶 Hijos CCSS",                             "crearHojaHijosCCSS")
+    .addItem("👶 Hijos CCI",                             "crearHojaHijosCCI")
     .addItem("🔗 Sincronizar participación (→ PARTICIPANTES)", "sincronizarParticipacion")
     .addItem("🎨 Actualizar colores e IDs en todas las hojas", "actualizarColoresYIDs")
     .addSeparator()
@@ -257,7 +257,7 @@ function onOpen() {
 //         DiasEstudio cols C-I → Educacion en PARTICIPANTES  (A=ID, B=Nombre, C-I=días)
 //         ListaTerapias col C  → Apoyo_Emocional en PARTICIPANTES
 //         InclusionLaboral col C → Inclusion_Laboral en PARTICIPANTES
-//         HijosCCSS cols C-D → Hijos_CCSS y Num_Hijos_CCSS en PARTICIPANTES
+//         HijosCCI cols C-D → Hijos_CCI y Num_Hijos_CCI en PARTICIPANTES
 function onEdit(e) {
   var sheet = e.range.getSheet();
   var nombre = sheet.getName();
@@ -294,9 +294,9 @@ function onEdit(e) {
     try { _syncInclusionFila(sheet, fila); } catch(_) {}
   }
 
-  // HIJOSCCSS — col C (Tiene hijos) o col D (Cuántos) → PARTICIPANTES cols U/V
-  if (nombre === "HijosCCSS" && (col === 3 || col === 4) && fila >= 2) {
-    try { _syncHijosCCSSFila(sheet, fila); } catch(_) {}
+  // HIJOSCCI — col C (Tiene hijos) o col D (Cuántos) → PARTICIPANTES cols U/V
+  if (nombre === "HijosCCI" && (col === 3 || col === 4) && fila >= 2) {
+    try { _syncHijosCCIFila(sheet, fila); } catch(_) {}
   }
 }
 
@@ -333,15 +333,15 @@ function _syncInclusionFila(hIL, fila) {
   _actualizarColParticipante(participante, 8, texto); // col H = Inclusion_Laboral
 }
 
-/** Sincroniza la fila de HijosCCSS hacia cols U/V (21/22) de PARTICIPANTES */
-function _syncHijosCCSSFila(hHC, fila) {
+/** Sincroniza la fila de HijosCCI hacia cols U/V (21/22) de PARTICIPANTES */
+function _syncHijosCCIFila(hHC, fila) {
   var fila_ = hHC.getRange(fila, 1, 1, 4).getValues()[0];
   var participante = String(fila_[1] || "").trim(); // col B = Participante
   if (!participante) return;
   var tiene = String(fila_[2] || "").trim().toUpperCase() === "X" ? "Sí" : "No";
   var cuantos = parseInt(fila_[3]) || 0;
-  _actualizarColParticipante(participante, 21, tiene);   // col U = Hijos_CCSS
-  _actualizarColParticipante(participante, 22, cuantos); // col V = Num_Hijos_CCSS
+  _actualizarColParticipante(participante, 21, tiene);   // col U = Hijos_CCI
+  _actualizarColParticipante(participante, 22, cuantos); // col V = Num_Hijos_CCI
 }
 
 /** Actualiza la celda de colNum (1-based) para el participante con ese nombre en PARTICIPANTES */
@@ -367,7 +367,7 @@ function sincronizarParticipacion() { _run(function() {
   var hDE = ss.getSheetByName("DiasEstudio");
   var hLT = ss.getSheetByName("ListaTerapias");
   var hIL = ss.getSheetByName("InclusionLaboral");
-  var hHC = ss.getSheetByName("HijosCCSS");
+  var hHC = ss.getSheetByName("HijosCCI");
   var hP  = _sh(CFG.HOJAS.PARTICIPANTES);
   if (!hP || hP.getLastRow() < 2) { _alert("No hay participantes cargados."); return; }
 
@@ -414,7 +414,7 @@ function sincronizarParticipacion() { _run(function() {
     });
   }
 
-  // HijosCCSS → Hijos_CCSS (col U = 21) y Num_Hijos_CCSS (col V = 22)
+  // HijosCCI → Hijos_CCI (col U = 21) y Num_Hijos_CCI (col V = 22)
   if (hHC && hHC.getLastRow() >= 2) {
     var datHC = hHC.getRange(2, 1, hHC.getLastRow() - 1, 4).getValues();
     datHC.forEach(function(f) {
@@ -433,7 +433,7 @@ function sincronizarParticipacion() { _run(function() {
   var hDE2 = ss.getSheetByName("DiasEstudio");
   var hLT2 = ss.getSheetByName("ListaTerapias");
   var hIL2 = ss.getSheetByName("InclusionLaboral");
-  var hHC2 = ss.getSheetByName("HijosCCSS");
+  var hHC2 = ss.getSheetByName("HijosCCI");
   if (hDE2) { _actualizarIDsEnHoja(hDE2, 2, mapa); _colorearHojaApoyo(hDE2, 2, 11, mapa); }
   if (hLT2) { _actualizarIDsEnHoja(hLT2, 2, mapa); _colorearHojaApoyo(hLT2, 2, 4, mapa); }
   if (hIL2) { _actualizarIDsEnHoja(hIL2, 2, mapa); _colorearHojaApoyo(hIL2, 2, 4, mapa); }
@@ -444,7 +444,7 @@ function sincronizarParticipacion() { _run(function() {
     "📚 Educación (días de estudio): " + actDE + " con asistencia marcada\n" +
     "🧘 Apoyo Emocional (terapias): " + actLT + " con terapia marcada\n" +
     "💼 Inclusión Laboral: " + actIL + " participando\n" +
-    "👶 Hijos CCSS: " + actHC + " con hijos en CCSS\n\n" +
+    "👶 Hijos CCI: " + actHC + " con hijos en CCI\n\n" +
     "🎨 Colores e IDs actualizados en todas las hojas"
   );
 }); }
@@ -466,7 +466,7 @@ function crearHojas() { _run(function() {
       "Categoria","Tarifa_Hora","Tiene_Factura",
       "DPI","NIT","Correo",
       "Banco","Tipo_Cuenta","Num_Cuenta","Forma_Pago","URL_Doc_Proceso",
-      "Estipendio","Hijos_CCSS","Num_Hijos_CCSS"
+      "Estipendio","Hijos_CCI","Num_Hijos_CCI"
     ]);
   }
   _fmtEnc(hP, "#639922");
@@ -485,7 +485,7 @@ function crearHojas() { _run(function() {
   hP.getRange("O2:O500").setDataValidation(vBanco);   // col O = Banco
   hP.getRange("P2:P500").setDataValidation(vTipoCta); // col P = Tipo_Cuenta
   hP.getRange("R2:R500").setDataValidation(vPago);    // col R = Forma_Pago
-  hP.getRange("U2:U500").setDataValidation(vSiNo);    // col U = Hijos_CCSS
+  hP.getRange("U2:U500").setDataValidation(vSiNo);    // col U = Hijos_CCI
   hP.getRange("J2:J500").setNumberFormat("Q#,##0.00"); // col J = Tarifa_Hora
   hP.getRange("T2:T500").setNumberFormat("Q#,##0.00"); // col T = Estipendio
   if (esNuevaP) {
@@ -496,8 +496,8 @@ function crearHojas() { _run(function() {
     hP.setColumnWidth(18, 120); // Forma_Pago
     hP.setColumnWidth(19, 300); // URL_Doc_Proceso
     hP.setColumnWidth(20, 110); // Estipendio
-    hP.setColumnWidth(21, 100); // Hijos_CCSS
-    hP.setColumnWidth(22, 110); // Num_Hijos_CCSS
+    hP.setColumnWidth(21, 100); // Hijos_CCI
+    hP.setColumnWidth(22, 110); // Num_Hijos_CCI
   }
 
   // PERIODOS — hoja de control de quincenas
@@ -514,7 +514,7 @@ function crearHojas() { _run(function() {
   ss.setActiveSheet(hP);
   _alert(
     "✅ Hojas creadas:\n" +
-    "• PARTICIPANTES (22 cols — Etapa, Banco, Cuenta, Estipendio, Hijos CCSS)\n" +
+    "• PARTICIPANTES (22 cols — Etapa, Banco, Cuenta, Estipendio, Hijos CCI)\n" +
     "• DatosKobo (importación automática cada hora desde Kobo)\n" +
     "• PERIODOS (control de quincenas)\n\n" +
     "Tarifas: A=Q16.50 | B=Q15.75 | C=Q15.00 | D=Q14.00\n" +
@@ -701,7 +701,7 @@ function cargarListaParticipantes() { _run(function() {
       "Sí",          // K: Tiene_Factura (default Sí)
       dpi,           // L: DPI          ← de la DB oficial
       "", "", "", "", "", "", "",  // M–S: NIT, Correo, Banco, Tipo_Cuenta, Num_Cuenta, Forma_Pago, URL
-      0, "No", 0     // T–V: Estipendio, Hijos_CCSS, Num_Hijos_CCSS
+      0, "No", 0     // T–V: Estipendio, Hijos_CCI, Num_Hijos_CCI
     ]);
   });
 
@@ -726,7 +726,7 @@ function cargarListaParticipantes() { _run(function() {
   var hDE2 = ss2.getSheetByName("DiasEstudio");
   var hLT2 = ss2.getSheetByName("ListaTerapias");
   var hIL2 = ss2.getSheetByName("InclusionLaboral");
-  var hHC2 = ss2.getSheetByName("HijosCCSS");
+  var hHC2 = ss2.getSheetByName("HijosCCI");
   if (hDE2) { _actualizarIDsEnHoja(hDE2, 2, mapa2); _colorearHojaApoyo(hDE2, 2, 11, mapa2); }
   if (hLT2) { _actualizarIDsEnHoja(hLT2, 2, mapa2); _colorearHojaApoyo(hLT2, 2, 4, mapa2); }
   if (hIL2) { _actualizarIDsEnHoja(hIL2, 2, mapa2); _colorearHojaApoyo(hIL2, 2, 4, mapa2); }
@@ -1037,16 +1037,16 @@ function crearHojaBonos() { _run(function() {
 }); }
 
 /**
- * Hoja "HijosCCSS" — registra si cada participante tiene hijos en CCSS y cuántos.
+ * Hoja "HijosCCI" — registra si cada participante tiene hijos en CCI y cuántos.
  * Se sincroniza automáticamente con cols U/V de PARTICIPANTES.
  */
-function crearHojaHijosCCSS() { _run(function() {
+function crearHojaHijosCCI() { _run(function() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var hoja = ss.getSheetByName("HijosCCSS");
+  var hoja = ss.getSheetByName("HijosCCI");
   var esNueva = !hoja;
-  if (esNueva) hoja = ss.insertSheet("HijosCCSS");
+  if (esNueva) hoja = ss.insertSheet("HijosCCI");
 
-  hoja.getRange(1,1,1,5).setValues([["Creamos_ID","Participante","¿Tiene hijos en CCSS? (X)","¿Cuántos?","Notas"]])
+  hoja.getRange(1,1,1,5).setValues([["Creamos_ID","Participante","¿Tiene hijos en CCI? (X)","¿Cuántos?","Notas"]])
     .setFontWeight("bold").setBackground("#6a1b9a").setFontColor("#fff").setHorizontalAlignment("center");
   hoja.setFrozenRows(1);
 
@@ -1075,11 +1075,11 @@ function crearHojaHijosCCSS() { _run(function() {
   hoja.setColumnWidth(5, 300);
   hoja.activate();
   _alert(
-    "👶 HIJOS CCSS — Para qué sirve:\n\n" +
-    "Registra si la participante tiene hijos en el CCSS (Seguro Social) y cuántos.\n\n" +
-    "• Marca X en col C si tiene hijos en CCSS\n" +
+    "👶 HIJOS CCI — Para qué sirve:\n\n" +
+    "Registra si la participante tiene hijos en el CCI (Seguro Social) y cuántos.\n\n" +
+    "• Marca X en col C si tiene hijos en CCI\n" +
     "• Escribe el número en col D\n\n" +
-    "Se sincroniza automáticamente con las columnas U (Hijos_CCSS) y V (Num_Hijos_CCSS) " +
+    "Se sincroniza automáticamente con las columnas U (Hijos_CCI) y V (Num_Hijos_CCI) " +
     "de PARTICIPANTES cada vez que editas una celda."
   );
 }); }
@@ -3829,7 +3829,7 @@ function sincronizarDesdeCreamos() { _run(function() {
 }); }
 
 function _propagarIDsAHojas(ss, mapaNombreAID) {
-  ["ListaTerapias", "InclusionLaboral", "HijosCCSS"].forEach(function(nm) {
+  ["ListaTerapias", "InclusionLaboral", "HijosCCI"].forEach(function(nm) {
     var h = ss.getSheetByName(nm);
     if (!h || h.getLastRow() < 2) return;
     var datos = h.getRange(2, 1, h.getLastRow() - 1, 2).getValues();
@@ -4709,7 +4709,7 @@ function instalarTodo() { _run(function() {
     "4 — Crear hoja Días de Estudio\n" +
     "5 — Crear hoja Lista de Terapias\n" +
     "6 — Crear hojas Inclusión Laboral y Retiradx\n" +
-    "7 — Crear hojas Bonos y HijosCCSS\n" +
+    "7 — Crear hojas Bonos y HijosCCI\n" +
     "8 — Activar automatizaciones (Kobo cada hora + al abrir)\n\n" +
     "Los datos existentes NO se borran.\n\n¿Continuar?",
     ui.ButtonSet.YES_NO);
@@ -4785,13 +4785,13 @@ function instalarTodo() { _run(function() {
   } catch(e) { errores.push("❌ Paso 6: " + e.message); }
   Utilities.sleep(300);
 
-  // PASO 7: Bonos + HijosCCSS
+  // PASO 7: Bonos + HijosCCI
   try {
-    ss.toast("Paso 7/9: Creando hojas Bonos y HijosCCSS...", "🚀", -1);
+    ss.toast("Paso 7/9: Creando hojas Bonos y HijosCCI...", "🚀", -1);
     if (!ss.getSheetByName("Bonos")) { crearHojaBonos(); log.push("✅ Paso 7a: Hoja Bonos creada"); }
     else { log.push("ℹ️ Paso 7a: Hoja Bonos ya existe"); }
-    if (!ss.getSheetByName("HijosCCSS")) { crearHojaHijosCCSS(); log.push("✅ Paso 7b: Hoja HijosCCSS creada"); }
-    else { log.push("ℹ️ Paso 7b: Hoja HijosCCSS ya existe"); }
+    if (!ss.getSheetByName("HijosCCI")) { crearHojaHijosCCI(); log.push("✅ Paso 7b: Hoja HijosCCI creada"); }
+    else { log.push("ℹ️ Paso 7b: Hoja HijosCCI ya existe"); }
   } catch(e) { errores.push("❌ Paso 7: " + e.message); }
   Utilities.sleep(300);
 
@@ -4807,7 +4807,7 @@ function instalarTodo() { _run(function() {
   resumen += log.join("\n");
   if (errores.length) resumen += "\n\n--- PROBLEMAS ---\n" + errores.join("\n");
   resumen += "\n\n--- HOJAS DEL SISTEMA ---\n";
-  resumen += "• PARTICIPANTES     — lista maestra (22 cols: Etapa, Banco, cuenta, Estipendio, Hijos CCSS)\n";
+  resumen += "• PARTICIPANTES     — lista maestra (22 cols: Etapa, Banco, cuenta, Estipendio, Hijos CCI)\n";
   resumen += "• DatosKobo         — datos de Kobo (se actualiza automático cada hora)\n";
   resumen += "• PERIODOS          — control de quincenas\n";
   resumen += "• DiasEstudio       — qué días estudia cada participante\n";
@@ -4815,7 +4815,7 @@ function instalarTodo() { _run(function() {
   resumen += "• InclusionLaboral  — quién participa en Inclusión Laboral\n";
   resumen += "• Retiradx          — registro de retiros con razón\n";
   resumen += "• Bonos             — bonos individuales (se suman al pago de quincena)\n";
-  resumen += "• HijosCCSS         — hijos en CCSS (se refleja en PARTICIPANTES)\n";
+  resumen += "• HijosCCI         — hijos en CCI (se refleja en PARTICIPANTES)\n";
   resumen += "• Q_[fecha]         — reporte generado por quincena (15 cols + bono/estip)\n";
   resumen += "\nTarifas: A=Q16.50 | B=Q15.75 | C=Q15.00 | D=Q14.00\n";
   resumen += "IVA 5%: Admin → Configurar IVA (quién tiene factura)\n";
