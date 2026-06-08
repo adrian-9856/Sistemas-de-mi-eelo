@@ -191,9 +191,6 @@ function onOpen() {
   var ui;
   try { ui = SpreadsheetApp.getUi(); } catch(_) { return; }
 
-  // ══════════════════════════════════════════════════════════
-  // BLOQUE 1: ASISTENCIA
-  // ══════════════════════════════════════════════════════════
   var menuAsistencia = ui.createMenu("📥 Asistencia")
     .addItem("📥 Importar desde Kobo",                   "importarDesdeKobo")
     .addSeparator()
@@ -1593,8 +1590,7 @@ function importarDesdeKobo() { _run(function() {
     hoja.setFrozenRows(1);
     _limpiarColumnasKobo(hoja, datosNuevos[0]);
     _normalizarAccionSilencioso(hoja);
-    emparejarAsistencia();
-    _alert("✅ Importación inicial: " + (datosNuevos.length-1) + " registros.\nAsistencia emparejada.");
+    _alert("✅ Importación inicial: " + (datosNuevos.length-1) + " registros.");
     return;
   }
 
@@ -1618,8 +1614,7 @@ function importarDesdeKobo() { _run(function() {
 
   hoja.getRange(hoja.getLastRow()+1,1,filasNuevas.length,filasNuevas[0].length).setValues(filasNuevas);
   _normalizarAccionSilencioso(hoja);
-  emparejarAsistencia();
-  _alert("✅ " + filasNuevas.length + " registros nuevos importados.\nAsistencia emparejada.");
+  _alert("✅ " + filasNuevas.length + " registros nuevos importados.");
 }); }
 
 // Llamado por el trigger instalable onOpen (tiene permisos completos)
@@ -1734,122 +1729,6 @@ function _normalizarAccionSilencioso(hoja) {
     });
   } catch(_) {}
 }
-
-// ── Emparejar entradas/salidas → ASISTENCIA ───────────────────
-
-function emparejarAsistencia() { _run(function() {
-  var ss       = SpreadsheetApp.getActiveSpreadsheet();
-  var hojaKobo = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
-  if (!hojaKobo) throw new Error("No existe DatosKobo. Importa primero desde Kobo.");
-  var datos = hojaKobo.getDataRange().getValues();
-  if (datos.length < 2) throw new Error("DatosKobo está vacío.");
-
-  var cols           = detectarColumnas(datos[0], datos.slice(1));
-  var diasEstudioMap = obtenerDiasEstudio();
-  var listaTerapias  = obtenerListaTerapias();
-  var mapeoNombres   = cargarMapeoNombres();
-
-  if (cols.start === undefined || cols.participante === undefined)
-    throw new Error("No se detectaron columnas start/participante en DatosKobo.\nEjecuta 'Normalizar nombres y datos Kobo' primero.");
-
-  var grupos = {}, uuidVistos = {};
-  for (var i=1; i<datos.length; i++) {
-    var fila = datos[i];
-    var uuid = cols.uuid !== undefined ? String(fila[cols.uuid]||"").trim() : "";
-    if (uuid && uuidVistos[uuid]) continue;
-    if (uuid) uuidVistos[uuid] = true;
-
-    var nombreRaw = obtenerParticipanteFila(fila, cols);
-    if (!nombreRaw) continue;
-    var nombre = normalizarNombre(nombreRaw, mapeoNombres);
-
-    var tipo = obtenerTipoRegistro(fila, cols);
-    if (!tipo.esIngreso && !tipo.esEgreso) continue;
-
-    var tsRaw = fila[cols.start];
-    var ts    = tsRaw instanceof Date ? tsRaw : new Date(tsRaw);
-    if (isNaN(ts)) continue;
-
-    if (tipo.esEgreso && cols.end !== undefined && fila[cols.end]) {
-      var tsEnd = fila[cols.end] instanceof Date ? fila[cols.end] : new Date(fila[cols.end]);
-      if (!isNaN(tsEnd)) { var d2=(tsEnd-ts)/3600000; if(d2>0&&d2<24) ts=tsEnd; }
-    }
-
-    var clave = nombre + "|" + _dClave(ts);
-    if (!grupos[clave]) grupos[clave] = { nombre:nombre, fecha:ts, ent:[], sal:[], esTerapia:false };
-    if (tipo.esIngreso) grupos[clave].ent.push(ts);
-    if (tipo.esEgreso)  grupos[clave].sal.push(ts);
-    if (tipo.esTerapia) grupos[clave].esTerapia = true;
-  }
-
-  var filasAsist = [];
-  var estimados  = 0;  // entradas sin salida → jornada estimada
-
-  Object.keys(grupos).forEach(function(clave) {
-    var g = grupos[clave];
-    g.ent.sort(function(a,b){return a-b;});
-    g.sal.sort(function(a,b){return a-b;});
-
-    var horas, salida;
-    if (g.ent.length > 0 && g.sal.length > 0) {
-      // Par completo
-      horas  = Math.max(0, Math.round((g.sal[g.sal.length-1] - g.ent[0]) / 36000) / 100);
-      salida = g.sal[g.sal.length-1];
-    } else if (g.ent.length > 0 && g.sal.length === 0) {
-      // Entrada sin salida → estimar jornada normal
-      horas  = CFG.HORAS_JORNADA_NORMAL;
-      salida = new Date(g.ent[0].getTime() + horas * 3600000);
-      estimados++;
-    } else {
-      return; // Salida sin entrada: ignorar (caso raro)
-    }
-
-    var id       = extraerCodigo(g.nombre) || "";
-    var esDiaEst = esDiaDeEstudio(g.nombre, g.fecha, diasEstudioMap) ? "Sí" : "No";
-    var esTer    = (listaTerapias[g.nombre] || g.esTerapia) ? "Sí" : "No";
-    var pct      = (esDiaEst==="Sí" || esTer==="Sí") ? 0 : 100;
-    var hap      = Math.round(horas * (pct/100) * 100) / 100;
-    var tipo2    = esDiaEst==="Sí" ? "Día de Estudio" : (esTer==="Sí" ? "Terapia" : "Normal");
-    filasAsist.push([g.nombre, id, g.ent[0], tipo2, horas, esDiaEst, esTer, pct, hap, clave, g.ent[0], salida]);
-  });
-
-  filasAsist.sort(function(a,b){ return new Date(b[2])-new Date(a[2]); });
-  var hA = ss.getSheetByName(CFG.HOJAS.ASISTENCIA);
-  if (!hA) {
-    hA = ss.insertSheet(CFG.HOJAS.ASISTENCIA);
-    hA.appendRow(["Nombre","Creamos_ID","Fecha","Tipo","Horas","Dia_Estudio","Terapia","Pct","Horas_Pct","Clave","Entrada","Salida"]);
-    _fmtEnc(hA, "#4a86e8");
-    hA.setFrozenRows(1);
-  }
-  if (hA.getLastRow() > 1) hA.deleteRows(2, hA.getLastRow()-1);
-  if (filasAsist.length > 0) {
-    hA.getRange(2,1,filasAsist.length,12).setValues(filasAsist);
-    hA.getRange("C2:C"+(filasAsist.length+1)).setNumberFormat("dd/MM/yyyy");
-    hA.getRange("K2:L"+(filasAsist.length+1)).setNumberFormat("HH:mm");
-    // Colorear filas estimadas en amarillo para identificarlas
-    if (estimados > 0) {
-      for (var ei=0; ei<filasAsist.length; ei++) {
-        var salEstimada = filasAsist[ei][11];
-        var entRaw      = filasAsist[ei][10];
-        var diffMs = (salEstimada instanceof Date && entRaw instanceof Date)
-                     ? salEstimada - entRaw : 0;
-        var diffH = diffMs / 3600000;
-        if (Math.abs(diffH - CFG.HORAS_JORNADA_NORMAL) < 0.01) {
-          hA.getRange(ei+2, 1, 1, 12).setBackground("#fff9c4"); // amarillo suave
-        }
-      }
-    }
-  }
-  _alert(
-    "✅ Emparejamiento completado en ASISTENCIA\n\n" +
-    "• Pares completos (entrada+salida): " + (filasAsist.length - estimados) + "\n" +
-    (estimados > 0
-      ? "• Estimados (solo entrada):          " + estimados + " ⚠️\n" +
-        "  Se usó jornada de "+CFG.HORAS_JORNADA_NORMAL+"h. Filas en amarillo.\n" +
-        "  Ejecuta 'Diagnosticar Datos Kobo' para ver cuáles."
-      : "• Sin entradas sin par ✅")
-  );
-}); }
 
 // ── Normalizar nombres y datos Kobo ──────────────────────────
 
@@ -2159,7 +2038,7 @@ function calcularFacturacionMes() { _run(function() {
 }); }
 
 function _calcular(mes, anio) {
-  var hojaA    = _sh(CFG.HOJAS.ASISTENCIA);
+  var ss        = SpreadsheetApp.getActiveSpreadsheet();
   var hojaP    = _sh(CFG.HOJAS.PARTICIPANTES);
   var hojaF    = _sh(CFG.HOJAS.FACTURACION);
   var nombreMes = CFG.MESES[mes-1];
@@ -2183,21 +2062,76 @@ function _calcular(mes, anio) {
     };
   }
 
-  // Sumar horas a pagar por participante y quincena
+  // Sumar horas a pagar por participante y quincena — leer directamente de DatosKobo
   var horas = {"1":{}, "2":{}};
-  var asist = hojaA.getDataRange().getValues();
-  for (var ai=1; ai<asist.length; ai++) {
-    var nombre = String(asist[ai][0]).trim();
-    var id     = String(asist[ai][1]).trim();
-    var tipo   = String(asist[ai][3]).trim();
-    var ts     = new Date(asist[ai][2]);
-    var hap    = parseFloat(asist[ai][8]) || 0;
-    if (!nombre) continue;
-    if (tipo === "Día de Estudio" || tipo === "Terapia") continue;
-    if (isNaN(ts) || ts.getMonth()+1 !== mes || ts.getFullYear() !== anio) continue;
-    var q = ts.getDate() <= 15 ? "1" : "2";
-    var k = id || nombre;
-    horas[q][k] = Math.round(((horas[q][k]||0) + hap)*100)/100;
+  var hK = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
+  if (hK && hK.getLastRow() >= 2) {
+    var enc  = hK.getRange(1, 1, 1, hK.getLastColumn()).getValues()[0];
+    var raw  = hK.getRange(2, 1, hK.getLastRow()-1, hK.getLastColumn()).getValues();
+    var cols = detectarColumnas(enc, raw.slice(0, 50));
+    var mapeoNombres = cargarMapeoNombres();
+    var diasEstudioMap = obtenerDiasEstudio();
+    var listaTerapias  = obtenerListaTerapias();
+    var iTS  = (cols.start !== undefined) ? cols.start : 0;
+    var iEnd = (cols.end   !== undefined) ? cols.end   : -1;
+
+    // Agrupar registros por participante+día
+    var porDia = {};
+    raw.forEach(function(fila) {
+      var ts = new Date(fila[iTS]);
+      if (isNaN(ts)) return;
+      if (ts.getMonth()+1 !== mes || ts.getFullYear() !== anio) return;
+      var nombreRaw = obtenerParticipanteFila(fila, cols);
+      if (!nombreRaw) return;
+      var nombre = normalizarNombre(nombreRaw, mapeoNombres) || limpiarNombre(nombreRaw);
+      if (!nombre) return;
+      var tipo = obtenerTipoRegistro(fila, cols);
+      if (!tipo.esIngreso && !tipo.esEgreso) return;
+      var dClave = nombre + "|" + ts.getFullYear() + "-" + ts.getMonth() + "-" + ts.getDate();
+      if (!porDia[dClave]) porDia[dClave] = { nombre: nombre, ts: ts, regs: [] };
+      var tsEnd = (iEnd >= 0) ? new Date(fila[iEnd]) : null;
+      porDia[dClave].regs.push({ ts: ts, tsEnd: tsEnd, tipo: tipo, esTerapia: tipo.esTerapia });
+    });
+
+    Object.keys(porDia).forEach(function(dClave) {
+      var grupo  = porDia[dClave];
+      var nombre = grupo.nombre;
+      var diaTs  = grupo.ts;
+      var esDiaEst = esDiaDeEstudio(nombre, diaTs, diasEstudioMap);
+      var esTer    = !!(listaTerapias[nombre]);
+      // Si es día de estudio o terapia, no se cuentan horas a pagar
+      if (esDiaEst || esTer) return;
+
+      var regs = grupo.regs.sort(function(a,b){ return a.ts - b.ts; });
+      var totalH = 0;
+      var entrada = null;
+      regs.forEach(function(reg) {
+        if (reg.tipo.esIngreso && !entrada) {
+          entrada = reg.ts;
+        } else if (reg.tipo.esEgreso && entrada) {
+          var tSalida = (reg.tsEnd && !isNaN(reg.tsEnd) &&
+                         (reg.tsEnd - entrada)/3600000 > 0 &&
+                         (reg.tsEnd - entrada)/3600000 < 16)
+                        ? reg.tsEnd : reg.ts;
+          var diffH = (tSalida - entrada) / 3600000;
+          if (diffH > 0 && diffH <= 16) totalH += diffH;
+          entrada = null;
+        }
+      });
+      if (entrada) totalH += CFG.HORAS_JORNADA_NORMAL; // entrada sin salida → estimar
+
+      if (totalH <= 0) return;
+      totalH = Math.round(totalH * 100) / 100;
+
+      // Buscar id del participante
+      var id = "";
+      for (var pid in partMap) {
+        if (partMap[pid].nombre === nombre) { id = pid; break; }
+      }
+      var q = diaTs.getDate() <= 15 ? "1" : "2";
+      var k = id || nombre;
+      horas[q][k] = Math.round(((horas[q][k]||0) + totalH)*100)/100;
+    });
   }
 
   var fact = hojaF.getDataRange().getValues();
@@ -2633,10 +2567,9 @@ function procesarMesCompleto() { _run(function() {
     "Proceso mensual completo",
     "Esto ejecutará en orden:\n\n" +
     "1️⃣  Importar datos desde Kobo\n" +
-    "2️⃣  Emparejar entradas/salidas\n" +
-    "3️⃣  Calcular facturación del mes actual\n" +
-    "4️⃣  Generar recibos de pago\n" +
-    "5️⃣  Generar resumen de facturación en hoja\n\n" +
+    "2️⃣  Calcular facturación del mes actual\n" +
+    "3️⃣  Generar recibos de pago\n" +
+    "4️⃣  Generar resumen de facturación en hoja\n\n" +
     "¿Continuar?",
     ui.ButtonSet.OK_CANCEL
   );
@@ -2652,13 +2585,9 @@ function procesarMesCompleto() { _run(function() {
   try { importarDesdeKobo(); log.push("✅ 1️⃣  Kobo importado"); }
   catch(e) { log.push("⚠️ 1️⃣  Kobo: " + e.message); }
 
-  // Paso 2: Emparejar
-  try { emparejarAsistencia(); log.push("✅ 2️⃣  Asistencia emparejada"); }
-  catch(e) { log.push("⚠️ 2️⃣  Emparejar: " + e.message); }
-
-  // Paso 3: Calcular facturación
-  try { _calcular(mes, anio); log.push("✅ 3️⃣  Facturación calculada — " + nombreMes + " " + anio); }
-  catch(e) { log.push("⚠️ 3️⃣  Facturación: " + e.message); }
+  // Paso 2: Calcular facturación
+  try { _calcular(mes, anio); log.push("✅ 2️⃣  Facturación calculada — " + nombreMes + " " + anio); }
+  catch(e) { log.push("⚠️ 2️⃣  Facturación: " + e.message); }
 
   // Paso 4: Recibos
   try {
@@ -2676,17 +2605,17 @@ function procesarMesCompleto() { _run(function() {
       if (urlNueva !== urlActual) hojaF.getRange(i+1, 21).setValue(urlNueva);
       generados++;
     }
-    log.push("✅ 4️⃣  " + generados + " recibos generados");
-  } catch(e) { log.push("⚠️ 4️⃣  Recibos: " + e.message); }
+    log.push("✅ 3️⃣  " + generados + " recibos generados");
+  } catch(e) { log.push("⚠️ 3️⃣  Recibos: " + e.message); }
 
-  // Paso 5: Resumen en hoja
+  // Paso 4: Resumen en hoja
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var titulo = "Fact_" + nombreMes + "_" + anio;
     // Llamar directamente la lógica (sin _run para no anidar)
     generarResumenFacturacionEnHoja(mes, anio);
-    log.push("✅ 5️⃣  Resumen generado en hoja '" + titulo + "'");
-  } catch(e) { log.push("⚠️ 5️⃣  Resumen: " + e.message); }
+    log.push("✅ 4️⃣  Resumen generado en hoja '" + titulo + "'");
+  } catch(e) { log.push("⚠️ 4️⃣  Resumen: " + e.message); }
 
   _alert("Proceso mensual — " + nombreMes + " " + anio + "\n\n" + log.join("\n"));
 }); }
@@ -2989,7 +2918,7 @@ function _leerHorasReponerExistentes(tabNombre) {
  *
  * Calcula horas por participante para el período.
  * Parte de TODOS los participantes de PARTICIPANTES (horas=0),
- * luego suma horas reales desde ASISTENCIA (si existe) o DatosKobo.
+ * luego suma horas reales desde DatosKobo.
  *
  * Retorna: { "Nombre": { horas, tarifa, tieneFactura, categoria, codigo } }
  */
@@ -3034,34 +2963,9 @@ function _calcularResumenPeriodo(fi, ff) {
     });
   }
 
-  // Sumar horas reales desde DatosKobo (si no existe ASISTENCIA pre-procesada)
-  var hojaA = ss.getSheetByName(CFG.HOJAS.ASISTENCIA);
-  if (hojaA && hojaA.getLastRow() > 1) {
-    var asistRows = hojaA.getDataRange().getValues();
-    for (var ai = 1; ai < asistRows.length; ai++) {
-      var r     = asistRows[ai];
-      var fecha = new Date(r[2]);
-      if (isNaN(fecha)) continue;
-      var dia   = new Date(fecha.getFullYear(), fecha.getMonth(), fecha.getDate());
-      if (dia < dIni || dia > dFin) continue;
-      var nombre = String(r[0]).trim();
-      if (!nombre) continue;
-      var horas = parseFloat(r[8]) || 0; // col I = Horas_A_Pagar
-      if (!resultado[nombre]) {
-        // Persona en DatosKobo pero no en PARTICIPANTES → agregarla igual
-        var info2 = _buscarInfoParticipante(mapa, nombre);
-        resultado[nombre] = { horas: 0, tarifa: info2.tarifa || CFG.CATEGORIAS.C,
-          tieneFactura: info2.tieneFactura || false, categoria: info2.categoria || "?",
-          id: info2.id || "", codigo: info2.id || "" };
-      }
-      resultado[nombre].horas = Math.round((resultado[nombre].horas + horas) * 100) / 100;
-    }
-    return resultado;
-  }
-
-  // ── Estrategia 2: DatosKobo (fallback) ───────────────────────
+  // Sumar horas reales desde DatosKobo
   var hK = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
-  if (!hK || hK.getLastRow() < 2) return {};
+  if (!hK || hK.getLastRow() < 2) return resultado;
 
   var enc  = hK.getRange(1, 1, 1, hK.getLastColumn()).getValues()[0];
   var raw  = hK.getRange(2, 1, hK.getLastRow()-1, hK.getLastColumn()).getValues();
@@ -3095,34 +2999,6 @@ function _calcularResumenPeriodo(fi, ff) {
     porPart[nombre].push({ ts: ts, tsEnd: tsEnd, tipo: tipo });
   });
 
-  // Partir de todos los participantes (horas=0), luego sumar horas reales de Kobo
-  var resultado2 = {};
-  Object.keys(mapa).forEach(function(nombre) {
-    var info = mapa[nombre];
-    resultado2[nombre] = { horas: 0, tarifa: info.tarifa, tieneFactura: info.tieneFactura,
-      categoria: info.categoria, id: _esCreamos_ID_real(info.id) ? info.id : "",
-      codigo: _esCreamos_ID_real(info.id) ? info.id : "",
-      estipendio: info.estipendio || 0, bono: 0 };
-  });
-
-  // Sumar bonos del período (Kobo-path fallback)
-  var hBonos2 = ss.getSheetByName("Bonos");
-  if (hBonos2 && hBonos2.getLastRow() >= 2) {
-    var datBonos2 = hBonos2.getRange(2, 1, hBonos2.getLastRow() - 1, 4).getValues();
-    datBonos2.forEach(function(b) {
-      var fecha = new Date(b[0]);
-      if (isNaN(fecha)) return;
-      var dia = new Date(fecha.getFullYear(), fecha.getMonth(), fecha.getDate());
-      if (dia < dIni || dia > dFin) return;
-      var nombreBono = String(b[2] || "").trim();
-      var monto = parseFloat(b[3]) || 0;
-      if (!nombreBono || !monto) return;
-      if (resultado2[nombreBono]) {
-        resultado2[nombreBono].bono = Math.round((resultado2[nombreBono].bono + monto) * 100) / 100;
-      }
-    });
-  }
-
   Object.keys(porPart).forEach(function(nombre) {
     var regs = porPart[nombre].sort(function(a,b){ return a.ts - b.ts; });
     var totalH = 0;
@@ -3148,17 +3024,17 @@ function _calcularResumenPeriodo(fi, ff) {
       totalH += CFG.HORAS_JORNADA_NORMAL;
     }
 
-    if (!resultado2[nombre]) {
+    if (!resultado[nombre]) {
       var info2b = _buscarInfoParticipante(mapa, nombre);
-      resultado2[nombre] = { horas: 0, tarifa: info2b.tarifa || CFG.CATEGORIAS.C,
+      resultado[nombre] = { horas: 0, tarifa: info2b.tarifa || CFG.CATEGORIAS.C,
         tieneFactura: info2b.tieneFactura || false, categoria: info2b.categoria || "?",
         id: info2b.id || "", codigo: info2b.id || "",
         estipendio: info2b.estipendio || 0, bono: 0 };
     }
-    resultado2[nombre].horas = Math.round(totalH * 100) / 100;
+    resultado[nombre].horas = Math.round(totalH * 100) / 100;
   });
 
-  return resultado2;
+  return resultado;
 }
 
 /*
@@ -4143,7 +4019,7 @@ function actualizarDashboard() { _run(function() {
         "Estos datos vienen del sistema de Producción (PRODUCCION_todo.gs). Actualizar manualmente o integrar.",
         "", ""], "nota");
   push(["KPI 5 — Formación",
-        "Se cuentan horas en días de estudio y terapias desde la hoja ASISTENCIA del mes.",
+        "Se cuentan horas en días de estudio y terapias desde DatosKobo.",
         "", ""], "nota");
 
   // ── Escribir en hoja ──────────────────────────────────────────
@@ -4958,7 +4834,7 @@ function instalarTodo() { _run(function() {
   var ui = SpreadsheetApp.getUi();
   var resp = ui.alert("🚀 INSTALACIÓN COMPLETA — " + CFG.PROYECTO + " / " + CFG.ORG,
     "Se ejecutarán 9 pasos automáticamente:\n\n" +
-    "1 — Crear hojas: PARTICIPANTES (22 cols), ASISTENCIA, DatosKobo, PERIODOS\n" +
+    "1 — Crear hojas: PARTICIPANTES (22 cols), DatosKobo, PERIODOS\n" +
     "2 — Importar datos desde Kobo\n" +
     "3 — Crear estructura en Drive (Docs_Proceso, Reportes)\n" +
     "4 — Crear hoja Días de Estudio\n" +
