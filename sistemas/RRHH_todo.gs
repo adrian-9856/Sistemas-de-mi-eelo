@@ -58,7 +58,7 @@ const CFG = {
 
 function _sh(nombre) {
   var h = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(nombre);
-  if (!h) throw new Error('Hoja "' + nombre + '" no encontrada. Ejecuta PASO 1 primero.');
+  if (!h) throw new Error('Hoja "' + nombre + '" no encontrada. Ejecuta "Instalación completa" desde el menú 👥 RRHH.');
   return h;
 }
 function _run(fn) {
@@ -460,7 +460,7 @@ function crearHojas() { _run(function() {
 
   // (CLASIFICACION eliminada — la info de categorías está en el Directorio)
 
-  // PARTICIPANTES — 19 cols (A–S)
+  // PARTICIPANTES — 22 cols (A–V)
   var hP = ss.getSheetByName(CFG.HOJAS.PARTICIPANTES) || ss.insertSheet(CFG.HOJAS.PARTICIPANTES);
   var esNuevaP = hP.getLastRow() === 0;
   if (esNuevaP) {
@@ -491,6 +491,7 @@ function crearHojas() { _run(function() {
   hP.getRange("Q2:Q500").setDataValidation(vBanco);   // col Q = Banco
   hP.getRange("R2:R500").setDataValidation(vTipoCta); // col R = Tipo_Cuenta
   hP.getRange("T2:T500").setDataValidation(vPago);    // col T = Forma_Pago
+  hP.getRange("J2:J500").setNumberFormat("0");          // col J = Num_Hijos_CCI (entero)
   hP.getRange("L2:L500").setNumberFormat("Q#,##0.00"); // col L = Tarifa_Hora
   hP.getRange("V2:V500").setNumberFormat("Q#,##0.00"); // col V = Estipendio
   if (esNuevaP) {
@@ -503,6 +504,15 @@ function crearHojas() { _run(function() {
     hP.setColumnWidth(20, 120); // Forma_Pago
     hP.setColumnWidth(21, 300); // URL_Doc_Proceso
     hP.setColumnWidth(22, 110); // Estipendio
+  }
+
+  // ASISTENCIA — generada por emparejarAsistencia(); se crea vacía si no existe
+  var hA = ss.getSheetByName(CFG.HOJAS.ASISTENCIA);
+  if (!hA) {
+    hA = ss.insertSheet(CFG.HOJAS.ASISTENCIA);
+    hA.appendRow(["Nombre","Creamos_ID","Fecha","Tipo","Horas","Dia_Estudio","Terapia","Pct","Horas_Pct","Clave","Entrada","Salida"]);
+    _fmtEnc(hA, "#4a86e8");
+    hA.setFrozenRows(1);
   }
 
   // PERIODOS — hoja de control de quincenas
@@ -1820,7 +1830,13 @@ function emparejarAsistencia() { _run(function() {
   });
 
   filasAsist.sort(function(a,b){ return new Date(b[2])-new Date(a[2]); });
-  var hA = _sh(CFG.HOJAS.ASISTENCIA);
+  var hA = ss.getSheetByName(CFG.HOJAS.ASISTENCIA);
+  if (!hA) {
+    hA = ss.insertSheet(CFG.HOJAS.ASISTENCIA);
+    hA.appendRow(["Nombre","Creamos_ID","Fecha","Tipo","Horas","Dia_Estudio","Terapia","Pct","Horas_Pct","Clave","Entrada","Salida"]);
+    _fmtEnc(hA, "#4a86e8");
+    hA.setFrozenRows(1);
+  }
   if (hA.getLastRow() > 1) hA.deleteRows(2, hA.getLastRow()-1);
   if (filasAsist.length > 0) {
     hA.getRange(2,1,filasAsist.length,12).setValues(filasAsist);
@@ -4894,6 +4910,7 @@ function migrarSistema() { _run(function() {
     hP.getRange("I2:I500").setDataValidation(vSiNo);    // col I = Hijos_CCI
     hP.getRange("K2:K500").setDataValidation(vCat);     // col K = Categoria
     hP.getRange("M2:M500").setDataValidation(vSiNo);    // col M = Tiene_Factura
+    hP.getRange("J2:J500").setNumberFormat("0");          // col J = Num_Hijos_CCI (entero)
     hP.getRange("L2:L500").setNumberFormat('"Q"#,##0.00'); // col L = Tarifa_Hora
     hP.getRange("V2:V500").setNumberFormat('"Q"#,##0.00'); // col V = Estipendio
 
@@ -4957,7 +4974,7 @@ function instalarTodo() { _run(function() {
   var ui = SpreadsheetApp.getUi();
   var resp = ui.alert("🚀 INSTALACIÓN COMPLETA — " + CFG.PROYECTO + " / " + CFG.ORG,
     "Se ejecutarán 9 pasos automáticamente:\n\n" +
-    "1 — Crear hojas: PARTICIPANTES (22 cols), DatosKobo, PERIODOS\n" +
+    "1 — Crear hojas: PARTICIPANTES (22 cols), ASISTENCIA, DatosKobo, PERIODOS\n" +
     "2 — Importar datos desde Kobo\n" +
     "3 — Crear estructura en Drive (Docs_Proceso, Reportes)\n" +
     "4 — Crear hoja Días de Estudio\n" +
