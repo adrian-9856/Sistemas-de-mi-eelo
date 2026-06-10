@@ -1309,17 +1309,18 @@ function registrarPagosQuincena() { _run(function() {
   }
 
   // El reporte tiene: fila 1=tarifas, 2=título, 3=encabezados, 4+=datos
-  // Col B (idx 1)=Participante, Col O (idx 14)=Neto part.
+  // Col B (idx 1)=Participante, Col D (idx 3)=ID, Col O (idx 14)=Neto part.
   var repData = hReporte.getDataRange().getValues();
-  var pagosReporte = {}; // {nombre: montoNeto}
+  var pagosReporte = {}; // {nombre: {neto, id}}
   for (var ri = 3; ri < repData.length; ri++) {
     var nombre = String(repData[ri][1] || "").trim();
+    var idRep  = String(repData[ri][3] || "").trim();
     var neto   = parseFloat(repData[ri][14]) || 0;
     if (!nombre || neto <= 0) continue;
     // Ignorar filas de totales/leyenda (sin número en col A)
     var numFila = repData[ri][0];
     if (!numFila || isNaN(Number(numFila))) continue;
-    pagosReporte[nombre] = neto;
+    pagosReporte[nombre] = { neto: neto, id: idRep };
   }
 
   if (Object.keys(pagosReporte).length === 0) {
@@ -1335,29 +1336,51 @@ function registrarPagosQuincena() { _run(function() {
   var hP = _sh(CFG.HOJAS.PARTICIPANTES);
   if (hP.getLastRow() < 2) { _alert("PARTICIPANTES está vacía."); return; }
   var datosP = hP.getRange(2, 1, hP.getLastRow() - 1, 20).getValues();
-  var mapaPago = {}; // {nombre: {formaPago, banco, tipoCuenta, numCuenta, programa, servicio}}
+  // mapaPago indexado por: ID, nombre exacto y nombre normalizado
+  var mapaPagoById   = {}; // {cremos_id: info}
+  var mapaPagoByNorm = {}; // {nombre_normalizado: info}
   datosP.forEach(function(r) {
+    var pid    = String(r[0] || "").trim();       // col A = Creamos_ID
     var nombre = String(r[1] || "").trim();
     if (!nombre) return;
-    var programa    = String(r[3]  || "").trim();  // col D
-    var educacion   = String(r[5]  || "").trim();  // col F
-    var apoyo       = String(r[6]  || "").trim();  // col G
-    var inclusion   = String(r[7]  || "").trim();  // col H
-    var categoria   = String(r[10] || "").trim();  // col K
-    var banco       = String(r[16] || "").trim();  // col Q
-    var tipoCuenta  = String(r[17] || "").trim();  // col R
-    var numCuenta   = String(r[18] || "").trim();  // col S
-    var formaPago   = String(r[19] || "").trim();  // col T
+    var programa   = String(r[3]  || "").trim();  // col D
+    var educacion  = String(r[5]  || "").trim();  // col F
+    var apoyo      = String(r[6]  || "").trim();  // col G
+    var inclusion  = String(r[7]  || "").trim();  // col H
+    var banco      = String(r[16] || "").trim();  // col Q
+    var tipoCuenta = String(r[17] || "").trim();  // col R
+    var numCuenta  = String(r[18] || "").trim();  // col S
+    var formaPago  = String(r[19] || "").trim();  // col T
 
-    // Determinar servicio desde las columnas de participación
     var servicio = "RRHH";
-    if (educacion && educacion.toLowerCase().indexOf("sí") !== -1) servicio = "Educacion";
-    else if (apoyo && apoyo.toLowerCase().indexOf("sí") !== -1) servicio = "Apoyo Emocional";
-    else if (inclusion && inclusion.toLowerCase().indexOf("sí") !== -1) servicio = "Inclusion Laboral";
+    if (educacion.toLowerCase().indexOf("sí") !== -1) servicio = "Educacion";
+    else if (apoyo.toLowerCase().indexOf("sí") !== -1) servicio = "Apoyo Emocional";
+    else if (inclusion.toLowerCase().indexOf("sí") !== -1) servicio = "Inclusion Laboral";
 
-    mapaPago[nombre] = { formaPago: formaPago, banco: banco, tipoCuenta: tipoCuenta,
-                         numCuenta: numCuenta, programa: programa, servicio: servicio };
+    var info = { formaPago: formaPago, banco: banco, tipoCuenta: tipoCuenta,
+                 numCuenta: numCuenta, programa: programa, servicio: servicio,
+                 nombreOficial: nombre };
+    if (pid) mapaPagoById[pid] = info;
+    mapaPagoByNorm[textoParaComparar(nombre)] = info;
   });
+
+  // Helper: busca info de pago por ID primero, luego nombre normalizado
+  function _buscarInfoPago(nombre, id) {
+    if (id && mapaPagoById[id]) return mapaPagoById[id];
+    var norm = textoParaComparar(nombre);
+    if (mapaPagoByNorm[norm]) return mapaPagoByNorm[norm];
+    // Búsqueda parcial: primera palabra significativa del nombre
+    var palabras = norm.split(/\s+/).filter(function(p){ return p.length >= 4; });
+    if (palabras.length >= 2) {
+      var keys = Object.keys(mapaPagoByNorm);
+      for (var ki = 0; ki < keys.length; ki++) {
+        var kn = keys[ki];
+        var matches = palabras.filter(function(p){ return kn.indexOf(p) !== -1; }).length;
+        if (matches >= 2) return mapaPagoByNorm[kn];
+      }
+    }
+    return null;
+  }
 
   // ── Paso 5: Determinar mes, año y quincena_label ──────────────
   var labelPeriodo = periodoSel ? periodoSel.label : tabNombre;
@@ -1402,40 +1425,43 @@ function registrarPagosQuincena() { _run(function() {
   var erroresPago = [];
 
   Object.keys(pagosReporte).forEach(function(nombre) {
-    var monto = pagosReporte[nombre];
-    var info  = mapaPago[nombre];
+    var entrada = pagosReporte[nombre];
+    var monto   = entrada.neto;
+    var idRep   = entrada.id;
+    var info    = _buscarInfoPago(nombre, idRep);
     if (!info) {
-      erroresPago.push("⚠️ " + nombre + ": no encontrado en PARTICIPANTES");
+      erroresPago.push("⚠️ " + nombre + ": no encontrado en PARTICIPANTES (sin Forma_Pago)");
       return;
     }
     var forma = info.formaPago;
+    var nombreOficial = info.nombreOficial || nombre;
 
     if (forma === "Cheque") {
       // Deduplicar: buscar fila con mismo Nombre + Mes + Quincena
+      var normNomChq = textoParaComparar(nombreOficial);
       var existe = existCheques.some(function(r) {
-        return String(r[2]).trim() === nombre &&
+        return textoParaComparar(String(r[2]||"")) === normNomChq &&
                String(r[4]).trim() === mesNombre &&
                String(r[5]).trim() === quincenaLabel;
       });
       if (existe) {
-        erroresPago.push("ℹ️ Cheque ya registrado para " + nombre + " (" + mesNombre + " " + quincenaLabel + ")");
+        erroresPago.push("ℹ️ Cheque ya registrado para " + nombreOficial + " (" + mesNombre + " " + quincenaLabel + ")");
         return;
       }
-      hCheques.appendRow([hoy, "", nombre, monto, mesNombre, quincenaLabel,
+      hCheques.appendRow([hoy, "", nombreOficial, monto, mesNombre, quincenaLabel,
                           info.programa, "", "Pendiente"]);
-      // Aplicar formato de fecha y moneda a la nueva fila
       var newRow = hCheques.getLastRow();
       hCheques.getRange(newRow, 1).setNumberFormat("dd/MM/yyyy");
       hCheques.getRange(newRow, 4).setNumberFormat('"Q"#,##0.00');
-      // Agregar al array existente para deduplicar en la misma ejecución
-      existCheques.push([hoy, "", nombre, monto, mesNombre, quincenaLabel, info.programa, "", "Pendiente"]);
+      existCheques.push([hoy, "", nombreOficial, monto, mesNombre, quincenaLabel, info.programa, "", "Pendiente"]);
       nCheques++;
 
     } else if (forma === "Transferencia") {
       // Buscar fila existente en Transferencias para (nombre, mes, año)
+      var normNomTr = textoParaComparar(nombreOficial);
       var filaExist = -1;
       for (var ti = 0; ti < existTransf.length; ti++) {
-        if (String(existTransf[ti][0]).trim() === nombre &&
+        if (textoParaComparar(String(existTransf[ti][0]||"")) === normNomTr &&
             String(existTransf[ti][10]).trim() === mesNombre &&
             String(existTransf[ti][11]).toString().trim() === String(anioNum)) {
           filaExist = ti;
@@ -1464,7 +1490,7 @@ function registrarPagosQuincena() { _run(function() {
         // Insertar nueva fila
         var q1new = quincenaLabel === "Q1" ? monto : 0;
         var q2new = quincenaLabel === "Q2" ? monto : 0;
-        var nuevaFila = [nombre, "Transferencia", info.servicio, info.banco,
+        var nuevaFila = [nombreOficial, "Transferencia", info.servicio, info.banco,
                          info.tipoCuenta, info.numCuenta, cuentaPago,
                          q1new, q2new, q1new + q2new, mesNombre, anioNum];
         hTransf.appendRow(nuevaFila);
