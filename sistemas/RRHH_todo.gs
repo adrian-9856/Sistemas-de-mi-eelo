@@ -225,6 +225,7 @@ function onOpen() {
     .addItem("🧘 Lista de terapias",                     "crearHojaListaTerapias")
     .addItem("💼 Inclusión Laboral",                     "crearHojaInclusionLaboral")
     .addItem("🔴 Hoja Retiradx",                         "crearHojaRetiradx")
+    .addItem("🔵 Hoja CiclosVida",                        "crearHojaCiclosVida")
     .addItem("💵 Hoja Bonos",                             "crearHojaBonos")
     .addItem("🏦 Hoja Cheques",                           "crearHojaCheques")
     .addItem("🔄 Hoja Transferencias",                    "crearHojaTransferencias")
@@ -236,6 +237,7 @@ function onOpen() {
     .addItem("✅ Guardar cambios de facturación",         "aplicarCambiosFacturacion")
     .addSeparator()
     .addItem("🧹 Limpiar duplicados en PARTICIPANTES",    "limpiarDuplicadosParticipantes")
+    .addItem("🗑️ Eliminar participante completo",         "eliminarParticipanteCompleto")
     .addItem("🔼 Cambiar categoría de participante",      "cambiarCategoriaParticipante")
     .addItem("✏️ Cambiar nombre de participante",        "cambiarNombreParticipante")
     .addItem("📄 Generar DP (fila activa)",              "generarDpFilaActiva")
@@ -277,11 +279,13 @@ function onEdit(e) {
     if (tarifa) sheet.getRange(fila, 12).setValue(tarifa);
   }
 
-  // PARTICIPANTES — Etapa (col E=5) cambia a "Retiradx" → flujo de retiro
+  // PARTICIPANTES — Etapa (col E=5) cambia a "Retiradx" o "Ciclo de Vida Terminado"
   if (nombre === CFG.HOJAS.PARTICIPANTES && col === 5 && fila >= 2) {
     var etapa = String(e.range.getValue()).trim();
     if (etapa === "Retiradx") {
       try { _iniciarRetiro(sheet, fila); } catch(err) { Logger.log("Error retiro: " + err.message); }
+    } else if (etapa === "Ciclo de Vida Terminado") {
+      try { _registrarCicloVida(sheet, fila); } catch(err) { Logger.log("Error ciclo vida: " + err.message); }
     }
   }
 
@@ -1078,6 +1082,24 @@ function _iniciarRetiro(sheet, fila) {
   if (hR) hR.appendRow([new Date(), id, nombre, cat, razon, ""]);
 }
 
+/**
+ * Registra una participante en la hoja CiclosVida cuando su Etapa cambia a
+ * "Ciclo de Vida Terminado" en PARTICIPANTES.
+ */
+function _registrarCicloVida(sheet, fila) {
+  try {
+    var datos = sheet.getRange(fila, 1, 1, 11).getValues()[0];
+    var id = datos[0], nombre = datos[1], cat = datos[10]; // col K = Categoria
+    var hCV = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("CiclosVida");
+    if (!hCV) return;
+    hCV.appendRow([new Date(), id, nombre, cat]);
+    var nr = hCV.getLastRow();
+    hCV.getRange(nr, 1).setNumberFormat("dd/MM/yyyy");
+    // Colorear la fila en PARTICIPANTES con el color de Ciclo de Vida
+    sheet.getRange(fila, 1, 1, 22).setBackground("#b0bec5").setFontColor("#212121");
+  } catch(e) { Logger.log("_registrarCicloVida error: " + e.message); }
+}
+
 function crearHojaRetiradx() { _run(function() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var hoja = ss.getSheetByName("Retiradx");
@@ -1095,6 +1117,38 @@ function crearHojaRetiradx() { _run(function() {
   }
   hoja.activate();
   _alert("✅ Hoja 'Retiradx' creada.\n\nSe llena automáticamente cuando se marca una participante como Retiradx en PARTICIPANTES.");
+}); }
+
+/**
+ * Hoja "CiclosVida" — registra participantes que completan su ciclo de vida en el programa.
+ * Columnas: Fecha | Creamos_ID | Nombre | Categoria
+ * Se llena automáticamente cuando Etapa = "Ciclo de Vida Terminado" en PARTICIPANTES.
+ */
+function crearHojaCiclosVida() { _run(function() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var hoja = ss.getSheetByName("CiclosVida");
+  var esNueva = !hoja;
+  if (esNueva) hoja = ss.insertSheet("CiclosVida");
+
+  hoja.getRange(1,1,1,4).setValues([["Fecha","Creamos_ID","Nombre","Categoria"]])
+    .setFontWeight("bold").setBackground("#1a237e").setFontColor("#ffffff").setHorizontalAlignment("center");
+  hoja.setFrozenRows(1);
+
+  if (esNueva) {
+    hoja.setColumnWidth(1, 130);
+    hoja.setColumnWidth(2, 120);
+    hoja.setColumnWidth(3, 250);
+    hoja.setColumnWidth(4, 90);
+    hoja.getRange("A2:A500").setNumberFormat("dd/MM/yyyy");
+  }
+
+  hoja.activate();
+  _alert(
+    "✅ Hoja 'CiclosVida' creada.\n\n" +
+    "Columnas: Fecha | Creamos_ID | Nombre | Categoria\n\n" +
+    "Se llena automáticamente cuando se cambia la Etapa de una\n" +
+    "participante a 'Ciclo de Vida Terminado' en PARTICIPANTES."
+  );
 }); }
 
 /**
@@ -4420,193 +4474,202 @@ function _mapaCorreos(hojaP) {
 function actualizarDashboard() { _run(function() {
   var ss   = SpreadsheetApp.getActiveSpreadsheet();
   var dash = ss.getSheetByName(CFG.HOJAS.DASHBOARD) || ss.insertSheet(CFG.HOJAS.DASHBOARD, 0);
-  var kpi  = _calcularKpis(ss);
   var tz   = Session.getScriptTimeZone();
-  var ts   = Utilities.formatDate(new Date(), tz, "dd/MM/yyyy HH:mm");
-  var mes  = kpi.mes + " " + kpi.anio;
+  var ahora = new Date();
+  var anio  = ahora.getFullYear();
+  var ts    = Utilities.formatDate(ahora, tz, "dd/MM/yyyy HH:mm");
 
-  // ── Construir filas ───────────────────────────────────────────
-  // Formato: [col A (etiqueta), col B (valor), col C (descripción), col D (período)]
-  var filas = [], tipos = [];
-  function push(f, t) { filas.push(f); tipos.push(t); }
+  // ── Calcular KPIs ─────────────────────────────────────────────
 
-  push(["MI EELO — INDICADORES CLAVE DE DESEMPEÑO", "", "", ""], "banner");
-  push(["Actualizado: " + ts + "  |  Período mensual: " + mes, "", "", ""], "sub");
-  push(["", "", "", ""], "vacio");
+  // KPI 1: Ciclos de Vida completados en el año en curso (fuente: hoja CiclosVida)
+  var kpi1 = 0;
+  var hCV = ss.getSheetByName("CiclosVida");
+  if (hCV && hCV.getLastRow() > 1) {
+    var datCV = hCV.getRange(2, 1, hCV.getLastRow() - 1, 1).getValues();
+    datCV.forEach(function(r) {
+      var f = r[0];
+      var d = (f instanceof Date) ? f : new Date(f);
+      if (!isNaN(d) && d.getFullYear() === anio) kpi1++;
+    });
+  }
 
-  // ── Sección KPIs ─────────────────────────────────────────────
-  push(["#", "INDICADOR", "VALOR", "PERÍODO / FUENTE"], "enc");
-
-  // KPI 1: Ciclos de Vida completados
-  push(["KPI 1",
-        "Ciclos de Vida completados (año en curso)",
-        kpi.ciclosCompletados,
-        "Año " + kpi.anio + " · RRHH"],
-       kpi.ciclosCompletados > 0 ? "kpi_ok" : "kpi_cero");
-
-  // KPI 2: Ingresos brutos promedio por participante/mes
-  push(["KPI 2",
-        "Ingresos brutos promedio por participante",
-        kpi.ingresoPromedio > 0 ? "Q " + kpi.ingresoPromedio.toFixed(2) : "—",
-        mes + " · RRHH"],
-       kpi.ingresoPromedio > 0 ? "kpi_ok" : "kpi_nd");
-
-  // KPI 3: Pedidos/encargos totales
-  push(["KPI 3",
-        "Total pedidos / encargos formalizados",
-        kpi.pedidosTotales !== null ? String(kpi.pedidosTotales) : "Ver PRODUCCIÓN",
-        mes + " · PRODUCCIÓN"],
-       kpi.pedidosTotales !== null ? "kpi_ok" : "kpi_prod");
-
-  // KPI 4: Clientes únicos activos
-  push(["KPI 4",
-        "Clientes únicos activos del programa",
-        kpi.clientesUnicos !== null ? String(kpi.clientesUnicos) : "Ver PRODUCCIÓN",
-        mes + " · PRODUCCIÓN"],
-       kpi.clientesUnicos !== null ? "kpi_ok" : "kpi_prod");
-
-  // KPI 5: Horas de formación
-  push(["KPI 5",
-        "Horas de formación (nuevas y existentes participantes)",
-        kpi.horasFormacion > 0 ? kpi.horasFormacion.toFixed(1) + " hrs" : "0 hrs",
-        mes + " · RRHH"],
-       kpi.horasFormacion > 0 ? "kpi_ok" : "kpi_cero");
-
-  // KPI 6: Promedio horas laborales mensuales
-  push(["KPI 6",
-        "Promedio de horas laborales mensuales por participante",
-        kpi.promedioHorasLaborales > 0 ? kpi.promedioHorasLaborales.toFixed(1) + " hrs" : "—",
-        mes + " · RRHH"],
-       kpi.promedioHorasLaborales > 0 ? "kpi_ok" : "kpi_nd");
-
-  push(["", "", "", ""], "vacio");
-
-  // ── Sección resumen del mes ───────────────────────────────────
-  push(["RESUMEN MENSUAL — " + mes, "", "", ""], "sec");
-  push(["Participantes activas",   String(kpi.activos),             "Etapa ≠ Retiradx en PARTICIPANTES", ""], "dato");
-  push(["Total horas trabajadas",  kpi.totalHorasMes.toFixed(1)+" hrs", "Suma Q1+Q2 del mes", ""], "dato");
-  push(["Monto base total",        "Q "+kpi.sumBase.toFixed(2),    "Sin IVA, todas las participantes", ""], "dato");
-  push(["IVA 5% (Pequeño Contrib.)","Q "+kpi.sumIVA.toFixed(2),   "Solo quienes tienen factura", ""], "dato");
-  push(["TOTAL A PAGAR (facturas)","Q "+kpi.sumTot.toFixed(2),     "Lo que paga la organización", ""], "total");
-  push(["Quincenas pagadas",       String(kpi.pagadas),             "", ""], kpi.pagadas>0?"dato_pag":"dato");
-  push(["Quincenas pendientes",    String(kpi.pendientes),          "", ""],
-       kpi.pendientes>0 ? "dato_pend" : "dato");
-
-  push(["", "", "", ""], "vacio");
-
-  // ── Referencia tarifas ────────────────────────────────────────
-  push(["TARIFAS VIGENTES", "A = Q16.50/hr", "B = Q15.75/hr", "C = Q15.00/hr  |  D = Q14.00/hr"], "ref");
-
-  // ── Notas sobre KPIs que necesitan seguimiento manual ─────────
-  push(["", "", "", ""], "vacio");
-  push(["NOTAS", "", "", ""], "sec");
-  push(["KPI 1 — Ciclo de Vida",
-        "Marca Estado = 'Egresado' en PARTICIPANTES cuando alguien completa el programa.",
-        "", ""], "nota");
-  push(["KPI 3 y 4 — Producción",
-        "Estos datos vienen del sistema de Producción (PRODUCCION_todo.gs). Actualizar manualmente o integrar.",
-        "", ""], "nota");
-  push(["KPI 5 — Formación",
-        "Se cuentan horas en días de estudio y terapias desde DatosKobo.",
-        "", ""], "nota");
-
-  // ── Escribir en hoja ──────────────────────────────────────────
-  dash.clearContents();
-  dash.clearFormats();
-  if (dash.getMaxColumns() < 4) dash.insertColumnsAfter(dash.getMaxColumns(), 4 - dash.getMaxColumns());
-
-  dash.getRange(1, 1, filas.length, 4).setValues(filas);
-
-  var VERDE  = "#34a853", AZUL = "#1a73e8", ROJO = "#c5221f";
-  var AMARILLO = "#f9ab00", GRIS = "#9aa0a6";
-
-  tipos.forEach(function(tipo, idx) {
-    var r = dash.getRange(idx+1, 1, 1, 4);
-    r.setFontFamily("Arial").setFontSize(10).setVerticalAlignment("middle");
-
-    switch (tipo) {
-      case "banner":
-        r.merge().setFontSize(14).setFontWeight("bold")
-         .setBackground("#1a237e").setFontColor("#ffffff")
-         .setHorizontalAlignment("center").setRowHeight && dash.setRowHeight(idx+1, 36);
-        break;
-      case "sub":
-        r.merge().setFontSize(9).setBackground("#e8eaf6")
-         .setFontColor("#5f6368").setHorizontalAlignment("center");
-        break;
-      case "enc":
-        r.setFontWeight("bold").setBackground("#202124").setFontColor("#ffffff")
-         .setHorizontalAlignment("center");
-        break;
-      case "kpi_ok":
-        dash.getRange(idx+1,1,1,1).setBackground("#e6f4ea").setFontWeight("bold").setHorizontalAlignment("center");
-        dash.getRange(idx+1,2,1,1).setBackground("#f8f9fa");
-        dash.getRange(idx+1,3,1,1).setBackground("#e6f4ea").setFontWeight("bold").setFontSize(13).setFontColor(VERDE).setHorizontalAlignment("center");
-        dash.getRange(idx+1,4,1,1).setBackground("#f8f9fa").setFontColor(GRIS);
-        break;
-      case "kpi_cero":
-        dash.getRange(idx+1,1,1,1).setBackground("#fef7e0").setFontWeight("bold").setHorizontalAlignment("center");
-        dash.getRange(idx+1,2,1,1).setBackground("#fefefe");
-        dash.getRange(idx+1,3,1,1).setBackground("#fef7e0").setFontWeight("bold").setFontSize(13).setFontColor(AMARILLO).setHorizontalAlignment("center");
-        dash.getRange(idx+1,4,1,1).setFontColor(GRIS);
-        break;
-      case "kpi_nd":
-        dash.getRange(idx+1,1,1,1).setBackground("#f1f3f4").setFontWeight("bold").setHorizontalAlignment("center");
-        dash.getRange(idx+1,2,1,1).setBackground("#fefefe");
-        dash.getRange(idx+1,3,1,1).setBackground("#f1f3f4").setFontColor(GRIS).setFontSize(12).setHorizontalAlignment("center");
-        dash.getRange(idx+1,4,1,1).setFontColor(GRIS);
-        break;
-      case "kpi_prod":
-        dash.getRange(idx+1,1,1,1).setBackground("#e8f0fe").setFontWeight("bold").setHorizontalAlignment("center");
-        dash.getRange(idx+1,2,1,1).setBackground("#fefefe");
-        dash.getRange(idx+1,3,1,1).setBackground("#e8f0fe").setFontColor(AZUL).setFontStyle("italic").setFontSize(11).setHorizontalAlignment("center");
-        dash.getRange(idx+1,4,1,1).setFontColor(GRIS);
-        break;
-      case "sec":
-        r.merge().setFontWeight("bold").setFontSize(11)
-         .setBackground("#37474f").setFontColor("#ffffff");
-        break;
-      case "total":
-        r.setFontWeight("bold").setBackground("#e8eaf6").setFontSize(11);
-        dash.getRange(idx+1,2,1,1).setFontColor(AZUL).setFontSize(12).setFontWeight("bold");
-        break;
-      case "dato_pag":
-        dash.getRange(idx+1,2,1,1).setFontColor(VERDE).setFontWeight("bold");
-        break;
-      case "dato_pend":
-        dash.getRange(idx+1,2,1,1).setFontColor(ROJO).setFontWeight("bold");
-        r.setBackground("#fff8f7");
-        break;
-      case "ref":
-        r.setBackground("#f0f4c3").setFontWeight("bold").setFontSize(9);
-        break;
-      case "nota":
-        dash.getRange(idx+1,1,1,1).setFontWeight("bold").setFontColor(GRIS);
-        dash.getRange(idx+1,2,1,3).merge().setFontColor(GRIS).setFontStyle("italic").setFontSize(9);
-        break;
-    }
-  });
-
-  // Bordes horizontales en KPIs
-  for (var i=0; i<tipos.length; i++) {
-    if (tipos[i].indexOf("kpi_") === 0) {
-      dash.getRange(i+1,1,1,4)
-        .setBorder(null,null,true,null,null,null,"#dadce0",SpreadsheetApp.BorderStyle.SOLID);
+  // KPI 2: Monto promedio ingresos brutos mensual (año en curso)
+  // = total_base_año / número_de_meses_con_datos
+  var kpi2 = 0;
+  var hojaF = ss.getSheetByName(CFG.HOJAS.FACTURACION);
+  if (hojaF && hojaF.getLastRow() > 1) {
+    var datF = hojaF.getDataRange().getValues().slice(1);
+    var baseParMes = {}; // mes_index → total base
+    datF.forEach(function(f) {
+      if (Number(f[3]) !== anio) return;
+      var mesIdx = CFG.MESES.indexOf(String(f[2]).trim());
+      if (mesIdx < 0) return;
+      var base = parseFloat(f[9]) || 0; // col 9 = Base/Monto_Base
+      var hrs  = parseFloat(f[5]) || 0; // col 5 = HorasTrab
+      if (hrs <= 0) return; // solo meses con horas
+      baseParMes[mesIdx] = (baseParMes[mesIdx] || 0) + base;
+    });
+    var mesesConDatos = Object.keys(baseParMes).length;
+    if (mesesConDatos > 0) {
+      var totalBase = Object.keys(baseParMes).reduce(function(s, k) { return s + baseParMes[k]; }, 0);
+      kpi2 = totalBase / mesesConDatos;
     }
   }
 
+  // KPI 3: Horas totales de formación (año en curso) desde DatosKobo
+  // Deduplica por participante+día; cuenta esDiaDeEstudio OR esTerapia
+  var kpi3 = 0;
+  var hK = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
+  if (hK && hK.getLastRow() > 1) {
+    try {
+      var encK = hK.getRange(1, 1, 1, hK.getLastColumn()).getValues()[0];
+      var rawK = hK.getRange(2, 1, hK.getLastRow() - 1, hK.getLastColumn()).getValues();
+      var colsK = detectarColumnas(encK, rawK.slice(0, 50));
+      var diasEstMap  = obtenerDiasEstudio();
+      var terapiasMap = obtenerListaTerapias();
+      var mapeoN = cargarMapeoNombres();
+      var iTS = (colsK.start !== undefined) ? colsK.start : 0;
+      var diasFormacion = {}; // "nombre|yyyy-mm-dd" → true
+      rawK.forEach(function(fila) {
+        var ts2 = new Date(fila[iTS]);
+        if (isNaN(ts2) || ts2.getFullYear() !== anio) return;
+        var nombreRaw = obtenerParticipanteFila(fila, colsK);
+        if (!nombreRaw) return;
+        var nombre = normalizarNombre(nombreRaw, mapeoN) || limpiarNombre(nombreRaw);
+        if (!nombre) return;
+        var esDE  = esDiaDeEstudio(nombre, ts2, diasEstMap);
+        var esTer = !!terapiasMap[nombre];
+        if (!esDE && !esTer) return;
+        var claveD = nombre + "|" + _dClave(ts2);
+        diasFormacion[claveD] = true;
+      });
+      kpi3 = Object.keys(diasFormacion).length * CFG.HORAS_JORNADA_NORMAL;
+    } catch(e) { Logger.log("KPI3 error: " + e.message); }
+  }
+
+  // KPI 4: Promedio horas laborales mensuales (año en curso) desde FACTURACION
+  // = total_HorasTrab_año / conteo_de_participante_meses_con_horas
+  var kpi4 = 0;
+  if (hojaF && hojaF.getLastRow() > 1) {
+    var totalHrsAnio = 0;
+    var conteoPartMeses = 0;
+    hojaF.getDataRange().getValues().slice(1).forEach(function(f) {
+      if (Number(f[3]) !== anio) return;
+      var hrs = parseFloat(f[5]) || 0;
+      if (hrs > 0) { totalHrsAnio += hrs; conteoPartMeses++; }
+    });
+    if (conteoPartMeses > 0) kpi4 = totalHrsAnio / conteoPartMeses;
+  }
+
+  // ── Layout: 2 columnas, cada KPI = label + value ──────────────
+  // Columnas: A=label, B=valor
+  dash.clearContents();
+  dash.clearFormats();
+  if (dash.getMaxColumns() < 2) dash.insertColumnsAfter(dash.getMaxColumns(), 2 - dash.getMaxColumns());
+
+  var filas = [], tipos = [];
+  function push(f, t) { filas.push(f); tipos.push(t); }
+
+  // Título
+  push(["DASHBOARD — mi eelo", ""], "titulo");
+  push(["", ""], "vacio");
+
+  // KPI 1 — Ciclos de Vida completados (año en curso)
+  push(["Ciclos de Vida completados (año " + anio + ")", ""], "label1");
+  push([kpi1 > 0 ? String(kpi1) : "0", ""], "val1");
+  push(["", ""], "vacio");
+
+  // KPI 2 — Monto promedio ingresos brutos mensual (año en curso)
+  push(["Monto promedio ingresos brutos mensual (año " + anio + ")", ""], "label2");
+  push([kpi2 > 0 ? "Q " + kpi2.toFixed(2) : "—", ""], "val2");
+  push(["", ""], "vacio");
+
+  // KPI 3 — Horas totales de formación (año en curso)
+  push(["Horas totales de formación (año " + anio + ")", ""], "label3");
+  push([kpi3 > 0 ? kpi3.toFixed(0) + " hrs" : "0 hrs", ""], "val3");
+  push(["", ""], "vacio");
+
+  // KPI 4 — Promedio horas laborales mensuales (año en curso)
+  push(["Promedio horas laborales mensuales (año " + anio + ")", ""], "label4");
+  push([kpi4 > 0 ? kpi4.toFixed(1) + " hrs" : "—", ""], "val4");
+  push(["", ""], "vacio");
+
+  // Timestamp
+  push(["Actualizado: " + ts, ""], "ts");
+
+  dash.getRange(1, 1, filas.length, 2).setValues(filas);
+
+  // ── Formato ───────────────────────────────────────────────────
+  tipos.forEach(function(tipo, idx) {
+    var r = dash.getRange(idx + 1, 1, 1, 2);
+    r.setFontFamily("Arial").setFontSize(11).setVerticalAlignment("middle");
+
+    if (tipo === "titulo") {
+      r.merge().setFontSize(16).setFontWeight("bold")
+       .setBackground("#1a237e").setFontColor("#ffffff")
+       .setHorizontalAlignment("center");
+      dash.setRowHeight(idx + 1, 44);
+    } else if (tipo === "vacio") {
+      r.setBackground("#ffffff");
+      dash.setRowHeight(idx + 1, 12);
+    } else if (tipo === "label1") {
+      r.merge().setFontWeight("bold").setFontSize(12)
+       .setBackground("#1a237e").setFontColor("#ffffff")
+       .setHorizontalAlignment("left");
+      dash.setRowHeight(idx + 1, 32);
+    } else if (tipo === "val1") {
+      r.merge().setFontSize(28).setFontWeight("bold")
+       .setBackground("#e8eaf6").setFontColor("#1a237e")
+       .setHorizontalAlignment("center");
+      dash.setRowHeight(idx + 1, 56);
+    } else if (tipo === "label2") {
+      r.merge().setFontWeight("bold").setFontSize(12)
+       .setBackground("#1b5e20").setFontColor("#ffffff")
+       .setHorizontalAlignment("left");
+      dash.setRowHeight(idx + 1, 32);
+    } else if (tipo === "val2") {
+      r.merge().setFontSize(28).setFontWeight("bold")
+       .setBackground("#e8f5e9").setFontColor("#1b5e20")
+       .setHorizontalAlignment("center");
+      dash.setRowHeight(idx + 1, 56);
+    } else if (tipo === "label3") {
+      r.merge().setFontWeight("bold").setFontSize(12)
+       .setBackground("#e65100").setFontColor("#ffffff")
+       .setHorizontalAlignment("left");
+      dash.setRowHeight(idx + 1, 32);
+    } else if (tipo === "val3") {
+      r.merge().setFontSize(28).setFontWeight("bold")
+       .setBackground("#fff3e0").setFontColor("#e65100")
+       .setHorizontalAlignment("center");
+      dash.setRowHeight(idx + 1, 56);
+    } else if (tipo === "label4") {
+      r.merge().setFontWeight("bold").setFontSize(12)
+       .setBackground("#4a0072").setFontColor("#ffffff")
+       .setHorizontalAlignment("left");
+      dash.setRowHeight(idx + 1, 32);
+    } else if (tipo === "val4") {
+      r.merge().setFontSize(28).setFontWeight("bold")
+       .setBackground("#f3e5f5").setFontColor("#4a0072")
+       .setHorizontalAlignment("center");
+      dash.setRowHeight(idx + 1, 56);
+    } else if (tipo === "ts") {
+      r.merge().setFontSize(9).setFontColor("#9e9e9e")
+       .setBackground("#fafafa").setHorizontalAlignment("right")
+       .setFontStyle("italic");
+      dash.setRowHeight(idx + 1, 24);
+    }
+  });
+
   // Anchos de columna
-  dash.setColumnWidth(1, 70);
-  dash.setColumnWidth(2, 310);
-  dash.setColumnWidth(3, 160);
-  dash.setColumnWidth(4, 200);
-  dash.setFrozenRows(2);
+  dash.setColumnWidth(1, 380);
+  dash.setColumnWidth(2, 20);
+  dash.setFrozenRows(1);
 
 }); }
 
 /*
- * Calcula todos los KPIs del mes en curso.
- * Retorna objeto con valores para el Dashboard.
+ * Calcula todos los KPIs del mes en curso (legacy — mantenido para compatibilidad).
+ * Retorna objeto con valores básicos de resumen.
  */
 function _calcularKpis(ss) {
   var ahora    = new Date();
@@ -4617,33 +4680,22 @@ function _calcularKpis(ss) {
 
   var kpi = {
     mes: nombreMes, anio: anio,
-    // KPI 1
     ciclosCompletados: 0,
-    // KPI 2
     ingresoPromedio: 0,
-    // KPI 3 & 4 — vienen de Producción
-    pedidosTotales: null,
-    clientesUnicos: null,
-    // KPI 5
     horasFormacion: 0,
-    // KPI 6
     promedioHorasLaborales: 0,
-    // Resumen
     activos: 0, sumBase: 0, sumIVA: 0, sumTot: 0,
     pagadas: 0, pendientes: 0, totalHorasMes: 0
   };
 
-  // ── PARTICIPANTES ─────────────────────────────────────────────
   var hojaP = ss.getSheetByName(CFG.HOJAS.PARTICIPANTES);
   if (hojaP && hojaP.getLastRow() > 1) {
     hojaP.getDataRange().getValues().slice(1).forEach(function(r) {
-      var etapa = String(r[4]).trim().toLowerCase(); // col E = Etapa (index 4)
+      var etapa = String(r[4]).trim().toLowerCase();
       if (etapa !== "retiradx") kpi.activos++;
-      if (etapa === "ciclo de vida terminado") kpi.ciclosCompletados++;
     });
   }
 
-  // ── FACTURACION ───────────────────────────────────────────────
   var hojaF = ss.getSheetByName(CFG.HOJAS.FACTURACION);
   if (hojaF && hojaF.getLastRow() > 1) {
     var participantesMes = {};
@@ -4653,61 +4705,16 @@ function _calcularKpis(ss) {
       kpi.sumIVA  += parseFloat(f[11]) || 0;
       kpi.sumTot  += parseFloat(f[12]) || 0;
       if (String(f[17]) === "Sí") kpi.pagadas++; else kpi.pendientes++;
-
-      // Acumular horas por participante para KPI 6
       var nombre = String(f[1]).trim();
       if (!participantesMes[nombre]) participantesMes[nombre] = 0;
-      participantesMes[nombre] += parseFloat(f[5]) || 0; // Horas_Trabajadas (idx 5)
+      participantesMes[nombre] += parseFloat(f[5]) || 0;
       kpi.totalHorasMes += parseFloat(f[5]) || 0;
     });
-
-    // KPI 2: promedio ingresos brutos por participante del mes
     var numPart = Object.keys(participantesMes).length;
     if (numPart > 0) {
-      // Suma total por participante (Q1+Q2), luego promedio
-      var totalPorPart = {};
-      hojaF.getDataRange().getValues().slice(1).forEach(function(f) {
-        if (f[2] !== nombreMes || Number(f[3]) !== anio) return;
-        var n = String(f[1]).trim();
-        totalPorPart[n] = (totalPorPart[n] || 0) + (parseFloat(f[12]) || 0);
-      });
-      var vals = Object.keys(totalPorPart).map(function(n){ return totalPorPart[n]; });
-      kpi.ingresoPromedio = vals.reduce(function(s,v){ return s+v; },0) / vals.length;
-
-      // KPI 6: promedio horas laborales por participante
       var hVals = Object.keys(participantesMes).map(function(n){ return participantesMes[n]; });
       kpi.promedioHorasLaborales = hVals.reduce(function(s,v){ return s+v; },0) / hVals.length;
     }
-  }
-
-  // ── KPI 5: Horas de formación ─────────────────────────────────
-  // Cuenta participantes activas con Educacion o Apoyo_Emocional marcados en PARTICIPANTES
-  var hojaP2 = ss.getSheetByName(CFG.HOJAS.PARTICIPANTES);
-  if (hojaP2 && hojaP2.getLastRow() > 1) {
-    hojaP2.getDataRange().getValues().slice(1).forEach(function(p) {
-      var edu   = String(p[5] || "").trim(); // col F = Educacion
-      var apoyo = String(p[6] || "").trim(); // col G = Apoyo_Emocional
-      if (edu.indexOf("Sí") === 0 || apoyo === "Sí") kpi.horasFormacion++;
-    });
-  }
-
-  // ── KPI 3 & 4: intentar leer desde hoja de Producción ─────────
-  // Si existe la hoja "ORDENES" en el mismo Spreadsheet, contamos
-  var hOrd = ss.getSheetByName("ORDENES");
-  if (hOrd && hOrd.getLastRow() > 1) {
-    var ordenes = hOrd.getDataRange().getValues().slice(1);
-    // Pedidos del mes (columna de fecha — asumimos col C=idx2)
-    var clientesSet = {};
-    ordenes.forEach(function(o) {
-      var fOrd = new Date(o[2]);
-      if (isNaN(fOrd)) return;
-      if (fOrd.getMonth()+1 === mesNum && fOrd.getFullYear() === anio) {
-        kpi.pedidosTotales = (kpi.pedidosTotales || 0) + 1;
-        var cli = String(o[4]||"").trim(); // cliente — columna E (idx 4), ajustar si difiere
-        if (cli) clientesSet[cli] = true;
-      }
-    });
-    kpi.clientesUnicos = Object.keys(clientesSet).length || null;
   }
 
   return kpi;
@@ -5412,13 +5419,15 @@ function instalarTodo() { _run(function() {
   } catch(e) { errores.push("❌ Paso 5: " + e.message); }
   Utilities.sleep(300);
 
-  // PASO 6: InclusionLaboral + Retiradx
+  // PASO 6: InclusionLaboral + Retiradx + CiclosVida
   try {
-    ss.toast("Paso 6/9: Creando hojas Inclusión Laboral y Retiradx...", "🚀", -1);
+    ss.toast("Paso 6/9: Creando hojas Inclusión Laboral, Retiradx y CiclosVida...", "🚀", -1);
     if (!ss.getSheetByName("InclusionLaboral")) { crearHojaInclusionLaboral(); log.push("✅ Paso 6a: Hoja InclusionLaboral creada"); }
     else { log.push("ℹ️ Paso 6a: Hoja InclusionLaboral ya existe"); }
     if (!ss.getSheetByName("Retiradx")) { crearHojaRetiradx(); log.push("✅ Paso 6b: Hoja Retiradx creada"); }
     else { log.push("ℹ️ Paso 6b: Hoja Retiradx ya existe"); }
+    if (!ss.getSheetByName("CiclosVida")) { crearHojaCiclosVida(); log.push("✅ Paso 6c: Hoja CiclosVida creada"); }
+    else { log.push("ℹ️ Paso 6c: Hoja CiclosVida ya existe"); }
   } catch(e) { errores.push("❌ Paso 6: " + e.message); }
   Utilities.sleep(300);
 
@@ -5987,3 +5996,150 @@ function cambiarNombreParticipante() { _run(function() {
     (cam2?"DiasEstudio: "+cam2+" fila(s)\n":"")+
     (cam3?"ListaTerapias: "+cam3+" fila(s)\n":""));
 }); }
+
+// ══════════════════════════════════════════════════════════════════
+// ELIMINAR PARTICIPANTE COMPLETO
+// ══════════════════════════════════════════════════════════════════
+
+/**
+ * Elimina un participante y TODOS sus registros de todas las hojas relevantes.
+ * Busca por Creamos_ID (exacto) o por Nombre (normalizado).
+ */
+function eliminarParticipanteCompleto() { _run(function() {
+  var ui = SpreadsheetApp.getUi();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // Paso 1: solicitar nombre o ID
+  var r1 = ui.prompt(
+    "🗑️ Eliminar participante completo",
+    "Nombre o Creamos_ID del participante a eliminar:",
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (r1.getSelectedButton() !== ui.Button.OK) return;
+  var busqueda = r1.getResponseText().trim();
+  if (!busqueda) { _alert("No ingresaste ningún valor."); return; }
+
+  // Paso 2: buscar en PARTICIPANTES
+  var hP = _sh(CFG.HOJAS.PARTICIPANTES);
+  if (hP.getLastRow() < 2) { _alert("PARTICIPANTES está vacía."); return; }
+
+  var datosP = hP.getRange(2, 1, hP.getLastRow() - 1, 22).getValues();
+  var normBusqueda = textoParaComparar(busqueda);
+  var filaEncontrada = -1;
+  var nombreEncontrado = "", idEncontrado = "";
+
+  for (var i = 0; i < datosP.length; i++) {
+    var idFila     = String(datosP[i][0] || "").trim();
+    var nombreFila = String(datosP[i][1] || "").trim();
+    if (!nombreFila) continue;
+    var coincideID     = idFila && idFila.toUpperCase() === busqueda.toUpperCase();
+    var coincideNombre = textoParaComparar(nombreFila) === normBusqueda;
+    if (coincideID || coincideNombre) {
+      filaEncontrada  = i + 2; // 1-indexed (fila 1 = encabezado)
+      nombreEncontrado = nombreFila;
+      idEncontrado    = idFila;
+      break;
+    }
+  }
+
+  if (filaEncontrada < 0) {
+    _alert("No se encontró ningún participante con: \"" + busqueda + "\".\n\nVerifica el nombre o ID exacto en PARTICIPANTES.");
+    return;
+  }
+
+  // Paso 3: confirmación
+  var HOJAS_AFECTADAS = [
+    "PARTICIPANTES", "FACTURACION", "DiasEstudio", "ListaTerapias",
+    "InclusionLaboral", "HijosCCI", "Bonos", "Cheques", "Transferencias",
+    "Retiradx", "CiclosVida"
+  ];
+  var r2 = ui.alert(
+    "⚠️ CONFIRMAR ELIMINACIÓN",
+    "Se eliminará a:\n\n" +
+    "Nombre:     " + nombreEncontrado + "\n" +
+    "Creamos ID: " + (idEncontrado || "—") + "\n\n" +
+    "Y TODOS sus registros en:\n" +
+    HOJAS_AFECTADAS.join(", ") + "\n\n" +
+    "Esta acción NO se puede deshacer.\n\n¿Continuar?",
+    ui.ButtonSet.YES_NO
+  );
+  if (r2 !== ui.Button.YES) return;
+
+  // Paso 4: eliminar en todas las hojas
+  var resumen = [];
+
+  HOJAS_AFECTADAS.forEach(function(nombreHoja) {
+    var hoja = ss.getSheetByName(nombreHoja);
+    if (!hoja || hoja.getLastRow() < 2) return;
+
+    var borradas;
+    if (nombreHoja === "PARTICIPANTES") {
+      // En PARTICIPANTES: col A = ID (1-based), col B = Nombre (2-based)
+      borradas = _eliminarFilasPorParticipante(hoja, 2, 1, nombreEncontrado, idEncontrado);
+    } else if (nombreHoja === "FACTURACION") {
+      // FACTURACION: col 1(1-based) = Creamos_ID, col 2(1-based) = Nombre
+      borradas = _eliminarFilasPorParticipante(hoja, 2, 1, nombreEncontrado, idEncontrado);
+    } else if (nombreHoja === "Cheques") {
+      // Cheques: col 3(1-based) = Nombre, sin col ID
+      borradas = _eliminarFilasPorParticipante(hoja, 3, -1, nombreEncontrado, idEncontrado);
+    } else if (nombreHoja === "Transferencias") {
+      // Transferencias: col 1(1-based) = Nombre, sin col ID
+      borradas = _eliminarFilasPorParticipante(hoja, 1, -1, nombreEncontrado, idEncontrado);
+    } else {
+      // DiasEstudio, ListaTerapias, InclusionLaboral, HijosCCI, Bonos, Retiradx, CiclosVida:
+      // col 1(1-based) = Creamos_ID, col 2(1-based) = Nombre (o Participante)
+      borradas = _eliminarFilasPorParticipante(hoja, 2, 1, nombreEncontrado, idEncontrado);
+    }
+
+    if (borradas > 0) resumen.push(nombreHoja + ": " + borradas + " fila(s)");
+  });
+
+  var totalBorradas = resumen.reduce(function(s, item) {
+    return s + parseInt(item.match(/(\d+)/)[1]);
+  }, 0);
+
+  var msg = "✅ Eliminado: " + nombreEncontrado;
+  if (idEncontrado) msg += " (" + idEncontrado + ")";
+  msg += "\nRegistros borrados: " + totalBorradas + " en " + resumen.length + " hoja(s).";
+  if (resumen.length > 0) msg += "\n\nDetalle:\n• " + resumen.join("\n• ");
+  _alert(msg);
+}); }
+
+/**
+ * Elimina filas de una hoja que coincidan con el nombre o ID del participante.
+ * Borra de abajo hacia arriba para no desplazar índices.
+ *
+ * @param {Sheet}  hoja           - Hoja de Google Sheets
+ * @param {number} colNombre_1b   - Columna del nombre (1-based)
+ * @param {number} colId_1b       - Columna del ID (1-based); -1 si no aplica
+ * @param {string} nombre         - Nombre oficial del participante
+ * @param {string} id             - Creamos_ID del participante
+ * @returns {number}              - Número de filas eliminadas
+ */
+function _eliminarFilasPorParticipante(hoja, colNombre_1b, colId_1b, nombre, id) {
+  if (!hoja || hoja.getLastRow() < 2) return 0;
+  var nCols = Math.max(colNombre_1b, colId_1b > 0 ? colId_1b : 0);
+  var datos = hoja.getRange(2, 1, hoja.getLastRow() - 1, nCols).getValues();
+  var normNombre = textoParaComparar(nombre);
+  var idNorm     = id ? id.toUpperCase() : "";
+
+  var aEliminar = [];
+  datos.forEach(function(fila, i) {
+    var nombreFila = String(fila[colNombre_1b - 1] || "").trim();
+    var idFila     = (colId_1b > 0) ? String(fila[colId_1b - 1] || "").trim().toUpperCase() : "";
+
+    var coincideNombre = textoParaComparar(nombreFila) === normNombre;
+    var coincideId     = idNorm && idFila === idNorm;
+
+    if (coincideNombre || coincideId) {
+      aEliminar.push(i + 2); // +2 por encabezado en fila 1
+    }
+  });
+
+  // Eliminar de abajo hacia arriba
+  aEliminar.reverse().forEach(function(filaReal) {
+    hoja.deleteRow(filaReal);
+  });
+
+  return aEliminar.length;
+}
