@@ -2537,8 +2537,8 @@ function _calcular(mes, anio) {
     var mapeoNombres = cargarMapeoNombres();
     var diasEstudioMap = obtenerDiasEstudio();
     var listaTerapias  = obtenerListaTerapias();
-    var iTS  = (cols.submissionTime !== undefined) ? cols.submissionTime : (cols.end !== undefined) ? cols.end : (cols.start !== undefined) ? cols.start : 0;
-    var iEnd = -1; // submission_time ya es el timestamp exacto, no se necesita corrección
+    var iTS  = (cols.start !== undefined) ? cols.start : 0;
+    var iEnd = (cols.end   !== undefined) ? cols.end   : -1;
 
     // Agrupar registros por participante+día
     var porDia = {};
@@ -3438,9 +3438,8 @@ function _calcularResumenPeriodo(fi, ff) {
   var cols = detectarColumnas(enc, raw.slice(0, 50));
   var mapeoNombres = cargarMapeoNombres();
 
-  // submission_time = timestamp cuando el servidor recibió el form (más exacto que start/end del dispositivo)
-  var iTS = (cols.submissionTime !== undefined) ? cols.submissionTime : (cols.end !== undefined) ? cols.end : (cols.start !== undefined) ? cols.start : 0;
-  var iEnd = -1;
+  var iTS = (cols.start !== undefined) ? cols.start : 0;
+  var iEnd = (cols.end !== undefined) ? cols.end : -1;
 
   var porPart = {};
 
@@ -4542,7 +4541,7 @@ function actualizarDashboard() { _run(function() {
       var diasEstMap  = obtenerDiasEstudio();
       var terapiasMap = obtenerListaTerapias();
       var mapeoN = cargarMapeoNombres();
-      var iTS = (colsK.submissionTime !== undefined) ? colsK.submissionTime : (colsK.end !== undefined) ? colsK.end : (colsK.start !== undefined) ? colsK.start : 0;
+      var iTS = (colsK.start !== undefined) ? colsK.start : 0;
       var diasFormacion = {}; // "nombre|yyyy-mm-dd" → true
       rawK.forEach(function(fila) {
         var ts2 = new Date(fila[iTS]);
@@ -4854,12 +4853,8 @@ function generarReporte(tipo, fechaInicio, fechaFin, filtroParticipante, nuevaHo
   var datos = hojaKobo.getDataRange().getValues();
   var cols = detectarColumnas(datos[0], datos.slice(1));
 
-  if (cols.submissionTime === undefined && cols.end === undefined && cols.start === undefined) {
-    _alert("ERROR: No se detectó columna de timestamp (start/end/_submission_time).\nUsa '🔍 Diagnosticar Datos Kobo'.");
-    return;
-  }
-  if (cols.participante === undefined) {
-    _alert("ERROR: No se detectó columna 'Participante'.\nUsa '🔍 Diagnosticar Datos Kobo' para más información.");
+  if (cols.start === undefined || cols.participante === undefined) {
+    _alert("ERROR: No se detectaron columnas start/participante.\nUsa '🔍 Diagnosticar Datos Kobo' para más información.");
     return;
   }
   if (cols.accionUnificada === undefined && cols.ingreso === undefined) {
@@ -4891,13 +4886,16 @@ function generarReporte(tipo, fechaInicio, fechaFin, filtroParticipante, nuevaHo
     var tipoReg = obtenerTipoRegistro(fila, cols);
     if (!tipoReg.esIngreso && !tipoReg.esEgreso) continue;
 
-    // Usar submission_time (más exacto) → end → start
-    var tsCol = (cols.submissionTime !== undefined) ? cols.submissionTime :
-                (cols.end           !== undefined) ? cols.end            : cols.start;
-    var tsRaw = fila[tsCol];
+    var tsRaw = fila[cols.start];
     if (!tsRaw) continue;
     var ts = tsRaw instanceof Date ? tsRaw : new Date(tsRaw);
     if (isNaN(ts)) continue;
+
+    // Para salidas: usar 'end' si disponible y razonable (< 16 h)
+    if (tipoReg.esEgreso && cols.end !== undefined && fila[cols.end]) {
+      var tsEnd = fila[cols.end] instanceof Date ? fila[cols.end] : new Date(fila[cols.end]);
+      if (!isNaN(tsEnd) && tsEnd > ts && (tsEnd - ts) < 57600000) ts = tsEnd;
+    }
 
     var claveReg = emp + "|" + ts.getTime() + "|" + (tipoReg.esIngreso ? "E" : "S");
     if (regVistos[claveReg]) continue; regVistos[claveReg] = true;
@@ -6300,7 +6298,7 @@ function actualizarDashboardVisual() { _run(function() {
       var diasEstMap  = obtenerDiasEstudio();
       var terapiasMap = obtenerListaTerapias();
       var mapeoN = cargarMapeoNombres();
-      var iTS = (colsK.submissionTime !== undefined) ? colsK.submissionTime : (colsK.end !== undefined) ? colsK.end : (colsK.start !== undefined) ? colsK.start : 0;
+      var iTS = (colsK.start !== undefined) ? colsK.start : 0;
       var diasFormacion = {};
       rawK.forEach(function(fila) {
         var ts2 = new Date(fila[iTS]);
