@@ -4914,6 +4914,25 @@ function generarReporte(tipo, fechaInicio, fechaFin, filtroParticipante, nuevaHo
     });
   }
 
+  // Deduplicar por participante+día: un Kobo submit doble genera 2 filas iguales.
+  // Conservar ingreso más temprano y egreso más tardío por día.
+  Object.keys(regPorEmp).forEach(function(emp) {
+    var byDia = {};
+    regPorEmp[emp].forEach(function(r) {
+      var k = r.fecha.getFullYear() + "-" + r.fecha.getMonth() + "-" + r.fecha.getDate();
+      if (!byDia[k]) byDia[k] = { ing: [], egr: [] };
+      if (r.esIngreso) byDia[k].ing.push(r);
+      else if (r.esEgreso) byDia[k].egr.push(r);
+    });
+    var clean = [];
+    Object.keys(byDia).forEach(function(k) {
+      var d = byDia[k];
+      if (d.ing.length) { d.ing.sort(function(a,b){return a.fecha-b.fecha;}); clean.push(d.ing[0]); }
+      if (d.egr.length) { d.egr.sort(function(a,b){return b.fecha-a.fecha;}); clean.push(d.egr[0]); }
+    });
+    regPorEmp[emp] = clean;
+  });
+
   var listaEmps = Object.keys(regPorEmp).sort();
   if (listaEmps.length === 0) {
     _alert("No hay datos para el período seleccionado.\n\n" +
