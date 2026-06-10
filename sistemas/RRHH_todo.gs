@@ -262,6 +262,8 @@ function onOpen() {
     .addSubMenu(menuQuincena)
     .addSubMenu(menuAdmin)
     .addToUi();
+
+  try { actualizarDashboardVisual(); } catch(_) {}
 }
 
 // onEdit: col K = Categoria → auto-llenar Tarifa_Hora en PARTICIPANTES
@@ -760,6 +762,7 @@ function cargarListaParticipantes() { _run(function() {
       : "• Todos tienen Creamos ID ✅") +
     "\n\n🎨 Colores e IDs propagados a DiasEstudio, ListaTerapias e InclusionLaboral."
   );
+  try { actualizarDashboardVisual(); } catch(_) {}
 }); }
 
 /**
@@ -2064,6 +2067,7 @@ function importarDesdeKobo() { _run(function() {
   hoja.getRange(hoja.getLastRow()+1,1,filasNuevas.length,filasNuevas[0].length).setValues(filasNuevas);
   _normalizarAccionSilencioso(hoja);
   _alert("✅ " + filasNuevas.length + " registros nuevos importados.");
+  try { actualizarDashboardVisual(); } catch(_) {}
 }); }
 
 // Llamado por el trigger instalable onOpen (tiene permisos completos)
@@ -2644,6 +2648,7 @@ function _calcular(mes, anio) {
   });
 
   actualizarDashboard();
+  try { actualizarDashboardVisual(); } catch(_) {}
   _alert(
     "✅ Facturación calculada — " + nombreMes + " " + anio + "\n" +
     "• " + creados + " registros nuevos\n• " + actualizados + " actualizados\n\n" +
@@ -4180,7 +4185,7 @@ function configurarTriggers() { _run(function() {
   ScriptApp.getProjectTriggers().forEach(function(t){
     var h = t.getHandlerFunction();
     if (h === "importarDesdeKobo" || h === "importarAlAbrir" ||
-        h === "actualizarQuincenaActual") {
+        h === "actualizarQuincenaActual" || h === "actualizarDashboardVisual") {
       ScriptApp.deleteTrigger(t);
     }
   });
@@ -4191,11 +4196,15 @@ function configurarTriggers() { _run(function() {
   // Actualizar reporte de quincena activa cada día a las 7am
   ScriptApp.newTrigger("actualizarQuincenaActual")
     .timeBased().everyDays(1).atHour(7).create();
+  // Actualizar Dashboard Visual cada 10 minutos
+  ScriptApp.newTrigger("actualizarDashboardVisual")
+    .timeBased().everyMinutes(10).create();
 
   _alert("✅ Automatizaciones activadas:\n\n" +
     "• ⏰ Kobo: importa datos cada hora\n" +
     "• 🔄 Kobo: importa al abrir la hoja\n" +
-    "• 📅 Quincena activa: se actualiza cada día a las 7am\n\n" +
+    "• 📅 Quincena activa: se actualiza cada día a las 7am\n" +
+    "• 📊 Dashboard Visual: se actualiza cada 10 minutos\n\n" +
     "onEdit (automático):\n" +
     "• Categoría → auto-llena Tarifa\n" +
     "• Pagado → actualiza Dashboard");
@@ -4342,6 +4351,7 @@ function sincronizarDesdeCreamos() { _run(function() {
       ? "⚠️ Aún sin perfil (" + sinEncontrar.length + "):\n  " + sinEncontrar.join("\n  ")
       : "Todos los participantes tienen Creamos ID ✅")
   );
+  try { actualizarDashboardVisual(); } catch(_) {}
 }); }
 
 function _propagarIDsAHojas(ss, mapaNombreAID) {
@@ -6180,21 +6190,18 @@ function actualizarDashboardVisual() { _run(function() {
   while (hDV.getMaxColumns() < 7) hDV.insertColumnsAfter(hDV.getMaxColumns(), 1);
 
   // ── Anchos de columna ────────────────────────────────────────
-  // A=160, B=160, C=160, D=160, E=160, F=80 (spacer), G=100
-  hDV.setColumnWidth(1, 160);
-  hDV.setColumnWidth(2, 160);
-  hDV.setColumnWidth(3, 160);
-  hDV.setColumnWidth(4, 160);
-  hDV.setColumnWidth(5, 160);
-  hDV.setColumnWidth(6, 80);
-  hDV.setColumnWidth(7, 100);
-
-  // ── Color de pestaña ────────────────────────────────────────
-  hDV.setTabColor("#1a237e");
+  // A-F = 130px cada una (6 cols de KPI), G = 90px (botón)
+  hDV.setColumnWidth(1, 130);
+  hDV.setColumnWidth(2, 130);
+  hDV.setColumnWidth(3, 130);
+  hDV.setColumnWidth(4, 130);
+  hDV.setColumnWidth(5, 130);
+  hDV.setColumnWidth(6, 130);
+  hDV.setColumnWidth(7, 90);
 
   // ── Calcular KPIs ────────────────────────────────────────────
 
-  // Participantes activas (Etapa = "Inscritx")
+  // Participantes activas (Etapa = "Inscritx") + categorías + forma de pago
   var kpiActivas = 0;
   var catCount = { A: 0, B: 0, C: 0, D: 0 };
   var pagoCheque = 0, pagoTransf = 0;
@@ -6245,9 +6252,9 @@ function actualizarDashboardVisual() { _run(function() {
     datF.forEach(function(f) {
       if (Number(f[3]) !== anio) return;
       var mesIdx = CFG.MESES.indexOf(String(f[2]).trim());
-      var base = parseFloat(f[9]) || 0;
-      var neto = parseFloat(f[13]) || 0;
-      var hrs  = parseFloat(f[5]) || 0;
+      var base = parseFloat(f[9]) || 0;   // col index 9 = Base
+      var neto = parseFloat(f[13]) || 0;  // col index 13 = Neto
+      var hrs  = parseFloat(f[5]) || 0;   // col index 5 = HorasTrab
       totalNetoAnio += neto;
       if (mesIdx >= 0 && hrs > 0) {
         baseParMes[mesIdx] = (baseParMes[mesIdx] || 0) + base;
@@ -6261,7 +6268,7 @@ function actualizarDashboardVisual() { _run(function() {
     }
   }
 
-  // Horas formación este año (KPI 3 logic)
+  // Horas formación este año — DatosKobo study+therapy days × CFG.HORAS_JORNADA_NORMAL
   var kpiHrsFormacion = 0;
   var hK = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
   if (hK && hK.getLastRow() > 1) {
@@ -6287,10 +6294,10 @@ function actualizarDashboardVisual() { _run(function() {
         diasFormacion[nombre + "|" + _dClave(ts2)] = true;
       });
       kpiHrsFormacion = Object.keys(diasFormacion).length * CFG.HORAS_JORNADA_NORMAL;
-    } catch(e) { Logger.log("DashVisual KPI3: " + e.message); }
+    } catch(e) { Logger.log("DashVisual KPI hrs formacion: " + e.message); }
   }
 
-  // Promedio horas laborales mensuales (KPI 4 logic)
+  // Promedio horas laborales mensuales — FACTURACION col 5 (HorasTrab)
   var kpiPromHrsMes = 0;
   if (hojaF && hojaF.getLastRow() > 1) {
     var totalHrs = 0, cuentaPartMes = 0;
@@ -6302,14 +6309,19 @@ function actualizarDashboardVisual() { _run(function() {
     if (cuentaPartMes > 0) kpiPromHrsMes = totalHrs / cuentaPartMes;
   }
 
-  // ── Helper para escribir un bloque KPI (2 cols, 2 filas) ────
-  // fila, colInicio, label, valor, bgColor, fgColor
-  function kpiBlock(fila, colInicio, label, valor, bgColor, fgColor) {
-    var rLabel = hDV.getRange(fila,     colInicio, 1, 2);
-    var rVal   = hDV.getRange(fila + 1, colInicio, 1, 2);
+  // ── Helpers de layout ────────────────────────────────────────
+
+  /**
+   * Bloque KPI que ocupa nCols columnas, comenzando en colInicio.
+   * Fila fila   = label (altura 28px)
+   * Fila fila+1 = valor (altura 55px, font 32)
+   */
+  function kpiBlock(fila, colInicio, nCols, label, valor, bgColor, fgColor) {
+    var rLabel = hDV.getRange(fila,     colInicio, 1, nCols);
+    var rVal   = hDV.getRange(fila + 1, colInicio, 1, nCols);
     rLabel.merge().setValue(label)
       .setBackground(bgColor).setFontColor(fgColor)
-      .setFontWeight("bold").setFontSize(11)
+      .setFontWeight("bold").setFontSize(10)
       .setHorizontalAlignment("center").setVerticalAlignment("middle")
       .setWrap(true);
     hDV.setRowHeight(fila, 28);
@@ -6318,13 +6330,12 @@ function actualizarDashboardVisual() { _run(function() {
       .setFontWeight("bold").setFontSize(32)
       .setHorizontalAlignment("center").setVerticalAlignment("middle");
     hDV.setRowHeight(fila + 1, 55);
-    // Thick outer border around the value cell block
     rVal.setBorder(true, true, true, true, null, null, "#ffffff", SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
   }
 
-  // ── Helper para fila de sección ──────────────────────────────
+  /** Fila de título de sección — siempre merge cols 1-6 */
   function seccionTitle(fila, texto, bgColor) {
-    hDV.getRange(fila, 1, 1, 5).merge()
+    hDV.getRange(fila, 1, 1, 6).merge()
       .setValue(texto)
       .setBackground(bgColor).setFontColor("#ffffff")
       .setFontWeight("bold").setFontSize(11)
@@ -6332,13 +6343,13 @@ function actualizarDashboardVisual() { _run(function() {
     hDV.setRowHeight(fila, 32);
   }
 
-  // ── Helper para fila espaciadora entre secciones ─────────────
+  /** Fila espaciadora entre secciones — height 10px, blanco */
   function spacerRow(fila) {
     hDV.getRange(fila, 1, 1, 7).setBackground("#ffffff");
     hDV.setRowHeight(fila, 10);
   }
 
-  // ── Fila 1: Título principal ─────────────────────────────────
+  // ── Fila 1: Título principal — merge A-G ────────────────────
   hDV.getRange(1, 1, 1, 7).merge()
     .setValue("📊 DASHBOARD — mi eelo | Textil")
     .setBackground("#1a237e").setFontColor("#ffffff")
@@ -6346,8 +6357,8 @@ function actualizarDashboardVisual() { _run(function() {
     .setHorizontalAlignment("center").setVerticalAlignment("middle");
   hDV.setRowHeight(1, 48);
 
-  // ── Fila 2: Fecha actualización + botón ─────────────────────
-  hDV.getRange(2, 1, 1, 5).merge()
+  // ── Fila 2: Fecha actualización (A-F) + botón (G) ───────────
+  hDV.getRange(2, 1, 1, 6).merge()
     .setValue("Última actualización: " + ts)
     .setBackground("#eceff1").setFontColor("#546e7a")
     .setHorizontalAlignment("center").setVerticalAlignment("middle")
@@ -6357,77 +6368,79 @@ function actualizarDashboardVisual() { _run(function() {
     .setBackground("#1565c0").setFontColor("#ffffff")
     .setFontWeight("bold").setFontSize(10)
     .setHorizontalAlignment("center").setVerticalAlignment("middle")
-    .setNote("Para actualizar: Ve al menú ⚙️ Admin → Actualizar Dashboard Visual\no asigna la macro 'actualizarDashboardVisual' a esta celda.");
+    .setNote("Para asignar: clic derecho en esta celda → Asignar macro → actualizarDashboardVisual");
   hDV.setRowHeight(2, 30);
 
   // ── Fila 3: Espaciador ───────────────────────────────────────
   spacerRow(3);
 
-  // ── Sección 1: RESUMEN GENERAL (filas 4-6) ───────────────────
+  // ── SECCIÓN 1: RESUMEN GENERAL — 3 KPIs, 2 cols cada uno (filas 4-6) ──
   seccionTitle(4, "👥 RESUMEN GENERAL", "#37474f");
-  kpiBlock(5, 1, "Participantes Activas", kpiActivas,  "#1565c0", "#ffffff");
-  kpiBlock(5, 3, "Retiradx Este Año",     kpiRetiradx, "#b71c1c", "#ffffff");
-  // Sección ocupa filas 4-6 (4=título, 5=label, 6=valor)
-  // Espaciador después de sección 1
+  // Block1: cols 1-2 (A-B)
+  kpiBlock(5, 1, 2, "Participantes Activas", kpiActivas, "#1565c0", "#ffffff");
+  // Block2: cols 3-4 (C-D)
+  kpiBlock(5, 3, 2, "Retiradx Este Año", kpiRetiradx, "#b71c1c", "#ffffff");
+  // Block3: cols 5-6 (E-F)
+  kpiBlock(5, 5, 2, "Ciclos de Vida Este Año", kpiCiclos, "#1b5e20", "#ffffff");
   spacerRow(7);
 
-  // ── Sección 2: CICLOS Y FORMACIÓN (filas 8-10) ───────────────
-  seccionTitle(8, "📚 FORMACIÓN Y CICLOS", "#e65100");
-  kpiBlock(9, 1, "Ciclos de Vida (" + anio + ")", kpiCiclos, "#bf360c", "#ffffff");
-  kpiBlock(9, 3, "Horas Formación Este Año", kpiHrsFormacion > 0 ? kpiHrsFormacion.toFixed(0) + " hrs" : "0 hrs", "#e65100", "#ffffff");
+  // ── SECCIÓN 2: INDICADORES FINANCIEROS — 2 KPIs, 3 cols cada uno (filas 8-10) ──
+  seccionTitle(8, "💰 INDICADORES FINANCIEROS", "#004d40");
+  // Block1: cols 1-3 (A-C)
+  kpiBlock(9, 1, 3, "Monto Promedio Mensual (Q)", "Q " + kpiPromMensual.toFixed(2), "#00695c", "#ffffff");
+  // Block2: cols 4-6 (D-F)
+  kpiBlock(9, 4, 3, "Total Pagado Este Año (Q)", "Q " + kpiTotalAnio.toFixed(2), "#2e7d32", "#ffffff");
   spacerRow(11);
 
-  // ── Sección 3: INDICADORES FINANCIEROS (filas 12-14) ─────────
-  seccionTitle(12, "💰 INDICADORES FINANCIEROS", "#004d40");
-  kpiBlock(13, 1, "Monto Promedio Mensual (Q)", "Q " + kpiPromMensual.toFixed(2), "#00695c", "#ffffff");
-  kpiBlock(13, 3, "Total Pagado Este Año (Q)",  "Q " + kpiTotalAnio.toFixed(2),   "#2e7d32", "#ffffff");
+  // ── SECCIÓN 3: FORMACIÓN Y HORAS — 2 KPIs, 3 cols cada uno (filas 12-14) ──
+  seccionTitle(12, "📚 FORMACIÓN Y HORAS", "#4a148c");
+  // Block1: cols 1-3 (A-C)
+  kpiBlock(13, 1, 3, "Horas Formación Este Año", kpiHrsFormacion > 0 ? kpiHrsFormacion.toFixed(0) + " hrs" : "0 hrs", "#bf360c", "#ffffff");
+  // Block2: cols 4-6 (D-F)
+  kpiBlock(13, 4, 3, "Promedio Hrs Laborales/Mes", kpiPromHrsMes > 0 ? kpiPromHrsMes.toFixed(1) + " hrs" : "0.0 hrs", "#e65100", "#ffffff");
   spacerRow(15);
 
-  // ── Sección 4: HORAS LABORALES (filas 16-18) ─────────────────
-  seccionTitle(16, "⏱️ HORAS LABORALES", "#1b5e20");
-  kpiBlock(17, 1, "Promedio Hrs Laborales/Mes", kpiPromHrsMes > 0 ? kpiPromHrsMes.toFixed(1) + " hrs" : "0.0 hrs", "#2e7d32", "#ffffff");
-  spacerRow(19);
-
-  // ── Sección 5: DISTRIBUCIÓN POR CATEGORÍA (filas 20-22) ──────
-  seccionTitle(20, "🏷️ PARTICIPANTES POR CATEGORÍA", "#4a148c");
+  // ── SECCIÓN 4: PARTICIPANTES POR CATEGORÍA — 4 KPIs, 1 col cada uno (filas 16-18) ──
+  seccionTitle(16, "🏷️ PARTICIPANTES POR CATEGORÍA", "#263238");
   var catCfg = [
     { cat: "A", bg: CFG.COLORES_CAT.A.bg, fg: CFG.COLORES_CAT.A.fg },
     { cat: "B", bg: CFG.COLORES_CAT.B.bg, fg: CFG.COLORES_CAT.B.fg },
     { cat: "C", bg: CFG.COLORES_CAT.C.bg, fg: CFG.COLORES_CAT.C.fg },
     { cat: "D", bg: CFG.COLORES_CAT.D.bg, fg: CFG.COLORES_CAT.D.fg }
   ];
+  // 4 KPIs, each 1 col wide, cols 1-4 (A-D); cols E-F left white
   catCfg.forEach(function(cfg, idx) {
-    var colI = idx + 1; // cols 1,2,3,4 — single column per category
-    hDV.getRange(21, colI)
+    var colI = idx + 1;
+    hDV.getRange(17, colI)
       .setValue("Cat. " + cfg.cat)
       .setBackground(cfg.bg).setFontColor(cfg.fg)
-      .setFontWeight("bold").setFontSize(11)
+      .setFontWeight("bold").setFontSize(10)
       .setHorizontalAlignment("center").setVerticalAlignment("middle");
-    hDV.getRange(22, colI)
+    hDV.getRange(18, colI)
       .setValue(catCount[cfg.cat])
       .setBackground(cfg.bg).setFontColor(cfg.fg)
       .setFontWeight("bold").setFontSize(32)
       .setHorizontalAlignment("center").setVerticalAlignment("middle")
       .setBorder(true, true, true, true, null, null, "#ffffff", SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
-    hDV.setRowHeight(21, 28);
-    hDV.setRowHeight(22, 55);
+    hDV.setRowHeight(17, 28);
+    hDV.setRowHeight(18, 55);
   });
-  // Rellenar col 5 (E) vacío en filas 21-22 con fondo neutro
-  hDV.getRange(21, 5, 2, 1).setBackground("#f5f5f5");
+  // Cols E-F (5-6) blanco en filas 17-18
+  hDV.getRange(17, 5, 2, 2).setBackground("#ffffff");
+  spacerRow(19);
+
+  // ── SECCIÓN 5: FORMA DE PAGO — 2 KPIs, 3 cols cada uno (filas 20-22) ──
+  seccionTitle(20, "💳 FORMA DE PAGO", "#1a237e");
+  // Block1: cols 1-3 (A-C)
+  kpiBlock(21, 1, 3, "Transferencias", pagoTransf, "#1565c0", "#ffffff");
+  // Block2: cols 4-6 (D-F)
+  kpiBlock(21, 4, 3, "Cheques", pagoCheque, "#37474f", "#ffffff");
   spacerRow(23);
 
-  // ── Sección 6: FORMA DE PAGO (filas 24-26) ───────────────────
-  seccionTitle(24, "💳 FORMA DE PAGO", "#263238");
-  kpiBlock(25, 1, "Transferencias", pagoTransf, "#01579b", "#ffffff");
-  kpiBlock(25, 3, "Cheques",        pagoCheque, "#37474f", "#ffffff");
-  hDV.getRange(25, 5, 2, 1).setBackground("#f5f5f5");
-  spacerRow(27);
-
-  // ── Congelar solo fila 1 ─────────────────────────────────────
-  hDV.setFrozenRows(1);
-
-  // ── Ocultar líneas de cuadrícula ─────────────────────────────
+  // ── Final ────────────────────────────────────────────────────
   hDV.setHiddenGridlines(true);
+  hDV.setTabColor("#1a237e");
+  hDV.setFrozenRows(1);
 
   ss.toast("✅ Dashboard Visual actualizado", "📊", 4);
 }); }
