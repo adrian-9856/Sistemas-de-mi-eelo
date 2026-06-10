@@ -216,6 +216,7 @@ function onOpen() {
   var menuAdmin = ui.createMenu("⚙️ Admin")
     .addItem("📋 Cargar lista oficial (33 participantes)","cargarListaParticipantes")
     .addItem("🔄 Sincronizar desde Creamos DB",          "sincronizarDesdeCreamos")
+    .addItem("📲 Sincronizar IDs desde DatosKobo",       "sincronizarIDsDesdeKobo")
     .addItem("🔍 Diagnosticar IDs no encontrados",        "diagnosticarBusquedaCreamos")
     .addItem("➕ Nuevo participante",                     "nuevoParticipante")
     .addItem("👥 Directorio de participantes",           "generarDirectorioParticipantes")
@@ -2339,17 +2340,25 @@ function cargarMapeoNombres() {
     var slug          = item[4] || "";
     if (slug) {
       m[slug] = nombreOficial;
-      // También mapear slug con espacios (kobo a veces usa espacios en lugar de _)
       m[slug.replace(/_/g, " ")] = nombreOficial;
     }
-    // Mapear versión sin tildes del nombre oficial
     var sinTildes = textoParaComparar(item[1]);
-    if (sinTildes !== nombreOficial.toLowerCase()) {
-      m[sinTildes] = nombreOficial;
-    }
+    if (sinTildes !== nombreOficial.toLowerCase()) m[sinTildes] = nombreOficial;
   });
 
-  // 2. Desde hoja NombresCanonicos (aliases manuales extras)
+  // 2. Desde PARTICIPANTES: mapear Creamos_ID → nombre oficial
+  //    Permite resolver entradas Kobo como "Mayra García (MACI030373)"
+  var hP = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CFG.HOJAS.PARTICIPANTES);
+  if (hP && hP.getLastRow() >= 2) {
+    var datP = hP.getRange(2, 1, hP.getLastRow() - 1, 2).getValues();
+    datP.forEach(function(r) {
+      var id  = String(r[0] || "").trim();
+      var nom = String(r[1] || "").trim();
+      if (id && nom && _esCreamos_ID_real(id)) m["id:" + id] = nom;
+    });
+  }
+
+  // 3. Desde hoja NombresCanonicos (aliases manuales extras)
   var h = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("NombresCanonicos");
   if (h && h.getLastRow() > 1) {
     var d = h.getDataRange().getValues();
@@ -2372,7 +2381,10 @@ function normalizarNombre(nombre, mapeo) {
   // Intento slug (reemplazar espacios por _)
   var slug = norm.replace(/\s+/g, "_");
   if (mapeo[slug]) return mapeo[slug];
-  return nombre;
+  // Intento por Creamos_ID extraído del nombre (ej. "Nombre (MACI030373)")
+  var cod = extraerCodigo(nombre);
+  if (cod && mapeo["id:" + cod]) return mapeo["id:" + cod];
+  return limpiarNombre(nombre); // fallback: quitar el código del nombre
 }
 
 // ── Días de estudio y terapias ────────────────────────────────
@@ -4129,6 +4141,92 @@ function configurarTriggers() { _run(function() {
     "onEdit (automático):\n" +
     "• Categoría → auto-llena Tarifa\n" +
     "• Pagado → actualiza Dashboard");
+}); }
+
+// ── Sincronizar IDs desde DatosKobo ───────────────────────────
+
+/**
+ * Lee columna Participante de DatosKobo.
+ * Para cada entrada con formato "Nombre (CODIGO)", extrae el código y
+ * actualiza col A de PARTICIPANTES si ese participante aún no tiene ID.
+ * Para entradas sin código, busca en Creamos DB por nombre.
+ */
+function sincronizarIDsDesdeKobo() { _run(function() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var hK = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
+  var hP = ss.getSheetByName(CFG.HOJAS.PARTICIPANTES);
+  if (!hK || !hP) { _alert("Faltan hojas DatosKobo o PARTICIPANTES."); return; }
+
+  // Detectar columna Participante en Kobo
+  var enc  = hK.getRange(1, 1, 1, hK.getLastColumn()).getValues()[0];
+  var cols = detectarColumnas(enc, hK.getRange(2, 1, Math.min(50, hK.getLastRow()-1), hK.getLastColumn()).getValues());
+  var iParticipante = (cols.participante !== undefined) ? cols.participante : -1;
+  if (iParticipante < 0) { _alert("No se detectó columna Participante en DatosKobo."); return; }
+
+  // Recopilar nombres únicos de Kobo
+  var rawNombres = hK.getRange(2, iParticipante + 1, hK.getLastRow() - 1, 1).getValues();
+  var uniqueRaw  = {};
+  rawNombres.forEach(function(r) {
+    var v = String(r[0] || "").trim();
+    if (v) uniqueRaw[v] = true;
+  });
+
+  // Leer PARTICIPANTES: construir mapa por nombre normalizado → {fila, id}
+  var datP    = hP.getRange(2, 1, hP.getLastRow() - 1, 2).getValues();
+  var mapaP   = {}; // norm → {fila (1-based), id}
+  datP.forEach(function(r, i) {
+    var nom = String(r[1] || "").trim();
+    if (!nom) return;
+    mapaP[textoParaComparar(nom)] = { fila: i + 2, id: String(r[0] || "").trim() };
+  });
+
+  var actualizados = 0, sinEncontrar = [];
+
+  Object.keys(uniqueRaw).forEach(function(raw) {
+    var codigo    = extraerCodigo(raw);
+    var nombreLimpio = limpiarNombre(raw);
+    var normNom   = textoParaComparar(nombreLimpio);
+
+    // Buscar fila en PARTICIPANTES por nombre normalizado
+    var entrada = mapaP[normNom];
+    if (!entrada) {
+      // Búsqueda parcial: 2+ palabras largas
+      var palabras = normNom.split(/\s+/).filter(function(p){ return p.length >= 4; });
+      if (palabras.length >= 2) {
+        var keys = Object.keys(mapaP);
+        for (var ki = 0; ki < keys.length; ki++) {
+          var hits = palabras.filter(function(p){ return keys[ki].indexOf(p) !== -1; }).length;
+          if (hits >= 2) { entrada = mapaP[keys[ki]]; break; }
+        }
+      }
+    }
+
+    if (!entrada) { sinEncontrar.push(nombreLimpio + (codigo ? " [" + codigo + "]" : "")); return; }
+    if (_esCreamos_ID_real(entrada.id)) return; // ya tiene ID, no sobreescribir
+
+    // Tiene código de Kobo → usarlo
+    if (codigo) {
+      hP.getRange(entrada.fila, 1).setValue(codigo);
+      entrada.id = codigo;
+      actualizados++;
+      return;
+    }
+
+    // Sin código → buscar en Creamos DB
+    var db = _buscarEnCreamos_DB(nombreLimpio);
+    if (db.id) {
+      hP.getRange(entrada.fila, 1).setValue(db.id);
+      entrada.id = db.id;
+      actualizados++;
+    } else {
+      sinEncontrar.push(nombreLimpio + " (sin código en Kobo, no encontrado en DB)");
+    }
+  });
+
+  var msg = "✅ IDs actualizados desde DatosKobo: " + actualizados;
+  if (sinEncontrar.length > 0)
+    msg += "\n\n⚠️ Sin resolver (" + sinEncontrar.length + "):\n" + sinEncontrar.join("\n");
+  _alert(msg);
 }); }
 
 // ── Sincronizar desde Creamos DB ──────────────────────────────
