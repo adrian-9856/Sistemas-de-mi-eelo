@@ -4542,7 +4542,7 @@ function actualizarDashboard() { _run(function() {
       var diasEstMap  = obtenerDiasEstudio();
       var terapiasMap = obtenerListaTerapias();
       var mapeoN = cargarMapeoNombres();
-      var iTS = (colsK.start !== undefined) ? colsK.start : 0;
+      var iTS = (colsK.submissionTime !== undefined) ? colsK.submissionTime : (colsK.end !== undefined) ? colsK.end : (colsK.start !== undefined) ? colsK.start : 0;
       var diasFormacion = {}; // "nombre|yyyy-mm-dd" → true
       rawK.forEach(function(fila) {
         var ts2 = new Date(fila[iTS]);
@@ -6300,7 +6300,7 @@ function actualizarDashboardVisual() { _run(function() {
       var diasEstMap  = obtenerDiasEstudio();
       var terapiasMap = obtenerListaTerapias();
       var mapeoN = cargarMapeoNombres();
-      var iTS = (colsK.start !== undefined) ? colsK.start : 0;
+      var iTS = (colsK.submissionTime !== undefined) ? colsK.submissionTime : (colsK.end !== undefined) ? colsK.end : (colsK.start !== undefined) ? colsK.start : 0;
       var diasFormacion = {};
       rawK.forEach(function(fila) {
         var ts2 = new Date(fila[iTS]);
