@@ -6168,21 +6168,29 @@ function actualizarDashboardVisual() { _run(function() {
   var ts    = Utilities.formatDate(ahora, tz, "dd/MM/yyyy HH:mm");
 
   var NOMBRE_HOJA = "DASHBOARD_VISUAL";
-  var dash = ss.getSheetByName(NOMBRE_HOJA);
-  if (!dash) {
-    dash = ss.insertSheet(NOMBRE_HOJA);
+  var hDV = ss.getSheetByName(NOMBRE_HOJA);
+  if (!hDV) {
+    hDV = ss.insertSheet(NOMBRE_HOJA);
   } else {
-    dash.clearContents();
-    dash.clearFormats();
+    hDV.clearContents();
+    hDV.clearFormats();
   }
 
-  // Asegurar columnas suficientes (necesitamos al menos H=8)
-  while (dash.getMaxColumns() < 8) dash.insertColumnsAfter(dash.getMaxColumns(), 1);
+  // Asegurar columnas suficientes (A-G = 7 cols)
+  while (hDV.getMaxColumns() < 7) hDV.insertColumnsAfter(hDV.getMaxColumns(), 1);
 
   // ── Anchos de columna ────────────────────────────────────────
-  for (var ci = 1; ci <= 6; ci++) dash.setColumnWidth(ci, 140);
-  dash.setColumnWidth(7, 20);
-  dash.setColumnWidth(8, 180);
+  // A=160, B=160, C=160, D=160, E=160, F=80 (spacer), G=100
+  hDV.setColumnWidth(1, 160);
+  hDV.setColumnWidth(2, 160);
+  hDV.setColumnWidth(3, 160);
+  hDV.setColumnWidth(4, 160);
+  hDV.setColumnWidth(5, 160);
+  hDV.setColumnWidth(6, 80);
+  hDV.setColumnWidth(7, 100);
+
+  // ── Color de pestaña ────────────────────────────────────────
+  hDV.setTabColor("#1a237e");
 
   // ── Calcular KPIs ────────────────────────────────────────────
 
@@ -6297,91 +6305,91 @@ function actualizarDashboardVisual() { _run(function() {
   // ── Helper para escribir un bloque KPI (2 cols, 2 filas) ────
   // fila, colInicio, label, valor, bgColor, fgColor
   function kpiBlock(fila, colInicio, label, valor, bgColor, fgColor) {
-    var rLabel = dash.getRange(fila,     colInicio, 1, 2);
-    var rVal   = dash.getRange(fila + 1, colInicio, 1, 2);
+    var rLabel = hDV.getRange(fila,     colInicio, 1, 2);
+    var rVal   = hDV.getRange(fila + 1, colInicio, 1, 2);
     rLabel.merge().setValue(label)
       .setBackground(bgColor).setFontColor(fgColor)
       .setFontWeight("bold").setFontSize(11)
       .setHorizontalAlignment("center").setVerticalAlignment("middle")
       .setWrap(true);
+    hDV.setRowHeight(fila, 28);
     rVal.merge().setValue(valor)
       .setBackground(bgColor).setFontColor(fgColor)
-      .setFontWeight("bold").setFontSize(27)
+      .setFontWeight("bold").setFontSize(32)
       .setHorizontalAlignment("center").setVerticalAlignment("middle");
-    dash.setRowHeight(fila,     32);
-    dash.setRowHeight(fila + 1, 58);
+    hDV.setRowHeight(fila + 1, 55);
+    // Thick outer border around the value cell block
+    rVal.setBorder(true, true, true, true, null, null, "#ffffff", SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
   }
 
   // ── Helper para fila de sección ──────────────────────────────
   function seccionTitle(fila, texto, bgColor) {
-    dash.getRange(fila, 1, 1, 6).merge()
+    hDV.getRange(fila, 1, 1, 5).merge()
       .setValue(texto)
       .setBackground(bgColor).setFontColor("#ffffff")
-      .setFontWeight("bold").setFontSize(12)
+      .setFontWeight("bold").setFontSize(11)
       .setHorizontalAlignment("center").setVerticalAlignment("middle");
-    dash.setRowHeight(fila, 34);
+    hDV.setRowHeight(fila, 32);
+  }
+
+  // ── Helper para fila espaciadora entre secciones ─────────────
+  function spacerRow(fila) {
+    hDV.getRange(fila, 1, 1, 7).setBackground("#ffffff");
+    hDV.setRowHeight(fila, 10);
   }
 
   // ── Fila 1: Título principal ─────────────────────────────────
-  dash.getRange(1, 1, 1, 8).merge()
+  hDV.getRange(1, 1, 1, 7).merge()
     .setValue("📊 DASHBOARD — mi eelo | Textil")
     .setBackground("#1a237e").setFontColor("#ffffff")
-    .setFontWeight("bold").setFontSize(18)
+    .setFontWeight("bold").setFontSize(15)
     .setHorizontalAlignment("center").setVerticalAlignment("middle");
-  dash.setRowHeight(1, 50);
+  hDV.setRowHeight(1, 48);
 
   // ── Fila 2: Fecha actualización + botón ─────────────────────
-  dash.getRange(2, 1, 1, 6).merge()
+  hDV.getRange(2, 1, 1, 5).merge()
     .setValue("Última actualización: " + ts)
     .setBackground("#eceff1").setFontColor("#546e7a")
     .setHorizontalAlignment("center").setVerticalAlignment("middle")
     .setFontStyle("italic");
-  dash.getRange(2, 8)
-    .setValue("▶ Actualizar Dashboard")
+  hDV.getRange(2, 7)
+    .setValue("▶ Actualizar")
     .setBackground("#1565c0").setFontColor("#ffffff")
     .setFontWeight("bold").setFontSize(10)
     .setHorizontalAlignment("center").setVerticalAlignment("middle")
     .setNote("Para actualizar: Ve al menú ⚙️ Admin → Actualizar Dashboard Visual\no asigna la macro 'actualizarDashboardVisual' a esta celda.");
-  dash.setRowHeight(2, 30);
+  hDV.setRowHeight(2, 30);
 
-  // ── Fila 3: Separador ────────────────────────────────────────
-  dash.getRange(3, 1, 1, 8).setBackground("#e0e0e0");
-  dash.setRowHeight(3, 6);
+  // ── Fila 3: Espaciador ───────────────────────────────────────
+  spacerRow(3);
 
-  // ── Sección 1: RESUMEN GENERAL (filas 4-8) ───────────────────
+  // ── Sección 1: RESUMEN GENERAL (filas 4-6) ───────────────────
   seccionTitle(4, "👥 RESUMEN GENERAL", "#37474f");
-  kpiBlock(5, 1, "Participantes Activas", kpiActivas,   "#1565c0", "#ffffff");
-  kpiBlock(5, 3, "Retiradx Este Año",      kpiRetiradx,  "#b71c1c", "#ffffff");
-  kpiBlock(5, 5, "Ciclos de Vida (año " + anio + ")", kpiCiclos, "#1b5e20", "#ffffff");
-  // fila 8 = segundo valor row de cada bloque (ya seteado por kpiBlock en fila 5+1=6)
-  // sección ocupa filas 4-6; fila 7 = separador
-  dash.getRange(7, 1, 1, 8).setBackground("#e0e0e0");
-  dash.setRowHeight(7, 6);
+  kpiBlock(5, 1, "Participantes Activas", kpiActivas,  "#1565c0", "#ffffff");
+  kpiBlock(5, 3, "Retiradx Este Año",     kpiRetiradx, "#b71c1c", "#ffffff");
+  // Sección ocupa filas 4-6 (4=título, 5=label, 6=valor)
+  // Espaciador después de sección 1
+  spacerRow(7);
 
-  // ── Sección 2: INDICADORES FINANCIEROS (filas 8-12) ─────────
-  seccionTitle(8, "💰 INDICADORES FINANCIEROS", "#004d40");
-  kpiBlock(9, 1, "Monto Promedio Mensual (Q)", "Q " + kpiPromMensual.toFixed(2), "#00695c", "#ffffff");
-  kpiBlock(9, 4, "Total Pagado Este Año (Q)", "Q " + kpiTotalAnio.toFixed(2),    "#2e7d32", "#ffffff");
-  // fila 11 = segunda fila de bloques; fila 12 = separador
-  dash.getRange(11, 4, 1, 2).merge(); // ya merged por kpiBlock
-  dash.getRange(12, 1, 1, 8).setBackground("#e0e0e0");
-  dash.setRowHeight(12, 6);
+  // ── Sección 2: CICLOS Y FORMACIÓN (filas 8-10) ───────────────
+  seccionTitle(8, "📚 FORMACIÓN Y CICLOS", "#e65100");
+  kpiBlock(9, 1, "Ciclos de Vida (" + anio + ")", kpiCiclos, "#bf360c", "#ffffff");
+  kpiBlock(9, 3, "Horas Formación Este Año", kpiHrsFormacion > 0 ? kpiHrsFormacion.toFixed(0) + " hrs" : "0 hrs", "#e65100", "#ffffff");
+  spacerRow(11);
 
-  // ── Sección 3: FORMACIÓN Y HORAS (filas 13-17) ───────────────
-  seccionTitle(13, "📚 FORMACIÓN Y HORAS", "#e65100");
-  kpiBlock(14, 1, "Horas Formación Este Año", kpiHrsFormacion > 0 ? kpiHrsFormacion.toFixed(0) + " hrs" : "0 hrs", "#bf360c", "#ffffff");
-  kpiBlock(14, 4, "Promedio Hrs Laborales/Mes", kpiPromHrsMes > 0 ? kpiPromHrsMes.toFixed(1) + " hrs" : "— hrs",  "#e65100", "#ffffff");
-  dash.getRange(16, 1, 1, 8).setBackground("#e0e0e0");
-  dash.setRowHeight(16, 6);
+  // ── Sección 3: INDICADORES FINANCIEROS (filas 12-14) ─────────
+  seccionTitle(12, "💰 INDICADORES FINANCIEROS", "#004d40");
+  kpiBlock(13, 1, "Monto Promedio Mensual (Q)", "Q " + kpiPromMensual.toFixed(2), "#00695c", "#ffffff");
+  kpiBlock(13, 3, "Total Pagado Este Año (Q)",  "Q " + kpiTotalAnio.toFixed(2),   "#2e7d32", "#ffffff");
+  spacerRow(15);
 
-  // ── Sección 4: DISTRIBUCIÓN POR CATEGORÍA (filas 17-21) ──────
-  seccionTitle(17, "🏷️ PARTICIPANTES POR CATEGORÍA", "#4a148c");
-  // 4 bloques de 1 columna + medio — usamos col 1-2, 2-3 etc... ajustamos a 1.5 cols c/u
-  // Los bloques A/B/C/D: cols 1, 2, 3, 4 — pero con 2 cols cada uno y 6 disponibles, hacemos pares
-  // A: cols 1-2 (col 1 inicio, span 2)  B: cols 3-4  pero sólo tenemos 6 → usamos cols 1,2,3,4 de 1.5 = mejor: A-B cols 1-3, C-D cols 4-6
-  // Para uniformidad: 4 bloques en 6 cols → primera y última bloque 1 col + merge manual
-  // Simplificamos: 2 columnas cada bloque en pares (A=cols1-2, B=cols2-3, C=cols3-4, D=cols4-5)... overlap
-  // MEJOR: bloques de una columna en las 4 primeras cols, más dos extra vacías
+  // ── Sección 4: HORAS LABORALES (filas 16-18) ─────────────────
+  seccionTitle(16, "⏱️ HORAS LABORALES", "#1b5e20");
+  kpiBlock(17, 1, "Promedio Hrs Laborales/Mes", kpiPromHrsMes > 0 ? kpiPromHrsMes.toFixed(1) + " hrs" : "0.0 hrs", "#2e7d32", "#ffffff");
+  spacerRow(19);
+
+  // ── Sección 5: DISTRIBUCIÓN POR CATEGORÍA (filas 20-22) ──────
+  seccionTitle(20, "🏷️ PARTICIPANTES POR CATEGORÍA", "#4a148c");
   var catCfg = [
     { cat: "A", bg: CFG.COLORES_CAT.A.bg, fg: CFG.COLORES_CAT.A.fg },
     { cat: "B", bg: CFG.COLORES_CAT.B.bg, fg: CFG.COLORES_CAT.B.fg },
@@ -6389,35 +6397,37 @@ function actualizarDashboardVisual() { _run(function() {
     { cat: "D", bg: CFG.COLORES_CAT.D.bg, fg: CFG.COLORES_CAT.D.fg }
   ];
   catCfg.forEach(function(cfg, idx) {
-    var colI = idx + 1; // cols 1,2,3,4 individually (no merge — single col KPI)
-    dash.getRange(18, colI)
+    var colI = idx + 1; // cols 1,2,3,4 — single column per category
+    hDV.getRange(21, colI)
       .setValue("Cat. " + cfg.cat)
       .setBackground(cfg.bg).setFontColor(cfg.fg)
       .setFontWeight("bold").setFontSize(11)
       .setHorizontalAlignment("center").setVerticalAlignment("middle");
-    dash.getRange(19, colI)
+    hDV.getRange(22, colI)
       .setValue(catCount[cfg.cat])
       .setBackground(cfg.bg).setFontColor(cfg.fg)
-      .setFontWeight("bold").setFontSize(26)
-      .setHorizontalAlignment("center").setVerticalAlignment("middle");
-    dash.setRowHeight(18, 32);
-    dash.setRowHeight(19, 58);
+      .setFontWeight("bold").setFontSize(32)
+      .setHorizontalAlignment("center").setVerticalAlignment("middle")
+      .setBorder(true, true, true, true, null, null, "#ffffff", SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+    hDV.setRowHeight(21, 28);
+    hDV.setRowHeight(22, 55);
   });
-  // Rellenar cols 5-6 en filas 18-19
-  dash.getRange(18, 5, 2, 2).setBackground("#f5f5f5");
-  dash.getRange(20, 1, 1, 8).setBackground("#e0e0e0");
-  dash.setRowHeight(20, 6);
+  // Rellenar col 5 (E) vacío en filas 21-22 con fondo neutro
+  hDV.getRange(21, 5, 2, 1).setBackground("#f5f5f5");
+  spacerRow(23);
 
-  // ── Sección 5: FORMA DE PAGO (filas 21-24) ───────────────────
-  seccionTitle(21, "💳 FORMA DE PAGO", "#263238");
-  kpiBlock(22, 1, "Transferencias", pagoTransf, "#01579b", "#ffffff");
-  kpiBlock(22, 3, "Cheques",         pagoCheque, "#37474f", "#ffffff");
-  // Col 5-6 vacío
-  dash.getRange(22, 5, 2, 2).setBackground("#f5f5f5");
-  dash.setRowHeight(24, 8);
+  // ── Sección 6: FORMA DE PAGO (filas 24-26) ───────────────────
+  seccionTitle(24, "💳 FORMA DE PAGO", "#263238");
+  kpiBlock(25, 1, "Transferencias", pagoTransf, "#01579b", "#ffffff");
+  kpiBlock(25, 3, "Cheques",        pagoCheque, "#37474f", "#ffffff");
+  hDV.getRange(25, 5, 2, 1).setBackground("#f5f5f5");
+  spacerRow(27);
 
-  // ── Congelar fila 1 ─────────────────────────────────────────
-  dash.setFrozenRows(1);
+  // ── Congelar solo fila 1 ─────────────────────────────────────
+  hDV.setFrozenRows(1);
+
+  // ── Ocultar líneas de cuadrícula ─────────────────────────────
+  hDV.setHiddenGridlines(true);
 
   ss.toast("✅ Dashboard Visual actualizado", "📊", 4);
 }); }
@@ -6581,294 +6591,254 @@ function crearGuiaUso() { _run(function() {
     h.clearFormats();
   }
 
-  // Anchos de columna
-  h.setColumnWidth(1, 30);
-  h.setColumnWidth(2, 250);
-  h.setColumnWidth(3, 400);
-  h.setColumnWidth(4, 200);
   // Asegurar 4 columnas
   while (h.getMaxColumns() < 4) h.insertColumnsAfter(h.getMaxColumns(), 1);
 
-  // Acumulador de filas: [icono, titulo/accion, descripcion, notas]
+  // ── Anchos de columna ────────────────────────────────────────
+  h.setColumnWidth(1, 40);
+  h.setColumnWidth(2, 260);
+  h.setColumnWidth(3, 420);
+  h.setColumnWidth(4, 180);
+
+  // ── Fecha actual para el pie ──────────────────────────────────
+  var tz = Session.getScriptTimeZone();
+  var fechaGuia = Utilities.formatDate(new Date(), tz, "dd/MM/yyyy");
+
+  // Acumulador de filas: [col A, col B, col C, col D]
   var filas = [];
-  // tipo: "titulo" | "instalar" | "seccion" | "enc_tabla" | "fila" | "vacio" | "texto"
   var tipos = [];
 
   function push(f, t) { filas.push(f); tipos.push(t); }
 
   // ── Fila 1: Título principal ──────────────────────────────────
-  push(["📖 GUÍA DE USO — Sistema RRHH mi eelo", "", "", ""], "titulo");
+  push(["📋 GUÍA DE PAGOS — Sistema RRHH mi eelo", "", "", ""], "titulo");
 
-  // ── Fila 2: Aviso de instalación ─────────────────────────────
-  push(["🚀 PARA INSTALAR EL SISTEMA: Ve al menú 👥 RRHH → Instalación completa", "", "", ""], "instalar");
+  // ── Fila 2: Banner para quién es ─────────────────────────────
+  push(["👤 Esta guía es para la persona encargada de registrar horas y gestionar los pagos quincenales.", "", "", ""], "banner");
+
+  // ── Fila 3: Espacio ───────────────────────────────────────────
+  push(["", "", "", ""], "vacio");
+
+  // ══════════════════════════════════════════════════════════════
+  // SECCIÓN 1 — FLUJO COMPLETO DE PAGOS
+  // ══════════════════════════════════════════════════════════════
+  push(["🗓️ CADA QUINCENA: FLUJO COMPLETO DE PAGOS", "", "", ""], "seccion");
+  push(["Paso", "Acción", "Cómo hacerlo", "Qué verificar"], "enc_tabla");
+  push(["1", "Importar las horas desde Kobo",
+        "Menú 📥 Asistencia → Importar desde Kobo",
+        "Que aparezca el mensaje \"X registros importados\". Si da error, esperar 5 minutos y repetir."], "fila");
+  push(["2", "Calcular el reporte de quincena",
+        "Menú 📅 Quincena → Ver / actualizar quincena actual",
+        "Se abre una hoja nueva con el período. Revisa que aparezcan todas las participantes activas."], "fila");
+  push(["3", "Revisar el reporte de quincena",
+        "Abrir la hoja del período (ej: \"26/05 al 04/06\")",
+        "Verificar: (a) que no haya personas duplicadas, (b) que las horas sean razonables (no más de 9 hrs/día), (c) que los montos en \"Neto part.\" sean correctos."], "fila");
+  push(["4", "Registrar los pagos",
+        "Menú 💳 Quincena → Registrar pagos de quincena",
+        "Seleccionar el número de la quincena en la lista. Confirmar."], "fila");
+  push(["5", "Verificar hoja Cheques",
+        "Abrir hoja \"Cheques\"",
+        "Deben aparecer las participantes que tienen Forma_Pago = Cheque. El número de cheque (col B) se llena a mano."], "fila");
+  push(["6", "Verificar hoja Transferencias",
+        "Abrir hoja \"Transferencias\"",
+        "Deben aparecer las participantes con Transferencia. Si es Q1, se llena columna Q1. Si es Q2, se llena Q2 y se calcula el Total automáticamente."], "fila");
+  push(["7", "Cerrar la quincena",
+        "Menú 📅 Quincena → Cerrar quincena y abrir siguiente",
+        "Confirmar el cierre. Se archiva la quincena actual y se prepara la siguiente."], "fila");
 
   push(["", "", "", ""], "vacio");
 
-  // ── SECCIÓN 1 — INSTALACIÓN ──────────────────────────────────
-  push(["📦", "SECCIÓN 1 — INSTALACIÓN", "", ""], "seccion");
-  push(["", "Acción", "Qué hace", "Cuándo usarlo"], "enc_tabla");
-  push(["🚀", "Instalación completa",
-        "Crea todas las hojas del sistema: PARTICIPANTES, Bonos, Cheques, Transferencias, etc. También importa los datos de Kobo automáticamente.",
-        "Primera vez que se instala el sistema. Si el sistema dice \"Hoja no encontrada\", ejecuta esto primero."], "fila");
-  push(["⬆️", "Migrar sistema",
-        "Actualiza el sistema a la versión más reciente sin borrar los datos existentes.",
-        "Cuando se instala una actualización del sistema."], "fila");
-  push(["🗑️", "Reinstalar sistema",
-        "BORRA TODO y comienza desde cero. Solo deja la base de datos de Creamos intacta.",
-        "Solo si hay problemas graves y se quiere empezar de nuevo. ⚠️ No se puede deshacer."], "fila");
+  // ══════════════════════════════════════════════════════════════
+  // SECCIÓN 2 — PROBLEMAS COMUNES
+  // ══════════════════════════════════════════════════════════════
+  push(["⚠️ PROBLEMAS COMUNES Y CÓMO RESOLVERLOS", "", "", ""], "seccion_rojo");
+  push(["Paso", "Problema", "Causa más probable", "Solución"], "enc_tabla");
+  push(["—", "Una participante no aparece en el reporte",
+        "Su nombre en Kobo no coincide con PARTICIPANTES",
+        "Admin → 📲 Sincronizar IDs desde DatosKobo. Si persiste: Admin → 🔍 Diagnosticar IDs."], "fila");
+  push(["—", "Aparecen personas duplicadas",
+        "Hay filas repetidas en PARTICIPANTES",
+        "Admin → 🧹 Limpiar duplicados en PARTICIPANTES. Luego recalcular."], "fila");
+  push(["—", "Las horas parecen incorrectas",
+        "Registro de Kobo tiene entradas sin salida",
+        "Admin → 🔧 Reparar datos Kobo. Luego reimportar."], "fila");
+  push(["—", "El botón \"Registrar pagos\" dice \"no encontrado en PARTICIPANTES\"",
+        "La participante no tiene Forma_Pago configurada",
+        "Ir a PARTICIPANTES → col T → escribir \"Transferencia\" o \"Cheque\" para esa persona."], "fila");
+  push(["—", "Una participante tiene Forma_Pago pero no llega a Cheques/Transferencias",
+        "El nombre en el reporte difiere del nombre en PARTICIPANTES",
+        "Admin → 🔄 Sincronizar desde Creamos DB. O asegurarse que el Creamos ID esté en col A de PARTICIPANTES."], "fila");
+  push(["—", "Error \"Hoja no encontrada\"",
+        "El sistema no está instalado completo",
+        "Menú 👥 RRHH → 🚀 Instalación completa."], "fila");
 
   push(["", "", "", ""], "vacio");
 
-  // ── SECCIÓN 2 — PARTICIPANTES ────────────────────────────────
-  push(["👥", "SECCIÓN 2 — PARTICIPANTES", "", ""], "seccion");
-  push(["", "Acción", "Qué hace", "Cuándo usarlo"], "enc_tabla");
-  push(["📋", "Cargar lista oficial",
-        "Carga las 33 participantes del programa con sus categorías y datos base. Borra los datos anteriores de PARTICIPANTES.",
-        "Al instalar por primera vez o para resetear la lista."], "fila");
-  push(["🔄", "Sincronizar desde Creamos DB",
-        "Busca el Creamos ID de cada participante en la base de datos oficial.",
-        "Después de cargar la lista, o cuando una participante crea su perfil en Creamos."], "fila");
-  push(["📲", "Sincronizar IDs desde DatosKobo",
-        "Lee los nombres de Kobo (que vienen con el ID entre paréntesis) y actualiza los IDs en PARTICIPANTES automáticamente.",
-        "Si hay participantes sin ID después de sincronizar con Creamos DB."], "fila");
-  push(["🔍", "Diagnosticar IDs no encontrados",
-        "Muestra una lista de participantes sin ID y los mejores candidatos que encontró en la base de datos, para identificar por qué no se encontró.",
-        "Cuando la sincronización dice \"sin perfil\" pero sabes que la persona sí existe."], "fila");
-  push(["➕", "Nuevo participante",
-        "Agrega una participante nueva a PARTICIPANTES con un formulario.",
-        "Para agregar alguien que no está en la lista oficial."], "fila");
-  push(["🧹", "Limpiar duplicados",
-        "Busca y elimina filas repetidas o vacías en PARTICIPANTES.",
-        "Si el reporte de quincena muestra personas duplicadas."], "fila");
-  push(["🗑️", "Eliminar participante completo",
-        "Elimina a una participante y TODOS sus registros en el sistema (pagos, asistencia, etc.).",
-        "Cuando una participante no debe estar en el sistema en absoluto. ⚠️ No se puede deshacer."], "fila");
-  push(["🔼", "Cambiar categoría",
-        "Cambia la categoría (A/B/C/D) de una participante y actualiza su tarifa automáticamente.",
-        "Cuando una participante sube o baja de categoría."], "fila");
-  push(["✏️", "Cambiar nombre",
-        "Cambia el nombre oficial de una participante en el sistema.",
-        "Correcciones de nombre o cambio de apellido."], "fila");
+  // ══════════════════════════════════════════════════════════════
+  // SECCIÓN 3 — CONFIGURACIÓN INICIAL
+  // ══════════════════════════════════════════════════════════════
+  push(["📋 ANTES DE EMPEZAR: CONFIGURACIÓN INICIAL", "", "", ""], "seccion_verde");
+  push(["Paso", "Acción", "Cómo hacerlo", "Notas"], "enc_tabla");
+  push(["1", "Instalar el sistema",
+        "Menú 👥 RRHH → 🚀 Instalación completa",
+        "Solo se hace una vez. Crea todas las hojas automáticamente."], "fila");
+  push(["2", "Cargar las 33 participantes",
+        "Admin → 📋 Cargar lista oficial",
+        "Carga los datos base de todas las participantes del programa."], "fila");
+  push(["3", "Sincronizar los IDs",
+        "Admin → 🔄 Sincronizar desde Creamos DB",
+        "Busca el Creamos ID de cada participante. Puede tardar 1-2 minutos."], "fila");
+  push(["4", "Configurar forma de pago",
+        "Abrir hoja PARTICIPANTES → columna T (Forma_Pago)",
+        "Para cada participante, elegir \"Transferencia\" o \"Cheque\" del desplegable."], "fila");
+  push(["5", "Configurar datos bancarios",
+        "En PARTICIPANTES, cols Q (Banco), R (Tipo Cuenta), S (Número de Cuenta)",
+        "Llenar los datos bancarios de cada participante para las transferencias."], "fila");
+  push(["6", "Configurar quincena",
+        "Menú 📅 Quincena → Configurar nueva quincena",
+        "Ingresar la fecha de inicio y fin del primer período de pago."], "fila");
+  push(["7", "Activar automatizaciones",
+        "Admin → ⚡ Activar automatizaciones",
+        "Activa la importación automática de Kobo cada hora. Solo se hace una vez."], "fila");
 
   push(["", "", "", ""], "vacio");
 
-  // ── SECCIÓN 3 — ASISTENCIA Y HORAS ──────────────────────────
-  push(["⏱️", "SECCIÓN 3 — ASISTENCIA Y HORAS", "", ""], "seccion");
-  push(["", "Acción", "Qué hace", "Cuándo usarlo"], "enc_tabla");
-  push(["📥", "Importar desde Kobo",
-        "Descarga los registros de entrada/salida desde KoboToolbox y los guarda en DatosKobo.",
-        "Manualmente si el automático falló. Normalmente se hace solo cada hora."], "fila");
-  push(["🔧", "Reparar datos Kobo",
-        "Normaliza y limpia los datos importados de Kobo (nombres, fechas, tipo entrada/salida).",
-        "Si hay errores en los datos de Kobo o nombres que no coinciden."], "fila");
-  push(["🔍", "Diagnosticar registros Kobo",
-        "Muestra un reporte de qué columnas detectó en Kobo y qué nombres no pudo reconocer.",
-        "Para entender por qué una participante no aparece en el reporte de horas."], "fila");
-
-  push(["", "", "", ""], "vacio");
-
-  // ── SECCIÓN 4 — QUINCENAS Y PAGOS ───────────────────────────
-  push(["💳", "SECCIÓN 4 — QUINCENAS Y PAGOS", "", ""], "seccion");
-  push(["", "Acción", "Qué hace", "Cuándo usarlo"], "enc_tabla");
-  push(["📅", "Ver / actualizar quincena actual",
-        "Genera el reporte de horas y montos a pagar para la quincena activa. Muestra cuántas horas trabajó cada participante y cuánto se le debe pagar.",
-        "Cada quincena para preparar los pagos."], "fila");
-  push(["💳", "Registrar pagos de quincena",
-        "Una vez calculada la quincena, envía automáticamente a cada participante a la hoja de Cheques o Transferencias según su forma de pago configurada.",
-        "Después de calcular y revisar el reporte de quincena."], "fila");
-  push(["📊", "Reporte por rango de fechas",
-        "Genera un reporte de horas para cualquier período de fechas que elijas.",
-        "Para reportes especiales o períodos que no son quincena exacta."], "fila");
-  push(["🔄", "Cerrar quincena y abrir siguiente",
-        "Marca la quincena actual como cerrada y configura la siguiente.",
-        "Al final de cada período de pago."], "fila");
-
-  push(["", "", "", ""], "vacio");
-
-  // ── SECCIÓN 5 — HOJAS AUXILIARES ────────────────────────────
-  push(["📋", "SECCIÓN 5 — HOJAS AUXILIARES", "", ""], "seccion");
-  push(["", "Acción", "Qué hace", "Cuándo usarlo"], "enc_tabla");
-  push(["📚", "Días de estudio",
-        "Crea/actualiza la hoja donde se marcan qué días de la semana cada participante asiste a clases. Las horas de estudio NO se cobran.",
-        "Al inicio del programa o cuando cambia el horario."], "fila");
-  push(["🧘", "Lista de terapias",
-        "Crea/actualiza la hoja donde se marca qué participantes tienen terapia. Las horas de terapia NO se cobran.",
+  // ══════════════════════════════════════════════════════════════
+  // SECCIÓN 4 — DATOS IMPORTANTES
+  // ══════════════════════════════════════════════════════════════
+  push(["💡 DATOS IMPORTANTES DEL SISTEMA", "", "", ""], "seccion_gris");
+  push(["Dato", "Información", "Detalle", "Nota"], "enc_tabla");
+  push(["Tarifa A", "Q16.50 / hora", "Categoría A — nivel más avanzado", "Ver col K en PARTICIPANTES"], "fila");
+  push(["Tarifa B", "Q15.75 / hora", "Categoría B", ""], "fila");
+  push(["Tarifa C", "Q15.00 / hora", "Categoría C — nivel estándar", ""], "fila");
+  push(["Tarifa D", "Q14.00 / hora", "Categoría D — nivel inicial", ""], "fila");
+  push(["Col T en PARTICIPANTES", "Forma de Pago",
+        "\"Transferencia\" o \"Cheque\" — sin esto, la participante NO aparece en ninguna hoja de pago.",
+        "Llenar para todas antes de registrar pagos."], "fila");
+  push(["Col V en PARTICIPANTES", "Estipendio",
+        "Monto fijo adicional que recibe cada quincena además de sus horas. Si no tiene, dejar en 0.",
+        "Se suma automáticamente al calcular la quincena."], "fila");
+  push(["Días de Estudio", "Horas NO pagadas",
+        "Los días marcados en la hoja DiasEstudio no se cuentan como horas de trabajo.",
+        "Verificar que estén correctamente configurados."], "fila");
+  push(["Terapias", "Horas NO pagadas",
+        "Los días de terapia tampoco cuentan como horas de trabajo.",
         "Igual que días de estudio."], "fila");
-  push(["💼", "Inclusión Laboral",
-        "Hoja para marcar qué participantes están en el proceso de inclusión laboral.",
-        "Para registrar y dar seguimiento a inclusión laboral."], "fila");
-  push(["👶", "Hijos CCI",
-        "Hoja para registrar si una participante tiene hijos en el CCI y cuántos. La información se refleja automáticamente en PARTICIPANTES.",
-        "Para registro de datos familiares."], "fila");
-  push(["💵", "Hoja Bonos",
-        "Hoja para registrar bonos adicionales para participantes. Los bonos se suman automáticamente al calcular la quincena.",
-        "Cuando hay pagos adicionales por metas, producción, etc."], "fila");
-  push(["🏦", "Hoja Cheques",
-        "Registra los pagos en cheque. Se llena automáticamente con \"Registrar pagos de quincena\".",
-        "Para revisar y gestionar cheques pendientes."], "fila");
-  push(["🔄", "Hoja Transferencias",
-        "Registra los pagos por transferencia. Se llena automáticamente. Agrupa Q1 y Q2 del mismo mes.",
-        "Para revisar y gestionar transferencias bancarias."], "fila");
-  push(["🔵", "Hoja CiclosVida",
-        "Registra automáticamente cuando una participante completa su Ciclo de Vida. Se llena al cambiar Etapa en PARTICIPANTES.",
-        "Consulta para reportes de impacto."], "fila");
+  push(["IVA 5%", "Factura pequeño contribuyente",
+        "Solo se aplica a quien tiene \"Sí\" en col M (Tiene_Factura) de PARTICIPANTES.",
+        "Admin → Configurar IVA para cambiar esto."], "fila");
 
   push(["", "", "", ""], "vacio");
 
-  // ── SECCIÓN 6 — FACTURACIÓN ──────────────────────────────────
-  push(["🧾", "SECCIÓN 6 — FACTURACIÓN", "", ""], "seccion");
-  push(["", "Acción", "Qué hace", "Cuándo usarlo"], "enc_tabla");
-  push(["🧾", "Configurar IVA",
-        "Marca qué participantes tienen factura (pagan IVA 5%). Muestra una lista para marcar Sí/No.",
-        "Al inicio o cuando una participante obtiene/pierde su registro tributario."], "fila");
-  push(["✅", "Guardar cambios de facturación",
-        "Aplica los cambios de IVA que marcaste en la hoja de configuración.",
-        "Después de configurar el IVA."], "fila");
+  // ══════════════════════════════════════════════════════════════
+  // SECCIÓN 5 — GLOSARIO RÁPIDO
+  // ══════════════════════════════════════════════════════════════
+  push(["📞 GLOSARIO RÁPIDO", "", "", ""], "seccion_morado");
+  push(["Término", "Significado", "—", "—"], "enc_tabla");
+  push(["Quincena",       "Período de pago. Normalmente del 1 al 15 o del 16 al fin de mes.", "—", "—"], "fila");
+  push(["Creamos ID",     "Código único de cada participante en el sistema Creamos/Salesforce. Ej: MACI030373", "—", "—"], "fila");
+  push(["Q1 / Q2",        "Primera o segunda quincena del mes", "—", "—"], "fila");
+  push(["Kobo / DatosKobo", "Sistema donde las participantes registran su entrada y salida. Los datos se importan automáticamente.", "—", "—"], "fila");
+  push(["Etapa \"Inscritx\"", "Participante activa en el programa", "—", "—"], "fila");
+  push(["Etapa \"Retiradx\"", "Dejó el programa. Al cambiar a esta etapa, el sistema pide la razón.", "—", "—"], "fila");
+  push(["IVA 5%",         "Impuesto que se descuenta a quien emite factura", "—", "—"], "fila");
+  push(["Neto participante", "Lo que realmente recibe la participante después de IVA", "—", "—"], "fila");
+  push(["Monto Base",     "Horas trabajadas × tarifa por hora", "—", "—"], "fila");
 
   push(["", "", "", ""], "vacio");
 
-  // ── SECCIÓN 7 — DASHBOARD Y REPORTES ────────────────────────
-  push(["📊", "SECCIÓN 7 — DASHBOARD Y REPORTES", "", ""], "seccion");
-  push(["", "Acción", "Qué hace", "Cuándo usarlo"], "enc_tabla");
-  push(["📊", "Dashboard Visual",
-        "Actualiza el dashboard con los indicadores clave del programa: participantes activas, montos, horas, etc.",
-        "Cuando quieres ver el resumen del estado actual del programa."], "fila");
-  push(["📤", "Exportar para PowerBI",
-        "Genera una hoja plana con todos los datos de participantes y pagos, lista para importar a Power BI.",
-        "Cuando necesitas crear reportes en Power BI."], "fila");
-  push(["🎨", "Actualizar colores e IDs",
-        "Sincroniza los colores y Creamos IDs en todas las hojas auxiliares.",
-        "Si los colores se ven mal o los IDs no aparecen en hojas como DiasEstudio."], "fila");
-
-  push(["", "", "", ""], "vacio");
-
-  // ── SECCIÓN 8 — ETAPAS DEL SISTEMA ──────────────────────────
-  push(["🏷️", "SECCIÓN 8 — ETAPAS DEL SISTEMA", "", ""], "seccion");
-  push(["", "Etapa", "Significado", "Acciones automáticas"], "enc_tabla");
-  push(["🟢", "Inscritx",
-        "Participante activa en el programa.",
-        "Aparece en todos los reportes y quincenas."], "fila");
-  push(["🔴", "Retiradx",
-        "Dejó el programa.",
-        "Al marcar esta etapa, el sistema pregunta la razón y lo registra en la hoja Retiradx."], "fila");
-  push(["💼", "Empleadx",
-        "Consiguió empleo formal.",
-        "Se puede registrar manualmente; no activa flujo automático."], "fila");
-  push(["🔵", "Ciclo de Vida Terminado",
-        "Completó exitosamente el proceso completo del programa.",
-        "Se registra automáticamente en la hoja CiclosVida."], "fila");
-
-  push(["", "", "", ""], "vacio");
-
-  // ── SECCIÓN 9 — CATEGORÍAS ───────────────────────────────────
-  push(["🏅", "SECCIÓN 9 — CATEGORÍAS Y TARIFAS", "", ""], "seccion");
-  push(["", "Categoría", "Tarifa por hora", "Descripción"], "enc_tabla");
-  push(["A", "Categoría A", "Q16.50/hora", "Nivel más avanzado"], "fila");
-  push(["B", "Categoría B", "Q15.75/hora", ""], "fila");
-  push(["C", "Categoría C", "Q15.00/hora", "Nivel estándar"], "fila");
-  push(["D", "Categoría D", "Q14.00/hora", "Nivel inicial"], "fila");
-  push(["ℹ️", "Para cambiar categoría:",
-        "Ve a ⚙️ Admin → Cambiar categoría. La tarifa se actualiza automáticamente.",
-        ""], "texto");
-
-  push(["", "", "", ""], "vacio");
-
-  // ── SECCIÓN 10 — AUTOMATIZACIONES ───────────────────────────
-  push(["⚡", "SECCIÓN 10 — AUTOMATIZACIONES", "", ""], "seccion");
-  push(["", "Automatización", "Qué hace", "Frecuencia"], "enc_tabla");
-  push(["📥", "Importación Kobo",
-        "Descarga automáticamente los registros de entrada/salida desde KoboToolbox.",
-        "Cada hora, automáticamente."], "fila");
-  push(["🎨", "Actualización de colores",
-        "Se actualizan los colores en las hojas auxiliares al editar participantes.",
-        "Al editar la hoja PARTICIPANTES."], "fila");
-  push(["🔄", "Cambios de Etapa",
-        "Al cambiar la Etapa de una participante en PARTICIPANTES se ejecutan acciones automáticas (retiro, ciclo de vida).",
-        "Al guardar un cambio en la columna Etapa."], "fila");
-  push(["⚡", "Para activar:",
-        "Ve a ⚙️ Admin → Activar automatizaciones. Necesitas hacerlo una vez por instalación.",
-        "Solo una vez al instalar."], "texto");
+  // ── Pie: fecha de actualización ───────────────────────────────
+  push(["📅 Última actualización de esta guía: " + fechaGuia, "", "", ""], "pie");
 
   // ── Escribir todas las filas ──────────────────────────────────
   h.getRange(1, 1, filas.length, 4).setValues(filas);
 
-  // ── Aplicar formatos ─────────────────────────────────────────
-  var COLORES_SECCIONES = [
-    "#37474f", // S1 Instalación
-    "#1b5e20", // S2 Participantes
-    "#e65100", // S3 Asistencia
-    "#1565c0", // S4 Quincenas
-    "#4a148c", // S5 Hojas auxiliares
-    "#c62828", // S6 Facturación
-    "#006064", // S7 Dashboard
-    "#37474f", // S8 Etapas
-    "#1b5e20", // S9 Categorías
-    "#1565c0"  // S10 Automatizaciones
-  ];
-  var seccionIdx = 0;
+  // ── Activar wrap de texto en toda la hoja ────────────────────
+  h.getRange(1, 1, filas.length, 4).setWrap(true);
 
+  // ── Aplicar formatos fila a fila ─────────────────────────────
   tipos.forEach(function(tipo, i) {
     var fila1 = i + 1;
-    var r1 = h.getRange(fila1, 1, 1, 1);
-    var r2 = h.getRange(fila1, 2, 1, 1);
-    var r3 = h.getRange(fila1, 3, 1, 1);
-    var r4 = h.getRange(fila1, 4, 1, 1);
-    var rAll = h.getRange(fila1, 1, 1, 4);
+    var rAll  = h.getRange(fila1, 1, 1, 4);
 
     if (tipo === "titulo") {
       h.getRange(fila1, 1, 1, 4).merge()
         .setBackground("#1a237e").setFontColor("#ffffff")
-        .setFontWeight("bold").setFontSize(16)
+        .setFontWeight("bold").setFontSize(15)
         .setHorizontalAlignment("center").setVerticalAlignment("middle");
       h.setRowHeight(fila1, 44);
 
-    } else if (tipo === "instalar") {
+    } else if (tipo === "banner") {
       h.getRange(fila1, 1, 1, 4).merge()
         .setBackground("#e8f5e9").setFontColor("#1b5e20")
-        .setFontWeight("bold").setFontSize(12)
-        .setHorizontalAlignment("center").setVerticalAlignment("middle")
-        .setBorder(true, true, true, true, null, null, "#1b5e20", SpreadsheetApp.BorderStyle.SOLID);
-      h.setRowHeight(fila1, 36);
+        .setFontWeight("bold").setFontSize(11)
+        .setHorizontalAlignment("center").setVerticalAlignment("middle");
+      h.setRowHeight(fila1, 35);
 
     } else if (tipo === "seccion") {
-      var bgSec = COLORES_SECCIONES[seccionIdx] || "#37474f";
-      seccionIdx++;
-      rAll.setBackground(bgSec).setFontColor("#ffffff")
+      h.getRange(fila1, 1, 1, 4).merge()
+        .setBackground("#1a237e").setFontColor("#ffffff")
         .setFontWeight("bold").setFontSize(12)
-        .setVerticalAlignment("middle");
-      r1.setHorizontalAlignment("center");
-      r2.setHorizontalAlignment("left");
-      h.getRange(fila1, 3, 1, 2).setBackground(bgSec);
+        .setHorizontalAlignment("left").setVerticalAlignment("middle");
+      h.setRowHeight(fila1, 34);
+
+    } else if (tipo === "seccion_rojo") {
+      h.getRange(fila1, 1, 1, 4).merge()
+        .setBackground("#b71c1c").setFontColor("#ffffff")
+        .setFontWeight("bold").setFontSize(12)
+        .setHorizontalAlignment("left").setVerticalAlignment("middle");
+      h.setRowHeight(fila1, 34);
+
+    } else if (tipo === "seccion_verde") {
+      h.getRange(fila1, 1, 1, 4).merge()
+        .setBackground("#1b5e20").setFontColor("#ffffff")
+        .setFontWeight("bold").setFontSize(12)
+        .setHorizontalAlignment("left").setVerticalAlignment("middle");
+      h.setRowHeight(fila1, 34);
+
+    } else if (tipo === "seccion_gris") {
+      h.getRange(fila1, 1, 1, 4).merge()
+        .setBackground("#37474f").setFontColor("#ffffff")
+        .setFontWeight("bold").setFontSize(12)
+        .setHorizontalAlignment("left").setVerticalAlignment("middle");
+      h.setRowHeight(fila1, 34);
+
+    } else if (tipo === "seccion_morado") {
+      h.getRange(fila1, 1, 1, 4).merge()
+        .setBackground("#4a148c").setFontColor("#ffffff")
+        .setFontWeight("bold").setFontSize(12)
+        .setHorizontalAlignment("left").setVerticalAlignment("middle");
       h.setRowHeight(fila1, 34);
 
     } else if (tipo === "enc_tabla") {
       rAll.setBackground("#90a4ae").setFontColor("#ffffff")
         .setFontWeight("bold").setFontSize(10)
         .setHorizontalAlignment("left").setVerticalAlignment("middle");
-      r1.setHorizontalAlignment("center");
+      h.getRange(fila1, 1).setHorizontalAlignment("center");
       h.setRowHeight(fila1, 24);
 
     } else if (tipo === "fila") {
       rAll.setBackground("#ffffff").setFontColor("#212121").setFontSize(10)
-        .setVerticalAlignment("top").setWrap(true);
-      r1.setHorizontalAlignment("center").setFontSize(14);
+        .setVerticalAlignment("top");
+      h.getRange(fila1, 1).setHorizontalAlignment("center").setFontWeight("bold");
       rAll.setBorder(null, null, true, null, null, null, "#e0e0e0", SpreadsheetApp.BorderStyle.SOLID);
       h.setRowHeight(fila1, 52);
-
-    } else if (tipo === "texto") {
-      rAll.setBackground("#f5f5f5").setFontColor("#555555").setFontSize(10)
-        .setFontStyle("italic").setVerticalAlignment("middle").setWrap(true);
-      r1.setHorizontalAlignment("center").setFontSize(13);
-      h.setRowHeight(fila1, 36);
 
     } else if (tipo === "vacio") {
       rAll.setBackground("#f9f9f9");
       h.setRowHeight(fila1, 8);
+
+    } else if (tipo === "pie") {
+      h.getRange(fila1, 1, 1, 4).merge()
+        .setBackground("#ffffff").setFontColor("#9e9e9e")
+        .setFontStyle("italic").setFontSize(10)
+        .setHorizontalAlignment("center").setVerticalAlignment("middle");
+      h.setRowHeight(fila1, 28);
     }
   });
 
-  // Congelar fila 1 y activar hoja
+  // ── Congelar fila 1 ──────────────────────────────────────────
   h.setFrozenRows(1);
   ss.setActiveSheet(h);
-  ss.toast("✅ Guía de Uso creada/actualizada", "📖", 4);
+  ss.toast("✅ Guía de Pagos creada/actualizada", "📋", 4);
 }); }
