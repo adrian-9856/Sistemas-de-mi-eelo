@@ -2273,6 +2273,7 @@ function detectarColumnas(encabezados, datosEjemplo) {
     var h=String(encabezados[i]).trim(), hLow=h.toLowerCase();
     if(hLow==="start"){cols.start=i;continue;}
     if(hLow==="end"){cols.end=i;continue;}
+    if(hLow==="_submission_time"||hLow==="submission_time"){cols.submissionTime=i;continue;}
     if(hLow==="_uuid"){cols.uuid=i;continue;}
     if(hLow.indexOf("uuid")!==-1&&cols.uuid===undefined){cols.uuid=i;continue;}
     if(hLow.indexOf("participante")!==-1||hLow.indexOf("nombre")!==-1||hLow.indexOf("seleccione")!==-1){
@@ -2536,8 +2537,8 @@ function _calcular(mes, anio) {
     var mapeoNombres = cargarMapeoNombres();
     var diasEstudioMap = obtenerDiasEstudio();
     var listaTerapias  = obtenerListaTerapias();
-    var iTS  = (cols.start !== undefined) ? cols.start : 0;
-    var iEnd = (cols.end   !== undefined) ? cols.end   : -1;
+    var iTS  = (cols.submissionTime !== undefined) ? cols.submissionTime : (cols.end !== undefined) ? cols.end : (cols.start !== undefined) ? cols.start : 0;
+    var iEnd = -1; // submission_time ya es el timestamp exacto, no se necesita corrección
 
     // Agrupar registros por participante+día
     var porDia = {};
@@ -3437,10 +3438,9 @@ function _calcularResumenPeriodo(fi, ff) {
   var cols = detectarColumnas(enc, raw.slice(0, 50));
   var mapeoNombres = cargarMapeoNombres();
 
-  // Índice de timestamp: preferir cols.start; si no existe usar col 0
-  var iTS = (cols.start !== undefined) ? cols.start : 0;
-  // Índice de timestamp de fin de sesión (para salidas estimadas)
-  var iEnd = (cols.end !== undefined) ? cols.end : -1;
+  // submission_time = timestamp cuando el servidor recibió el form (más exacto que start/end del dispositivo)
+  var iTS = (cols.submissionTime !== undefined) ? cols.submissionTime : (cols.end !== undefined) ? cols.end : (cols.start !== undefined) ? cols.start : 0;
+  var iEnd = -1;
 
   var porPart = {};
 
@@ -4854,8 +4854,12 @@ function generarReporte(tipo, fechaInicio, fechaFin, filtroParticipante, nuevaHo
   var datos = hojaKobo.getDataRange().getValues();
   var cols = detectarColumnas(datos[0], datos.slice(1));
 
-  if (cols.start === undefined || cols.participante === undefined) {
-    _alert("ERROR: No se detectaron columnas start/participante.\nUsa '🔍 Diagnosticar Datos Kobo' para más información.");
+  if (cols.submissionTime === undefined && cols.end === undefined && cols.start === undefined) {
+    _alert("ERROR: No se detectó columna de timestamp (start/end/_submission_time).\nUsa '🔍 Diagnosticar Datos Kobo'.");
+    return;
+  }
+  if (cols.participante === undefined) {
+    _alert("ERROR: No se detectó columna 'Participante'.\nUsa '🔍 Diagnosticar Datos Kobo' para más información.");
     return;
   }
   if (cols.accionUnificada === undefined && cols.ingreso === undefined) {
@@ -4887,16 +4891,13 @@ function generarReporte(tipo, fechaInicio, fechaFin, filtroParticipante, nuevaHo
     var tipoReg = obtenerTipoRegistro(fila, cols);
     if (!tipoReg.esIngreso && !tipoReg.esEgreso) continue;
 
-    var tsRaw = fila[cols.start];
+    // Usar submission_time (más exacto) → end → start
+    var tsCol = (cols.submissionTime !== undefined) ? cols.submissionTime :
+                (cols.end           !== undefined) ? cols.end            : cols.start;
+    var tsRaw = fila[tsCol];
     if (!tsRaw) continue;
     var ts = tsRaw instanceof Date ? tsRaw : new Date(tsRaw);
     if (isNaN(ts)) continue;
-
-    // Para salidas: usar 'end' si disponible y razonable (< 24 h)
-    if (tipoReg.esEgreso && cols.end !== undefined && fila[cols.end]) {
-      var tsEnd = fila[cols.end] instanceof Date ? fila[cols.end] : new Date(fila[cols.end]);
-      if (!isNaN(tsEnd) && tsEnd > ts && (tsEnd - ts) < 86400000) ts = tsEnd;
-    }
 
     var claveReg = emp + "|" + ts.getTime() + "|" + (tipoReg.esIngreso ? "E" : "S");
     if (regVistos[claveReg]) continue; regVistos[claveReg] = true;
@@ -5652,7 +5653,8 @@ function diagnosticarDatosKobo() { _run(function() {
       continue;
     }
 
-    var tsRaw = cols.start !== undefined ? fila[cols.start] : null;
+    var _tsCol2 = (cols.submissionTime !== undefined) ? cols.submissionTime : (cols.end !== undefined) ? cols.end : cols.start;
+    var tsRaw = _tsCol2 !== undefined ? fila[_tsCol2] : null;
     var ts    = tsRaw instanceof Date ? tsRaw : new Date(tsRaw);
     if (isNaN(ts)) continue;
     var clave = nombre + "|" + _dClave(ts);
