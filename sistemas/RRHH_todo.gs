@@ -318,24 +318,38 @@ function onEdit(e) {
     try { _syncHijosCCIFila(sheet, fila); } catch(_) {}
   }
 
-  // CHEQUES — col K (Status=11) cambia
-  if (nombre === "Cheques" && col === 11 && fila >= 2) {
-    var statusChq = String(e.range.getValue()).trim();
-    if (statusChq === "Cobrado") {
-      try { _verificarYArchivarPagos("Cheques"); } catch(err) { Logger.log("Error archivo Cheques: " + err); }
-    }
-  }
+}
 
-  // TRANSFERENCIAS — col M (Status=13) cambia
-  if (nombre === "Transferencias" && col === 13 && fila >= 2) {
-    var statusTr = String(e.range.getValue()).trim();
-    if (statusTr === "Transferencias Subidas") {
-      try {
-        // Email al encargado de planilla
+/**
+ * onEdit INSTALABLE — maneja status de pagos (Cheques/Transferencias).
+ * Necesita trigger instalable (configurarTriggers) para usar MailApp y UI.
+ */
+function onEditInstalable(e) {
+  try {
+    var sheet  = e.range.getSheet();
+    var nombre = sheet.getName();
+    var col    = e.range.getColumn();
+    var fila   = e.range.getRow();
+    if (fila < 2) return;
+
+    // CHEQUES — col K (Status=11) → "Cobrado"
+    if (nombre === "Cheques" && col === 11) {
+      var statusChq = String(e.range.getValue()).trim();
+      if (statusChq === "Cobrado") {
+        _verificarYArchivarPagos("Cheques");
+      }
+    }
+
+    // TRANSFERENCIAS — col M (Status=13) → "Transferencias Subidas"
+    if (nombre === "Transferencias" && col === 13) {
+      var statusTr = String(e.range.getValue()).trim();
+      if (statusTr === "Transferencias Subidas") {
         _enviarEmailPago("Transferencias");
         _verificarYArchivarPagos("Transferencias");
-      } catch(err) { Logger.log("Error archivo Transferencias: " + err); }
+      }
     }
+  } catch(err) {
+    Logger.log("onEditInstalable error: " + err.message);
   }
 }
 
@@ -1552,7 +1566,9 @@ function registrarPagosQuincena() { _run(function() {
         mesNombre = CFG.MESES[mesIdx];
         anioNum   = fecIni.getFullYear();
         // Si fecha inicio <= 15 del mes → Q1, si > 15 → Q2
-        quincenaLabel = fecIni.getDate() <= 15 ? "Q1" : "Q2";
+        quincenaLabel = fecIni.getDate() >= 20 ? "Q1" : "Q2";
+        // día >= 20 (normalmente 25) = primera quincena del ciclo = Q1
+        // día < 20 (normalmente 10) = segunda quincena del ciclo = Q2
       }
     }
   }
@@ -2741,8 +2757,8 @@ function _calcular(mes, anio) {
     var mapeoNombres = cargarMapeoNombres();
     var diasEstudioMap = obtenerDiasEstudio();
     var listaTerapias  = obtenerListaTerapias();
-    var iTS  = (cols.start !== undefined) ? cols.start : 0;
-    var iEnd = (cols.end   !== undefined) ? cols.end   : -1;
+    var iTS  = (cols.end !== undefined) ? cols.end : (cols.start !== undefined) ? cols.start : 0;
+    var iEnd = -1; // end ya es el timestamp exacto de submission
 
     // Agrupar registros por participante+día
     var porDia = {};
@@ -3643,8 +3659,8 @@ function _calcularResumenPeriodo(fi, ff) {
   var cols = detectarColumnas(enc, raw.slice(0, 50));
   var mapeoNombres = cargarMapeoNombres();
 
-  var iTS  = (cols.start !== undefined) ? cols.start : 0;
-  var iEnd = (cols.end   !== undefined) ? cols.end   : -1;
+  var iTS  = (cols.end !== undefined) ? cols.end : (cols.start !== undefined) ? cols.start : 0;
+  var iEnd = -1;
 
   // Agrupar por participante+día
   var porPartDia = {};
@@ -4400,7 +4416,8 @@ function configurarTriggers() { _run(function() {
   ScriptApp.getProjectTriggers().forEach(function(t){
     var h = t.getHandlerFunction();
     if (h === "importarDesdeKobo" || h === "importarAlAbrir" ||
-        h === "actualizarQuincenaActual" || h === "actualizarDashboardVisual") {
+        h === "actualizarQuincenaActual" || h === "actualizarDashboardVisual" ||
+        h === "onEditInstalable") {
       ScriptApp.deleteTrigger(t);
     }
   });
@@ -4414,6 +4431,9 @@ function configurarTriggers() { _run(function() {
   // Actualizar Dashboard Visual cada 10 minutos
   ScriptApp.newTrigger("actualizarDashboardVisual")
     .timeBased().everyMinutes(10).create();
+  // onEdit instalable para email + archivo de pagos (requiere autorización)
+  ScriptApp.newTrigger("onEditInstalable")
+    .forSpreadsheet(ss).onEdit().create();
 
   _alert("✅ Automatizaciones activadas:\n\n" +
     "• ⏰ Kobo: importa datos cada hora\n" +
@@ -4757,7 +4777,7 @@ function actualizarDashboard() { _run(function() {
       var diasEstMap  = obtenerDiasEstudio();
       var terapiasMap = obtenerListaTerapias();
       var mapeoN = cargarMapeoNombres();
-      var iTS = (colsK.start !== undefined) ? colsK.start : 0;
+      var iTS = (colsK.end !== undefined) ? colsK.end : (colsK.start !== undefined) ? colsK.start : 0;
       var diasFormacion = {}; // "nombre|yyyy-mm-dd" → true
       rawK.forEach(function(fila) {
         var ts2 = new Date(fila[iTS]);
@@ -5102,16 +5122,11 @@ function generarReporte(tipo, fechaInicio, fechaFin, filtroParticipante, nuevaHo
     var tipoReg = obtenerTipoRegistro(fila, cols);
     if (!tipoReg.esIngreso && !tipoReg.esEgreso) continue;
 
-    var tsRaw = fila[cols.start];
+    var _tsColG = (cols.end !== undefined) ? cols.end : cols.start;
+    var tsRaw = _tsColG !== undefined ? fila[_tsColG] : null;
     if (!tsRaw) continue;
     var ts = tsRaw instanceof Date ? tsRaw : new Date(tsRaw);
     if (isNaN(ts)) continue;
-
-    // Para salidas: usar 'end' si disponible y razonable (< 16 h)
-    if (tipoReg.esEgreso && cols.end !== undefined && fila[cols.end]) {
-      var tsEnd = fila[cols.end] instanceof Date ? fila[cols.end] : new Date(fila[cols.end]);
-      if (!isNaN(tsEnd) && tsEnd > ts && (tsEnd - ts) < 57600000) ts = tsEnd;
-    }
 
     var claveReg = emp + "|" + ts.getTime() + "|" + (tipoReg.esIngreso ? "E" : "S");
     if (regVistos[claveReg]) continue; regVistos[claveReg] = true;
@@ -6514,7 +6529,7 @@ function actualizarDashboardVisual() { _run(function() {
       var diasEstMap  = obtenerDiasEstudio();
       var terapiasMap = obtenerListaTerapias();
       var mapeoN = cargarMapeoNombres();
-      var iTS = (colsK.start !== undefined) ? colsK.start : 0;
+      var iTS = (colsK.end !== undefined) ? colsK.end : (colsK.start !== undefined) ? colsK.start : 0;
       var diasFormacion = {};
       rawK.forEach(function(fila) {
         var ts2 = new Date(fila[iTS]);
