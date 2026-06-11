@@ -197,6 +197,8 @@ function onOpen() {
     .addItem("📥 Importar desde Kobo",                   "importarDesdeKobo")
     .addSeparator()
     .addItem("🔍 Diagnosticar registros Kobo",           "diagnosticarDatosKobo")
+    .addItem("🟡 Marcar filas sospechosas",              "marcarFilasSospechosas")
+    .addItem("🗑️ Eliminar filas marcadas en rojo",       "eliminarFilasRojas")
     .addItem("🔧 Reparar datos Kobo",                    "repararDatosKobo");
 
   // ══════════════════════════════════════════════════════════
@@ -5902,6 +5904,113 @@ function crearHojaListaTerapias() { _run(function() {
 // ══════════════════════════════════════════════════════════════════
 // DIAGNÓSTICO, REPARACIÓN Y CAMBIO DE NOMBRE
 // ══════════════════════════════════════════════════════════════════
+
+/**
+ * Marca en amarillo/rojo las filas sospechosas de DatosKobo:
+ *   🟡 Amarillo: par ENTRADA+SALIDA con < 30 min de diferencia (posible error)
+ *   🔴 Rojo:     ENTRADA cruzó medianoche (start PM ≥ 12, end día distinto) — stale form
+ *
+ * Después revisa las filas rojas y usa "Eliminar filas rojas" para borrarlas.
+ */
+function marcarFilasSospechosas() { _run(function() {
+  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var hojaK = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
+  if (!hojaK || hojaK.getLastRow() < 2) {
+    _alert("DatosKobo vacío o inexistente."); return;
+  }
+
+  var datos   = hojaK.getDataRange().getValues();
+  var cols    = detectarColumnas(datos[0], datos.slice(1));
+  var nCols   = hojaK.getLastColumn();
+
+  if (cols.start === undefined) {
+    _alert("No se detectó columna 'start' en DatosKobo. Importa desde Kobo primero."); return;
+  }
+
+  // Limpiar marcas previas
+  hojaK.getRange(2, 1, hojaK.getLastRow()-1, nCols).setBackground(null);
+
+  var nRojo = 0, nAmarillo = 0;
+
+  for (var i = 1; i < datos.length; i++) {
+    var fila   = datos[i];
+    var tsS    = new Date(fila[cols.start]);
+    var tsE    = cols.end !== undefined ? new Date(fila[cols.end]) : null;
+    if (isNaN(tsS)) continue;
+
+    var tipo   = obtenerTipoRegistro(fila, cols);
+    if (!tipo.esIngreso && !tipo.esEgreso) continue;
+
+    var bg = null;
+
+    if (tsE && !isNaN(tsE)) {
+      var mismoD = (tsS.getFullYear()===tsE.getFullYear() &&
+                    tsS.getMonth()===tsE.getMonth() &&
+                    tsS.getDate()===tsE.getDate());
+      var startH = parseInt(Utilities.formatDate(tsS, CFG.TIMEZONE, "H"), 10);
+      var diffMin = (tsE - tsS) / 60000;
+
+      if (!mismoD && tipo.esIngreso && startH >= 12) {
+        // ENTRADA abierta en la tarde de un día, enviada al día siguiente — stale form
+        bg = "#ffcdd2"; // rojo claro
+        nRojo++;
+      } else if (mismoD && diffMin >= 0 && diffMin < 30) {
+        // start y end en < 30 minutos — posible duplicado o error
+        bg = "#fff9c4"; // amarillo claro
+        nAmarillo++;
+      }
+    }
+
+    if (bg) hojaK.getRange(i+1, 1, 1, nCols).setBackground(bg);
+  }
+
+  _alert(
+    "✅ Marcado completado\n\n" +
+    "🔴 Rojas: " + nRojo + " filas (ENTRADA stale — form abierto el día anterior en la tarde)\n" +
+    "🟡 Amarillas: " + nAmarillo + " filas (start ↔ end < 30 min — revisar)\n\n" +
+    "Pasos:\n" +
+    "1. Revisa las filas amarillas: ¿son válidas o errores?\n" +
+    "2. Las filas rojas casi siempre son basura → usa\n" +
+    "   📥 Asistencia → 🗑️ Eliminar filas marcadas en rojo"
+  );
+}); }
+
+/**
+ * Elimina de DatosKobo todas las filas con fondo rojo (marcadas por marcarFilasSospechosas).
+ */
+function eliminarFilasRojas() { _run(function() {
+  var ui    = SpreadsheetApp.getUi();
+  var hojaK = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CFG.HOJAS.DATOS_KOBO);
+  if (!hojaK || hojaK.getLastRow() < 2) { _alert("DatosKobo vacío."); return; }
+
+  var lastRow = hojaK.getLastRow();
+  var nCols   = hojaK.getLastColumn();
+  var bgs     = hojaK.getRange(2, 1, lastRow-1, nCols).getBackgrounds();
+
+  // Contar filas rojas
+  var filasRojas = [];
+  for (var i = 0; i < bgs.length; i++) {
+    if (bgs[i][0] === "#ffcdd2") filasRojas.push(i+2); // 1-indexed
+  }
+
+  if (filasRojas.length === 0) {
+    _alert("No hay filas rojas. Usa primero 'Marcar filas sospechosas'."); return;
+  }
+
+  var conf = ui.alert(
+    "🗑️ Eliminar filas rojas",
+    "Se borrarán " + filasRojas.length + " filas marcadas en rojo de DatosKobo.\n\n¿Continuar?",
+    ui.ButtonSet.YES_NO
+  );
+  if (conf !== ui.Button.YES) return;
+
+  // Borrar de abajo hacia arriba para no afectar índices
+  for (var j = filasRojas.length-1; j >= 0; j--) {
+    hojaK.deleteRow(filasRojas[j]);
+  }
+
+  _alert("✅ " + filasRojas.length + " filas eliminadas.\n\nRegenetra el reporte para ver los cambios.");
+}); }
 
 /**
  * Diagnóstico completo de DatosKobo.
