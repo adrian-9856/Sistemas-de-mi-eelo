@@ -35,6 +35,7 @@ const CFG = {
   MESES: ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
           "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"],
   DIAS_SEMANA: ["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"],
+  TIMEZONE: "America/Guatemala",
 };
 
 /*
@@ -1566,9 +1567,10 @@ function registrarPagosQuincena() { _run(function() {
         mesNombre = CFG.MESES[mesIdx];
         anioNum   = fecIni.getFullYear();
         // Si fecha inicio <= 15 del mes → Q1, si > 15 → Q2
-        quincenaLabel = fecIni.getDate() >= 20 ? "Q1" : "Q2";
-        // día >= 20 (normalmente 25) = primera quincena del ciclo = Q1
-        // día < 20 (normalmente 10) = segunda quincena del ciclo = Q2
+        quincenaLabel = fecIni.getDate() <= 15 ? "Q1" : "Q2";
+        // día ≤ 15 (normalmente 10) → fin de Q2 (25→10) = segunda quincena
+        // día > 15 (normalmente 25) → inicio de Q2, pero marcamos Q1 en ciclo 11→25
+        // 11→25 = PRIMERA quincena (Q1), 25→10 = SEGUNDA quincena (Q2)
       }
     }
   }
