@@ -5210,7 +5210,8 @@ function generarReporte(tipo, fechaInicio, fechaFin, filtroParticipante, nuevaHo
 
       // Resetear al cambiar de día
       if (fechaAnt && !_esMismaFecha(fechaAnt, reg.fecha)) {
-        if (currentIngreso && currentIngreso.fecha.getHours() < 17) {
+        var prevHLocal = currentIngreso ? parseInt(Utilities.formatDate(currentIngreso.fecha, CFG.TIMEZONE, "H"), 10) : 0;
+        if (currentIngreso && prevHLocal < 17) {
           var sEst = new Date(currentIngreso.fecha.getTime() + CFG.HORAS_JORNADA_NORMAL * 3600000);
           var isDiaEst = esDiaDeEstudio(empId, currentIngreso.fecha, diasEstudioMapa);
           _addFila(currentIngreso.fecha, currentIngreso.fecha, sEst,
@@ -5223,25 +5224,39 @@ function generarReporte(tipo, fechaInicio, fechaFin, filtroParticipante, nuevaHo
       fechaAnt = reg.fecha;
 
       if (reg.esIngreso) {
-        if (currentIngreso === null && lastEgreso === null && reg.fecha.getHours() >= 17) continue;
+        // Entradas reales son siempre AM (< 12:00). Ignorar ENTRADA en tarde si no hay sesión abierta.
+        var hLocal = parseInt(Utilities.formatDate(reg.fecha, CFG.TIMEZONE, "H"), 10);
+        if (currentIngreso === null && lastEgreso === null && hLocal >= 12) continue;
         if (currentIngreso && _esMismaFecha(currentIngreso.fecha, reg.fecha)) continue;
         currentIngreso = reg; lastEgreso = null;
       } else if (reg.esEgreso && currentIngreso) {
         var horas  = (reg.fecha - currentIngreso.fecha) / 3600000;
-        var isDiaEst2 = esDiaDeEstudio(empId, currentIngreso.fecha, diasEstudioMapa);
-        var tipoLbl, porc;
-        if      (isDiaEst2)      { tipoLbl = "Día de Estudio"; porc = 0; }
-        else if (reg.esPermiso)  { tipoLbl = "Permiso"; porc = 0; }
-        else if (reg.esTerapia || listaTerapias[empId]) { tipoLbl = "Terapia"; porc = 100; }
-        else if (reg.esComputacion) { tipoLbl = "Computación"; porc = 50; }
-        else                     { tipoLbl = "Normal"; porc = 100; }
-        _addFila(currentIngreso.fecha, currentIngreso.fecha, reg.fecha, tipoLbl, horas, porc);
-        currentIngreso = null; lastEgreso = reg;
+
+        if (horas <= 0) {
+          // SALIDA inválida (mismo instante o anterior a ENTRADA) — ignorar SALIDA, estimar jornada
+          var isDiaEstInv = esDiaDeEstudio(empId, currentIngreso.fecha, diasEstudioMapa);
+          var sEstInv = new Date(currentIngreso.fecha.getTime() + CFG.HORAS_JORNADA_NORMAL * 3600000);
+          _addFila(currentIngreso.fecha, currentIngreso.fecha, sEstInv,
+            (isDiaEstInv ? "Día de Estudio (Est.)" : "Normal (Estimado)") + "*",
+            CFG.HORAS_JORNADA_NORMAL, isDiaEstInv ? 0 : 100);
+          currentIngreso = null; lastEgreso = reg;
+        } else {
+          var isDiaEst2 = esDiaDeEstudio(empId, currentIngreso.fecha, diasEstudioMapa);
+          var tipoLbl, porc;
+          if      (isDiaEst2)      { tipoLbl = "Día de Estudio"; porc = 0; }
+          else if (reg.esPermiso)  { tipoLbl = "Permiso"; porc = 0; }
+          else if (reg.esTerapia || listaTerapias[empId]) { tipoLbl = "Terapia"; porc = 100; }
+          else if (reg.esComputacion) { tipoLbl = "Computación"; porc = 50; }
+          else                     { tipoLbl = "Normal"; porc = 100; }
+          _addFila(currentIngreso.fecha, currentIngreso.fecha, reg.fecha, tipoLbl, horas, porc);
+          currentIngreso = null; lastEgreso = reg;
+        }
       }
     }
 
     // Ingreso sin salida al final del set
-    if (currentIngreso && currentIngreso.fecha.getHours() < 17) {
+    var ciHourLocal = currentIngreso ? parseInt(Utilities.formatDate(currentIngreso.fecha, CFG.TIMEZONE, "H"), 10) : 0;
+    if (currentIngreso && ciHourLocal < 17) {
       var sEst2 = new Date(currentIngreso.fecha.getTime() + CFG.HORAS_JORNADA_NORMAL * 3600000);
       var isDiaEstF = esDiaDeEstudio(empId, currentIngreso.fecha, diasEstudioMapa);
       _addFila(currentIngreso.fecha, currentIngreso.fecha, sEst2,
