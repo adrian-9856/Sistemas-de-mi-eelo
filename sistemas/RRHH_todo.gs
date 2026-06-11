@@ -5,7 +5,10 @@
 const CFG = {
   ORG:          "mi eelo",   // programa
   PROYECTO:     "Textil",    // proyecto padre
-  CORREO_ADMIN: "adrian@creamosguatemala.org",
+  CORREO_ADMIN:    "adrian@creamosguatemala.org",
+  CORREO_CHEQUES:  "adrian@creamosguatemala.org",  // encargado/a de cheques — cambiar cuando esté listo
+  CORREO_PLANILLA: "adrian@creamosguatemala.org",  // encargado/a de planilla transferencias — cambiar cuando esté listo
+  DRIVE_FOLDER_PAGOS: "Pagos RRHH mi eelo",        // carpeta en Drive donde se guardan los PDFs
   // Tarifas por categoría (Q por hora) — A=Q16.50 B=Q15.75 C=Q15.00 D=Q14.00
   CATEGORIAS:   { A: 16.50, B: 15.75, C: 15.00, D: 14.00 },
   // Colores oficiales por categoría — usados en TODOS los reportes y hojas
@@ -314,6 +317,94 @@ function onEdit(e) {
   if (nombre === "HijosCCI" && (col === 3 || col === 4) && fila >= 2) {
     try { _syncHijosCCIFila(sheet, fila); } catch(_) {}
   }
+
+  // CHEQUES — col K (Status=11) cambia
+  if (nombre === "Cheques" && col === 11 && fila >= 2) {
+    var statusChq = String(e.range.getValue()).trim();
+    if (statusChq === "Cobrado") {
+      try { _verificarYArchivarPagos("Cheques"); } catch(err) { Logger.log("Error archivo Cheques: " + err); }
+    }
+  }
+
+  // TRANSFERENCIAS — col M (Status=13) cambia
+  if (nombre === "Transferencias" && col === 13 && fila >= 2) {
+    var statusTr = String(e.range.getValue()).trim();
+    if (statusTr === "Transferencias Subidas") {
+      try {
+        // Email al encargado de planilla
+        _enviarEmailPago("Transferencias");
+        _verificarYArchivarPagos("Transferencias");
+      } catch(err) { Logger.log("Error archivo Transferencias: " + err); }
+    }
+  }
+}
+
+/**
+ * Verifica si todos los registros activos en Cheques (Status=col 11) o
+ * Transferencias (Status=col 13) están en estado final.
+ * Si sí → archiva la hoja con nombre "Cheques_MesAño" y crea hoja nueva con headers.
+ */
+function _verificarYArchivarPagos(nombreHoja) {
+  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var hoja  = ss.getSheetByName(nombreHoja);
+  if (!hoja || hoja.getLastRow() < 2) return;
+
+  var esCheque  = (nombreHoja === "Cheques");
+  var colStatus = esCheque ? 11 : 13;  // K o M
+  var estadoFinal = esCheque ? "Cobrado" : "Transferencias Subidas";
+
+  var datos = hoja.getRange(2, 1, hoja.getLastRow() - 1, colStatus).getValues();
+  var totalActivos = 0, totalFinales = 0;
+  var mesArchivo = "", anioArchivo = "";
+
+  datos.forEach(function(r) {
+    var nombre = String(r[0] || "").trim();
+    if (!nombre) return;
+    totalActivos++;
+    var status = String(r[colStatus - 1] || "").trim();
+    if (status === estadoFinal) totalFinales++;
+    // Tomar mes/año de la primera fila con datos
+    if (!mesArchivo && r[esCheque ? 2 : 10]) {
+      mesArchivo  = String(r[esCheque ? 2 : 10] || "").trim();
+      anioArchivo = String(r[esCheque ? 3 : 11] || "").trim();
+    }
+  });
+
+  if (totalActivos === 0 || totalFinales < totalActivos) return; // aún hay pendientes
+
+  // Todos en estado final → archivar
+  var sufijo = (mesArchivo || "mes") + "_" + (anioArchivo || new Date().getFullYear());
+  var nombreArchivo = nombreHoja + "_" + sufijo;
+
+  // Crear copia archivada
+  var copia = hoja.copyTo(ss);
+  copia.setName(nombreArchivo);
+  copia.setTabColor("#78909c"); // gris = archivado
+
+  // Limpiar hoja original (conservar encabezado)
+  if (hoja.getLastRow() > 1) hoja.deleteRows(2, hoja.getLastRow() - 1);
+
+  SpreadsheetApp.getUi().alert(
+    "✅ PAGOS ARCHIVADOS\n\n" +
+    "📋 Hoja archivada como: " + nombreArchivo + "\n" +
+    "📄 Hoja '" + nombreHoja + "' lista para el próximo mes."
+  );
+}
+
+/**
+ * Envía email de notificación cuando los pagos pasan a estado final.
+ * tipo: "Cheques" → CORREO_CHEQUES, "Transferencias" → CORREO_PLANILLA
+ */
+function _enviarEmailPago(tipo) {
+  var dest = (tipo === "Cheques") ? CFG.CORREO_CHEQUES : CFG.CORREO_PLANILLA;
+  if (!dest) return;
+  var asunto = "[" + CFG.ORG + "] " + tipo + " listos para procesar";
+  var cuerpo = "Hola,\n\nLos " + tipo + " del período están listos para ser procesados.\n\n" +
+    "Por favor revisa la hoja '" + tipo + "' en el archivo de RRHH mi eelo.\n\n" +
+    "Saludos,\n" + CFG.ORG;
+  try {
+    MailApp.sendEmail({ to: dest, subject: asunto, body: cuerpo });
+  } catch(e) { Logger.log("Email error: " + e.message); }
 }
 
 /** Sincroniza la fila de DiasEstudio hacia col F (Educacion=6) de PARTICIPANTES */
@@ -1197,8 +1288,8 @@ function crearHojaBonos() { _run(function() {
 // ── Hojas de pago: Cheques y Transferencias ──────────────────────
 
 /**
- * Hoja "Cheques" — registra cheques emitidos por quincena.
- * Columnas: Fecha | Numero | Nombre | Valor | Mes | Quincena | Programa | Cta_Cheques | Status
+ * Hoja "Cheques" — una fila por participante por mes, con Q1 y Q2.
+ * Columnas: Nombre | Programa | Mes | Año | Q1_Monto | Q2_Monto | Total | #Cheque_Q1 | #Cheque_Q2 | Cta_Cheques | Status
  */
 function crearHojaCheques() { _run(function() {
   var ss   = SpreadsheetApp.getActiveSpreadsheet();
@@ -1206,44 +1297,44 @@ function crearHojaCheques() { _run(function() {
   var esNueva = !hoja;
   if (esNueva) hoja = ss.insertSheet("Cheques");
 
-  var enc = ["Fecha","Numero","Nombre","Valor","Mes","Quincena","Programa","Cta_Cheques","Status"];
+  var enc = ["Nombre","Programa","Mes","Año","Q1_Monto","Q2_Monto","Total",
+             "#Cheque_Q1","#Cheque_Q2","Cta_Cheques","Status"];
   hoja.getRange(1, 1, 1, enc.length).setValues([enc])
     .setBackground("#1a237e").setFontColor("#ffffff").setFontWeight("bold")
     .setHorizontalAlignment("center");
   hoja.setFrozenRows(1);
 
   var vStatus = SpreadsheetApp.newDataValidation()
-    .requireValueInList(["Pendiente","Entregado","Cobrado","Cancelado"], true).build();
-  hoja.getRange("I2:I1000").setDataValidation(vStatus);
+    .requireValueInList(["Pendiente","Cobrado","Cancelado"], true).build();
+  hoja.getRange("K2:K1000").setDataValidation(vStatus);
 
-  hoja.getRange("A2:A1000").setNumberFormat("dd/MM/yyyy");    // col A = Fecha
-  hoja.getRange("D2:D1000").setNumberFormat('"Q"#,##0.00');   // col D = Valor
+  hoja.getRange("E2:G1000").setNumberFormat('"Q"#,##0.00'); // Q1, Q2, Total
 
   if (esNueva) {
-    hoja.setColumnWidth(1, 110); // Fecha
-    hoja.setColumnWidth(2, 100); // Numero
-    hoja.setColumnWidth(3, 250); // Nombre
-    hoja.setColumnWidth(4, 100); // Valor
-    hoja.setColumnWidth(5, 110); // Mes
-    hoja.setColumnWidth(6, 100); // Quincena
-    hoja.setColumnWidth(7, 140); // Programa
-    hoja.setColumnWidth(8, 160); // Cta_Cheques
-    hoja.setColumnWidth(9, 110); // Status
+    hoja.setColumnWidth(1, 250);  // Nombre
+    hoja.setColumnWidth(2, 140);  // Programa
+    hoja.setColumnWidth(3, 110);  // Mes
+    hoja.setColumnWidth(4, 70);   // Año
+    hoja.setColumnWidth(5, 110);  // Q1_Monto
+    hoja.setColumnWidth(6, 110);  // Q2_Monto
+    hoja.setColumnWidth(7, 110);  // Total
+    hoja.setColumnWidth(8, 120);  // #Cheque_Q1
+    hoja.setColumnWidth(9, 120);  // #Cheque_Q2
+    hoja.setColumnWidth(10, 160); // Cta_Cheques
+    hoja.setColumnWidth(11, 130); // Status
   }
 
   hoja.activate();
   _alert(
     "🏦 CHEQUES — Hoja lista.\n\n" +
-    "Columnas:\n" +
-    "• Fecha: fecha de emisión del cheque\n" +
-    "• Numero: número de cheque (llenar manualmente)\n" +
-    "• Nombre: participante\n" +
-    "• Valor: monto en quetzales\n" +
-    "• Mes / Quincena: período correspondiente\n" +
-    "• Programa: área del programa\n" +
-    "• Cta_Cheques: cuenta bancaria origen\n" +
-    "• Status: Pendiente / Entregado / Cobrado / Cancelado\n\n" +
-    "Usa 📅 Quincena → 💳 Registrar pagos de quincena para poblar automáticamente."
+    "Una fila por participante por mes. Columnas:\n" +
+    "• Nombre / Programa / Mes / Año\n" +
+    "• Q1_Monto / Q2_Monto: montos de cada quincena (auto)\n" +
+    "• Total: suma Q1+Q2 (auto)\n" +
+    "• #Cheque_Q1 / #Cheque_Q2: número de cheque (llenar manualmente)\n" +
+    "• Cta_Cheques: cuenta de origen\n" +
+    "• Status: Pendiente → Cobrado\n\n" +
+    "Cuando TODOS los cheques estén en 'Cobrado', la hoja se archiva automáticamente."
   );
 }); }
 
@@ -1259,7 +1350,7 @@ function crearHojaTransferencias() { _run(function() {
   if (esNueva) hoja = ss.insertSheet("Transferencias");
 
   var enc = ["Nombre","Tipo_Pago","Servicio","Banco","Tipo_Cuenta","Num_Cta",
-             "Cta_Pago","Quincena_1","Quincena_2","Total_Mes","Mes","Año"];
+             "Cta_Pago","Quincena_1","Quincena_2","Total_Mes","Mes","Año","Status"];
   hoja.getRange(1, 1, 1, enc.length).setValues([enc])
     .setBackground("#1b5e20").setFontColor("#ffffff").setFontWeight("bold")
     .setHorizontalAlignment("center");
@@ -1279,22 +1370,27 @@ function crearHojaTransferencias() { _run(function() {
     hoja.setColumnWidth(9, 110);  // Quincena_2
     hoja.setColumnWidth(10, 110); // Total_Mes
     hoja.setColumnWidth(11, 110); // Mes
-    hoja.setColumnWidth(12, 80);  // Año
+    hoja.setColumnWidth(12, 80);   // Año
+    hoja.setColumnWidth(13, 160);  // Status
   }
+
+  var vStatus = SpreadsheetApp.newDataValidation()
+    .requireValueInList(["Pendiente","Transferencias Subidas"], true).build();
+  hoja.getRange("M2:M1000").setDataValidation(vStatus);
 
   hoja.activate();
   _alert(
     "🔄 TRANSFERENCIAS — Hoja lista.\n\n" +
     "Columnas:\n" +
     "• Nombre: participante\n" +
-    "• Tipo_Pago: Transferencia\n" +
-    "• Servicio: categoría de servicio (Educacion, Apoyo Emocional, etc.)\n" +
+    "• Tipo_Pago / Servicio: Transferencia / Textil\n" +
     "• Banco / Tipo_Cuenta / Num_Cta: datos bancarios del participante\n" +
     "• Cta_Pago: cuenta de la organización origen del pago\n" +
-    "• Quincena_1 / Quincena_2: montos por quincena\n" +
-    "• Total_Mes: suma automática de Q1 + Q2\n" +
-    "• Mes / Año: período mensual\n\n" +
-    "Usa 📅 Quincena → 💳 Registrar pagos de quincena para poblar automáticamente."
+    "• Quincena_1 / Quincena_2: montos por quincena (auto)\n" +
+    "• Total_Mes: suma automática de Q1+Q2\n" +
+    "• Mes / Año: período mensual\n" +
+    "• Status: Pendiente → Transferencias Subidas (archiva y cierra)\n\n" +
+    "Cuando cambias Status a 'Transferencias Subidas', la hoja se archiva automáticamente."
   );
 }); }
 
@@ -1414,10 +1510,7 @@ function registrarPagosQuincena() { _run(function() {
     var numCuenta  = String(r[18] || "").trim();  // col S
     var formaPago  = String(r[19] || "").trim();  // col T
 
-    var servicio = "RRHH";
-    if (educacion.toLowerCase().indexOf("sí") !== -1) servicio = "Educacion";
-    else if (apoyo.toLowerCase().indexOf("sí") !== -1) servicio = "Apoyo Emocional";
-    else if (inclusion.toLowerCase().indexOf("sí") !== -1) servicio = "Inclusion Laboral";
+    var servicio = "Textil"; // siempre Textil para el taller
 
     var info = { formaPago: formaPago, banco: banco, tipoCuenta: tipoCuenta,
                  numCuenta: numCuenta, programa: programa, servicio: servicio,
@@ -1499,24 +1592,44 @@ function registrarPagosQuincena() { _run(function() {
     var nombreOficial = info.nombreOficial || nombre;
 
     if (forma === "Cheque") {
-      // Deduplicar: buscar fila con mismo Nombre + Mes + Quincena
+      // Una fila por participante por mes — misma lógica que Transferencias
+      // Cols: Nombre(0) Programa(1) Mes(2) Año(3) Q1_Monto(4) Q2_Monto(5) Total(6) #Chq_Q1(7) #Chq_Q2(8) Cta(9) Status(10)
       var normNomChq = textoParaComparar(nombreOficial);
-      var existe = existCheques.some(function(r) {
-        return textoParaComparar(String(r[2]||"")) === normNomChq &&
-               String(r[4]).trim() === mesNombre &&
-               String(r[5]).trim() === quincenaLabel;
-      });
-      if (existe) {
-        erroresPago.push("ℹ️ Cheque ya registrado para " + nombreOficial + " (" + mesNombre + " " + quincenaLabel + ")");
-        return;
+      var filaChqExist = -1;
+      for (var ci = 0; ci < existCheques.length; ci++) {
+        if (textoParaComparar(String(existCheques[ci][0]||"")) === normNomChq &&
+            String(existCheques[ci][2]).trim() === mesNombre &&
+            String(existCheques[ci][3]).toString().trim() === String(anioNum)) {
+          filaChqExist = ci;
+          break;
+        }
       }
-      hCheques.appendRow([hoy, "", nombreOficial, monto, mesNombre, quincenaLabel,
-                          info.programa, "", "Pendiente"]);
-      var newRow = hCheques.getLastRow();
-      hCheques.getRange(newRow, 1).setNumberFormat("dd/MM/yyyy");
-      hCheques.getRange(newRow, 4).setNumberFormat('"Q"#,##0.00');
-      existCheques.push([hoy, "", nombreOficial, monto, mesNombre, quincenaLabel, info.programa, "", "Pendiente"]);
-      nCheques++;
+
+      if (filaChqExist >= 0) {
+        var filaRealChq = filaChqExist + 2;
+        if (quincenaLabel === "Q1") {
+          hCheques.getRange(filaRealChq, 5).setValue(monto);
+          existCheques[filaChqExist][4] = monto;
+        } else {
+          hCheques.getRange(filaRealChq, 6).setValue(monto);
+          existCheques[filaChqExist][5] = monto;
+        }
+        var q1c = parseFloat(existCheques[filaChqExist][4]) || 0;
+        var q2c = parseFloat(existCheques[filaChqExist][5]) || 0;
+        hCheques.getRange(filaRealChq, 7).setValue(q1c + q2c);
+        existCheques[filaChqExist][6] = q1c + q2c;
+        nCheques++;
+      } else {
+        var q1cNew = quincenaLabel === "Q1" ? monto : 0;
+        var q2cNew = quincenaLabel === "Q2" ? monto : 0;
+        var nuevaFilaChq = [nombreOficial, info.programa, mesNombre, anioNum,
+                            q1cNew, q2cNew, q1cNew + q2cNew, "", "", "", "Pendiente"];
+        hCheques.appendRow(nuevaFilaChq);
+        var newRowChq = hCheques.getLastRow();
+        hCheques.getRange(newRowChq, 5, 1, 3).setNumberFormat('"Q"#,##0.00');
+        existCheques.push(nuevaFilaChq);
+        nCheques++;
+      }
 
     } else if (forma === "Transferencia") {
       // Buscar fila existente en Transferencias para (nombre, mes, año)
@@ -1571,13 +1684,104 @@ function registrarPagosQuincena() { _run(function() {
   var msg = "✅ Pagos de quincena registrados\n\n" +
     "Período: " + labelPeriodo + "\n" +
     "Quincena: " + quincenaLabel + " — " + mesNombre + " " + anioNum + "\n\n" +
-    "🏦 Cheques registrados: " + nCheques + "\n" +
+    "🏦 Cheques registrados/actualizados: " + nCheques + "\n" +
     "🔄 Transferencias registradas/actualizadas: " + nTransferencias;
   if (erroresPago.length > 0) {
     msg += "\n\n⚠️ Avisos:\n" + erroresPago.join("\n");
   }
-  _alert(msg);
+
+  // ── Paso 9: Si es Q2 → exportar PDF + eliminar hoja + marcar Pagado ──
+  if (quincenaLabel === "Q2") {
+    msg += "\n\n📄 Es Q2 — generando PDF y cerrando período...";
+    _alert(msg);
+    try {
+      _cerrarPeriodoQ2(ss, periodoSel, hPeriodos, tabNombre, mesNombre, anioNum, tz);
+    } catch(e) {
+      _alert("⚠️ Pagos guardados. Error al cerrar período:\n" + e.message +
+             "\nEl PDF/cierre puede hacerse manualmente.");
+    }
+  } else {
+    msg += "\n\nℹ️ Es Q1 — cuando registres Q2, el período se cerrará automáticamente.";
+    _alert(msg);
+  }
 }); }
+
+/**
+ * Cierra el período Q2: guarda PDF del reporte en Drive, elimina hoja del reporte,
+ * busca el reporte Q1 y lo elimina también si existe, marca período como Pagado.
+ */
+function _cerrarPeriodoQ2(ss, periodoSel, hPeriodos, tabQ2, mesNombre, anioNum, tz) {
+  var ssId = ss.getId();
+  var token = ScriptApp.getOAuthToken();
+
+  // Buscar hoja Q1 del mismo mes (nombre contiene el mes/año pero fecha inicio ≤ 15)
+  var hojaQ2 = ss.getSheetByName(tabQ2);
+  var hojaQ1 = null;
+  if (hPeriodos && hPeriodos.getLastRow() >= 2) {
+    var allPer = hPeriodos.getRange(2, 1, hPeriodos.getLastRow() - 1, 7).getValues();
+    allPer.forEach(function(r) {
+      var tab   = String(r[6] || "").trim();
+      var fIni  = new Date(r[2]);
+      if (!tab || tab === tabQ2) return;
+      if (!isNaN(fIni) && fIni.getMonth() === new Date().getMonth()) {
+        // Mismo mes → es el Q1 compañero
+        var h = ss.getSheetByName(tab);
+        if (h) hojaQ1 = h;
+      }
+    });
+  }
+
+  // Exportar PDFs a Drive
+  var folder;
+  try {
+    var it = DriveApp.getFoldersByName(CFG.DRIVE_FOLDER_PAGOS);
+    folder = it.hasNext() ? it.next() : DriveApp.createFolder(CFG.DRIVE_FOLDER_PAGOS);
+  } catch(e) { folder = DriveApp.getRootFolder(); }
+
+  function _exportPDF(hoja, nombre) {
+    if (!hoja) return;
+    var url = "https://docs.google.com/spreadsheets/d/" + ssId +
+      "/export?format=pdf&gid=" + hoja.getSheetId() +
+      "&portrait=false&size=A4&fitw=true&top_margin=0.5&bottom_margin=0.5" +
+      "&left_margin=0.5&right_margin=0.5&sheetnames=false&printtitle=false";
+    try {
+      var resp = UrlFetchApp.fetch(url, {
+        headers: { Authorization: "Bearer " + token },
+        muteHttpExceptions: true
+      });
+      if (resp.getResponseCode() === 200) {
+        folder.createFile(resp.getBlob().setName(nombre + ".pdf"));
+      }
+    } catch(e) { /* drive export falla silenciosamente */ }
+  }
+
+  var prefijoPDF = mesNombre + "_" + anioNum;
+  if (hojaQ1) _exportPDF(hojaQ1, "Q1_" + prefijoPDF);
+  _exportPDF(hojaQ2, (hojaQ1 ? "Q2_" : "Q2_solo_") + prefijoPDF);
+
+  // Eliminar hojas de reporte
+  if (hojaQ1) { try { ss.deleteSheet(hojaQ1); } catch(e) {} }
+  if (hojaQ2) { try { ss.deleteSheet(hojaQ2); } catch(e) {} }
+
+  // Marcar período(s) como Pagado en PERIODOS
+  if (hPeriodos && hPeriodos.getLastRow() >= 2) {
+    var datPer2 = hPeriodos.getRange(2, 1, hPeriodos.getLastRow() - 1, 7).getValues();
+    datPer2.forEach(function(r, i) {
+      var tab = String(r[6] || "").trim();
+      if (tab === tabQ2 || (hojaQ1 && tab === hojaQ1.getName())) {
+        hPeriodos.getRange(i + 2, 5).setValue("Pagado");
+      }
+    });
+  }
+
+  SpreadsheetApp.getUi().alert(
+    "✅ PERÍODO CERRADO\n\n" +
+    "📄 PDF guardado en Drive → " + CFG.DRIVE_FOLDER_PAGOS + "\n" +
+    (hojaQ1 ? "✓ Reporte Q1 archivado y eliminado\n" : "⚠️ Reporte Q1 no encontrado\n") +
+    "✓ Reporte Q2 archivado y eliminado\n" +
+    "✓ Período marcado como 'Pagado' en PERIODOS"
+  );
+}
 
 /**
  * Hoja "HijosCCI" — registra si cada participante tiene hijos en CCI y cuántos.
