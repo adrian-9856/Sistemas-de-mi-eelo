@@ -39,22 +39,20 @@ const CFG = {
 };
 
 /*
- PARTICIPANTES — 22 columnas (A–V)
- A  Creamos_ID (0)           I  Hijos_CCI (8)        — Sí/No
- B  Nombre (1)               J  Num_Hijos_CCI (9)    — número
- C  Proyecto (2)             K  Categoria (10)
- D  Programa (3)             L  Tarifa_Hora (11)     — Q/hr (auto desde Categoria)
- E  Etapa (4)                M  Tiene_Factura (12)   — Sí/No (aplica IVA)
- F  Educacion (5)            N  DPI (13)
- G  Apoyo_Emocional (6)      O  NIT (14)
- H  Inclusion_Laboral (7)    P  Correo (15)
-                             Q  Banco (16)
-                             R  Tipo_Cuenta (17)
-                             S  Num_Cuenta (18)
-                             T  Forma_Pago (19)
-                             U  URL_Doc_Proceso (20)
-                             V  Estipendio (21)      — Q fijos por quincena
+ PARTICIPANTES — 19 columnas (A–S)
+ A  Creamos_ID (0)           I  Categoria (8)
+ B  Nombre (1)               J  Tarifa_Hora (9)      — Q/hr (auto desde Categoria)
+ C  Proyecto (2)             K  Tiene_Factura (10)   — Sí/No (aplica IVA)
+ D  Programa (3)             L  DPI (11)
+ E  Etapa (4)                M  NIT (12)
+ F  Educacion (5)            N  Correo (13)
+ G  Apoyo_Emocional (6)      O  Banco (14)
+ H  Inclusion_Laboral (7)    P  Tipo_Cuenta (15)
+                             Q  Num_Cuenta (16)
+                             R  Forma_Pago (17)
+                             S  URL_Doc_Proceso (18)
  Etapa: Inscritx / Retiradx / Empleadx / Ciclo de Vida Terminado
+ Eliminados: Hijos_CCI, Num_Hijos_CCI, Estipendio (→ hojas auxiliares HijosCCI/Bonos)
 */
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -89,12 +87,12 @@ function _mapaDatosParticipantes(ss) {
   var mapa = {};
   var hP = ss.getSheetByName(CFG.HOJAS.PARTICIPANTES);
   if (hP && hP.getLastRow() >= 2) {
-    var datos = hP.getRange(2, 1, hP.getLastRow() - 1, 11).getValues(); // A–K
+    var datos = hP.getRange(2, 1, hP.getLastRow() - 1, 9).getValues(); // A–I
     datos.forEach(function(f) {
       var nombre = String(f[1] || "").trim();
       if (!nombre) return;
       var id  = _esCreamos_ID_real(String(f[0] || "").trim()) ? String(f[0]).trim() : "";
-      var cat = String(f[10] || "").trim().toUpperCase(); // col K = Categoria
+      var cat = String(f[8] || "").trim().toUpperCase(); // col I = Categoria
       mapa[nombre] = { id: id, cat: cat };
     });
   }
@@ -270,23 +268,23 @@ function onOpen() {
   try { actualizarDashboardVisual(); } catch(_) {}
 }
 
-// onEdit: col K = Categoria → auto-llenar Tarifa_Hora en PARTICIPANTES
+// onEdit: col I = Categoria → auto-llenar Tarifa_Hora en PARTICIPANTES
 //         col E = Etapa → si "Retiradx" dispara flujo de retiro
 //         DiasEstudio cols C-I → Educacion en PARTICIPANTES  (A=ID, B=Nombre, C-I=días)
 //         ListaTerapias col C  → Apoyo_Emocional en PARTICIPANTES
 //         InclusionLaboral col C → Inclusion_Laboral en PARTICIPANTES
-//         HijosCCI cols C-D → Hijos_CCI y Num_Hijos_CCI en PARTICIPANTES cols I/J
+//         HijosCCI cols C-D → datos propios de hoja auxiliar (no se reflejan en PARTICIPANTES)
 function onEdit(e) {
   var sheet = e.range.getSheet();
   var nombre = sheet.getName();
   var col    = e.range.getColumn();
   var fila   = e.range.getRow();
 
-  // PARTICIPANTES — Categoria (col K=11) cambia → auto-llenar Tarifa_Hora (col L=12)
-  if (nombre === CFG.HOJAS.PARTICIPANTES && col === 11 && fila >= 2) {
+  // PARTICIPANTES — Categoria (col I=9) cambia → auto-llenar Tarifa_Hora (col J=10)
+  if (nombre === CFG.HOJAS.PARTICIPANTES && col === 9 && fila >= 2) {
     var cat = String(e.range.getValue()).trim().toUpperCase();
     var tarifa = CFG.CATEGORIAS[cat];
-    if (tarifa) sheet.getRange(fila, 12).setValue(tarifa);
+    if (tarifa) sheet.getRange(fila, 10).setValue(tarifa);
   }
 
   // PARTICIPANTES — Etapa (col E=5) cambia a "Retiradx" o "Ciclo de Vida Terminado"
@@ -314,10 +312,8 @@ function onEdit(e) {
     try { _syncInclusionFila(sheet, fila); } catch(_) {}
   }
 
-  // HIJOSCCI — col C (Tiene hijos) o col D (Cuántos) → PARTICIPANTES cols I/J
-  if (nombre === "HijosCCI" && (col === 3 || col === 4) && fila >= 2) {
-    try { _syncHijosCCIFila(sheet, fila); } catch(_) {}
-  }
+  // HIJOSCCI — datos propios de la hoja (no se reflejan en PARTICIPANTES, esquema 19 cols)
+  // _syncHijosCCIFila es no-op, se conserva para compatibilidad
 
 }
 
@@ -455,15 +451,11 @@ function _syncInclusionFila(hIL, fila) {
   _actualizarColParticipante(participante, 8, texto); // col H = Inclusion_Laboral
 }
 
-/** Sincroniza la fila de HijosCCI hacia cols I/J (9/10) de PARTICIPANTES */
+/** HijosCCI ya no se almacena en PARTICIPANTES (esquema 19 cols) — función conservada por compatibilidad */
 function _syncHijosCCIFila(hHC, fila) {
-  var fila_ = hHC.getRange(fila, 1, 1, 4).getValues()[0];
-  var participante = String(fila_[1] || "").trim(); // col B = Participante
-  if (!participante) return;
-  var tiene = String(fila_[2] || "").trim().toUpperCase() === "X" ? "Sí" : "No";
-  var cuantos = parseInt(fila_[3]) || 0;
-  _actualizarColParticipante(participante, 9, tiene);    // col I = Hijos_CCI
-  _actualizarColParticipante(participante, 10, cuantos); // col J = Num_Hijos_CCI
+  // Hijos_CCI y Num_Hijos_CCI fueron eliminados de PARTICIPANTES en el esquema de 19 cols.
+  // Los datos de HijosCCI viven únicamente en la hoja auxiliar HijosCCI.
+  return;
 }
 
 /** Actualiza la celda de colNum (1-based) para el participante con ese nombre en PARTICIPANTES */
@@ -536,18 +528,9 @@ function sincronizarParticipacion() { _run(function() {
     });
   }
 
-  // HijosCCI → Hijos_CCI (col I = 9) y Num_Hijos_CCI (col J = 10)
+  // HijosCCI: datos se mantienen en hoja auxiliar, no se sincronizan a PARTICIPANTES (esquema 19 cols)
   if (hHC && hHC.getLastRow() >= 2) {
-    var datHC = hHC.getRange(2, 1, hHC.getLastRow() - 1, 4).getValues();
-    datHC.forEach(function(f) {
-      var participante = String(f[1] || "").trim(); // col B
-      if (!participante) return;
-      var tiene   = String(f[2] || "").trim().toUpperCase() === "X" ? "Sí" : "No";
-      var cuantos = parseInt(f[3]) || 0;
-      _actualizarColParticipante(participante, 9, tiene);
-      _actualizarColParticipante(participante, 10, cuantos);
-      if (tiene === "Sí") actHC++;
-    });
+    actHC = hHC.getLastRow() - 1; // solo contar
   }
 
   // Actualizar colores e IDs en todas las hojas auxiliares
@@ -566,7 +549,7 @@ function sincronizarParticipacion() { _run(function() {
     "📚 Educación (días de estudio): " + actDE + " con asistencia marcada\n" +
     "🧘 Apoyo Emocional (terapias): " + actLT + " con terapia marcada\n" +
     "💼 Inclusión Laboral: " + actIL + " participando\n" +
-    "👶 Hijos CCI: " + actHC + " con hijos en CCI\n\n" +
+    "👶 Hijos CCI (hoja auxiliar): " + actHC + " filas registradas\n\n" +
     "🎨 Colores e IDs actualizados en todas las hojas"
   );
 }); }
@@ -578,18 +561,16 @@ function crearHojas() { _run(function() {
 
   // (CLASIFICACION eliminada — la info de categorías está en el Directorio)
 
-  // PARTICIPANTES — 22 cols (A–V)
+  // PARTICIPANTES — 19 cols (A–S)
   var hP = ss.getSheetByName(CFG.HOJAS.PARTICIPANTES) || ss.insertSheet(CFG.HOJAS.PARTICIPANTES);
   var esNuevaP = hP.getLastRow() === 0;
   if (esNuevaP) {
     hP.appendRow([
       "Creamos_ID","Nombre","Proyecto","Programa","Etapa",
       "Educacion","Apoyo_Emocional","Inclusion_Laboral",
-      "Hijos_CCI","Num_Hijos_CCI",
       "Categoria","Tarifa_Hora","Tiene_Factura",
       "DPI","NIT","Correo",
-      "Banco","Tipo_Cuenta","Num_Cuenta","Forma_Pago","URL_Doc_Proceso",
-      "Estipendio"
+      "Banco","Tipo_Cuenta","Num_Cuenta","Forma_Pago","URL_Doc_Proceso"
     ]);
   }
   _fmtEnc(hP, "#639922");
@@ -603,25 +584,20 @@ function crearHojas() { _run(function() {
   var vTipoCta = SpreadsheetApp.newDataValidation().requireValueInList(["Monetaria","Ahorro",""],true).build();
   var vPago    = SpreadsheetApp.newDataValidation().requireValueInList(["Transferencia","Cheque"],true).build();
   hP.getRange("E2:E500").setDataValidation(vEtapa);   // col E = Etapa
-  hP.getRange("I2:I500").setDataValidation(vSiNo);    // col I = Hijos_CCI
-  hP.getRange("K2:K500").setDataValidation(vCat);     // col K = Categoria
-  hP.getRange("M2:M500").setDataValidation(vSiNo);    // col M = Tiene_Factura
-  hP.getRange("Q2:Q500").setDataValidation(vBanco);   // col Q = Banco
-  hP.getRange("R2:R500").setDataValidation(vTipoCta); // col R = Tipo_Cuenta
-  hP.getRange("T2:T500").setDataValidation(vPago);    // col T = Forma_Pago
-  hP.getRange("J2:J500").setNumberFormat("0");          // col J = Num_Hijos_CCI (entero)
-  hP.getRange("L2:L500").setNumberFormat("Q#,##0.00"); // col L = Tarifa_Hora
-  hP.getRange("V2:V500").setNumberFormat("Q#,##0.00"); // col V = Estipendio
+  hP.getRange("I2:I500").setDataValidation(vCat);     // col I = Categoria
+  hP.getRange("K2:K500").setDataValidation(vSiNo);    // col K = Tiene_Factura
+  hP.getRange("O2:O500").setDataValidation(vBanco);   // col O = Banco
+  hP.getRange("P2:P500").setDataValidation(vTipoCta); // col P = Tipo_Cuenta
+  hP.getRange("R2:R500").setDataValidation(vPago);    // col R = Forma_Pago
+  hP.getRange("J2:J500").setNumberFormat("Q#,##0.00"); // col J = Tarifa_Hora
   if (esNuevaP) {
     hP.setColumnWidth(2, 220);  // Nombre
-    hP.setColumnWidth(9, 100);  // Hijos_CCI
-    hP.setColumnWidth(10, 110); // Num_Hijos_CCI
-    hP.setColumnWidth(17, 120); // Banco
-    hP.setColumnWidth(18, 100); // Tipo_Cuenta
-    hP.setColumnWidth(19, 130); // Num_Cuenta
-    hP.setColumnWidth(20, 120); // Forma_Pago
-    hP.setColumnWidth(21, 300); // URL_Doc_Proceso
-    hP.setColumnWidth(22, 110); // Estipendio
+    hP.setColumnWidth(9, 100);  // Categoria
+    hP.setColumnWidth(15, 120); // Banco
+    hP.setColumnWidth(16, 100); // Tipo_Cuenta
+    hP.setColumnWidth(17, 130); // Num_Cuenta
+    hP.setColumnWidth(18, 120); // Forma_Pago
+    hP.setColumnWidth(19, 300); // URL_Doc_Proceso
   }
 
   // PERIODOS — hoja de control de quincenas
@@ -638,7 +614,7 @@ function crearHojas() { _run(function() {
   ss.setActiveSheet(hP);
   _alert(
     "✅ Hojas creadas:\n" +
-    "• PARTICIPANTES (22 cols — Etapa, Banco, Cuenta, Estipendio, Hijos CCI)\n" +
+    "• PARTICIPANTES (19 cols — Etapa, Banco, Cuenta, sin Hijos CCI ni Estipendio)\n" +
     "• DatosKobo (importación automática cada hora desde Kobo)\n" +
     "• PERIODOS (control de quincenas)\n\n" +
     "Tarifas: A=Q16.50 | B=Q15.75 | C=Q15.00 | D=Q14.00\n" +
@@ -698,7 +674,7 @@ function nuevoParticipante() { _run(function() {
                dpi:dpi, nit:"", correo:"", banco:"", tipoCuenta:"", numCuenta:"", formaPago:"" };
   _escribirContenidoDP(doc, part, [], []);
 
-  hP.appendRow([id, nombre, CFG.PROYECTO, CFG.ORG, "Inscritx", "", "", "", "No", 0, "", 0, "Sí", dpi, "", "", "", "", "", "", url, 0]);
+  hP.appendRow([id, nombre, CFG.PROYECTO, CFG.ORG, "Inscritx", "", "", "", "", 0, "Sí", dpi, "", "", "", "", "", "", url]);
   hP.setActiveRange(hP.getRange(hP.getLastRow(), 1));
   ui.alert(
     "✅ Participante registrado: " + nombre + "\n\n" +
@@ -820,21 +796,17 @@ function cargarListaParticipantes() { _run(function() {
       CFG.ORG,       // D: Programa = "mi eelo"
       "Inscritx",    // E: Etapa
       "", "", "",    // F–H: Educacion, Apoyo_Emocional, Inclusion_Laboral
-      "No",          // I: Hijos_CCI (default No)
-      0,             // J: Num_Hijos_CCI (default 0)
-      cat,           // K: Categoria
-      tarifa,        // L: Tarifa_Hora
-      "Sí",          // M: Tiene_Factura (default Sí)
-      dpi,           // N: DPI          ← de la DB oficial
-      "", "", "", "", "", "", "",  // O–U: NIT, Correo, Banco, Tipo_Cuenta, Num_Cuenta, Forma_Pago, URL
-      0              // V: Estipendio
+      cat,           // I: Categoria
+      tarifa,        // J: Tarifa_Hora
+      "Sí",          // K: Tiene_Factura (default Sí)
+      dpi,           // L: DPI          ← de la DB oficial
+      "", "", "", "", "", "", ""  // M–S: NIT, Correo, Banco, Tipo_Cuenta, Num_Cuenta, Forma_Pago, URL
     ]);
   });
 
   if (filas.length > 0) {
-    hP.getRange(2, 1, filas.length, 22).setValues(filas);
-    hP.getRange(2, 12, filas.length, 1).setNumberFormat("Q#,##0.00");
-    hP.getRange(2, 22, filas.length, 1).setNumberFormat("Q#,##0.00");
+    hP.getRange(2, 1, filas.length, 19).setValues(filas);
+    hP.getRange(2, 10, filas.length, 1).setNumberFormat("Q#,##0.00");
     _colorearParticipantes(hP, filas.length);
     // Marcar celdas sin Creamos ID (no se encontró en la DB)
     filas.forEach(function(f, i) {
@@ -1130,9 +1102,9 @@ function _colorearParticipantes(hP, total) {
   for (var i = 0; i < total; i++) {
     var etapa = String(hP.getRange(i + 2, 5).getValue()).trim(); // col E = Etapa
     if (etapa === "Retiradx") continue; // ya coloreadas en rojo por el flujo de retiro
-    var cat   = String(hP.getRange(i + 2, 11).getValue()).trim().toUpperCase(); // col K = Categoria
+    var cat   = String(hP.getRange(i + 2, 9).getValue()).trim().toUpperCase(); // col I = Categoria
     var color = (CFG.COLORES_CAT[cat] || {}).bgClaro || "#ffffff";
-    hP.getRange(i + 2, 1, 1, 22).setBackground(color);
+    hP.getRange(i + 2, 1, 1, 19).setBackground(color);
   }
 }
 
@@ -1165,10 +1137,10 @@ var RAZONES_RETIRO = [
 
 function _iniciarRetiro(sheet, fila) {
   var ui = SpreadsheetApp.getUi();
-  var datos = sheet.getRange(fila, 1, 1, 11).getValues()[0];
+  var datos = sheet.getRange(fila, 1, 1, 9).getValues()[0];
   var id = String(datos[0] || "").trim();
   var nombre = String(datos[1] || "").trim();
-  var cat = String(datos[10] || "").trim(); // col K = Categoria
+  var cat = String(datos[8] || "").trim(); // col I = Categoria
 
   var lista = RAZONES_RETIRO.map(function(r, i) { return (i + 1) + ". " + r; });
   var r = ui.prompt(
@@ -1188,7 +1160,7 @@ function _iniciarRetiro(sheet, fila) {
     : "Otra";
 
   // Colorear fila rojo vivo
-  sheet.getRange(fila, 1, 1, 22).setBackground("#ff1744").setFontColor("#ffffff");
+  sheet.getRange(fila, 1, 1, 19).setBackground("#ff1744").setFontColor("#ffffff");
 
   // Registrar en hoja Retiradx
   var hR = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Retiradx");
@@ -1201,15 +1173,15 @@ function _iniciarRetiro(sheet, fila) {
  */
 function _registrarCicloVida(sheet, fila) {
   try {
-    var datos = sheet.getRange(fila, 1, 1, 11).getValues()[0];
-    var id = datos[0], nombre = datos[1], cat = datos[10]; // col K = Categoria
+    var datos = sheet.getRange(fila, 1, 1, 9).getValues()[0];
+    var id = datos[0], nombre = datos[1], cat = datos[8]; // col I = Categoria
     var hCV = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("CiclosVida");
     if (!hCV) return;
     hCV.appendRow([new Date(), id, nombre, cat]);
     var nr = hCV.getLastRow();
     hCV.getRange(nr, 1).setNumberFormat("dd/MM/yyyy");
     // Colorear la fila en PARTICIPANTES con el color de Ciclo de Vida
-    sheet.getRange(fila, 1, 1, 22).setBackground("#b0bec5").setFontColor("#212121");
+    sheet.getRange(fila, 1, 1, 19).setBackground("#b0bec5").setFontColor("#212121");
   } catch(e) { Logger.log("_registrarCicloVida error: " + e.message); }
 }
 
@@ -1417,7 +1389,7 @@ function crearHojaTransferencias() { _run(function() {
 function registrarPagosQuincena() { _run(function() {
   var ui = SpreadsheetApp.getUi();
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var tz = Session.getScriptTimeZone();
+  var tz = CFG.TIMEZONE;
 
   // ── Paso 1: Obtener lista de quincenas desde PERIODOS ─────────
   var hPeriodos = ss.getSheetByName(CFG.HOJAS.PERIODOS);
@@ -1504,11 +1476,11 @@ function registrarPagosQuincena() { _run(function() {
 
   // ── Paso 4: Leer datos de pago de PARTICIPANTES ───────────────
   // Cols: A(1)=ID, B(2)=Nombre, D(4)=Programa, F(6)=Educacion, G(7)=Apoyo_Emocional,
-  //       H(8)=Inclusion_Laboral, K(11)=Categoria
-  //       Q(17)=Banco, R(18)=Tipo_Cuenta, S(19)=Num_Cuenta, T(20)=Forma_Pago
+  //       H(8)=Inclusion_Laboral, I(9)=Categoria
+  //       O(15)=Banco, P(16)=Tipo_Cuenta, Q(17)=Num_Cuenta, R(18)=Forma_Pago
   var hP = _sh(CFG.HOJAS.PARTICIPANTES);
   if (hP.getLastRow() < 2) { _alert("PARTICIPANTES está vacía."); return; }
-  var datosP = hP.getRange(2, 1, hP.getLastRow() - 1, 20).getValues();
+  var datosP = hP.getRange(2, 1, hP.getLastRow() - 1, 18).getValues();
   // mapaPago indexado por: ID, nombre exacto y nombre normalizado
   var mapaPagoById   = {}; // {cremos_id: info}
   var mapaPagoByNorm = {}; // {nombre_normalizado: info}
@@ -1520,10 +1492,10 @@ function registrarPagosQuincena() { _run(function() {
     var educacion  = String(r[5]  || "").trim();  // col F
     var apoyo      = String(r[6]  || "").trim();  // col G
     var inclusion  = String(r[7]  || "").trim();  // col H
-    var banco      = String(r[16] || "").trim();  // col Q
-    var tipoCuenta = String(r[17] || "").trim();  // col R
-    var numCuenta  = String(r[18] || "").trim();  // col S
-    var formaPago  = String(r[19] || "").trim();  // col T
+    var banco      = String(r[14] || "").trim();  // col O
+    var tipoCuenta = String(r[15] || "").trim();  // col P
+    var numCuenta  = String(r[16] || "").trim();  // col Q
+    var formaPago  = String(r[17] || "").trim();  // col R
 
     var servicio = "Textil"; // siempre Textil para el taller
 
@@ -1897,15 +1869,15 @@ function generarDirectorioParticipantes() { _run(function() {
   var lastRow = hP.getLastRow();
   if (lastRow < 2) { _alert("No hay participantes en PARTICIPANTES."); return; }
 
-  var datos = hP.getRange(2, 1, lastRow - 1, 12).getValues();
+  var datos = hP.getRange(2, 1, lastRow - 1, 10).getValues();
 
   // Agrupar por categoría
   var porCat = { A: [], B: [], C: [], D: [] };
   datos.forEach(function(r) {
     var id      = String(r[0]).trim();
     var nombre  = String(r[1]).trim();
-    var cat     = String(r[10]).trim().toUpperCase();  // col K = Categoria
-    var tarifa  = parseFloat(r[11]) || CFG.CATEGORIAS[cat] || 0; // col L = Tarifa
+    var cat     = String(r[8]).trim().toUpperCase();  // col I = Categoria
+    var tarifa  = parseFloat(r[9]) || CFG.CATEGORIAS[cat] || 0; // col J = Tarifa
     var estado  = String(r[4]).trim() || "Inscritx";  // col E = Etapa
     if (!nombre || !porCat[cat]) return;
     porCat[cat].push({ id: id, nombre: nombre, tarifa: tarifa, etapa: estado });
@@ -1921,7 +1893,7 @@ function generarDirectorioParticipantes() { _run(function() {
 
   function push(fila, tipo) { filas.push(fila); tipos.push(tipo); }
 
-  var ahora = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm");
+  var ahora = Utilities.formatDate(new Date(), CFG.TIMEZONE, "dd/MM/yyyy HH:mm");
   push(["DIRECTORIO DE PARTICIPANTES — " + CFG.ORG, "", "", "", "", ""], "titulo");
   push(["Actualizado: " + ahora,                      "", "", "", "", ""], "sub");
   push(["", "", "", "", "", ""],                                           "vacio");
@@ -2031,21 +2003,21 @@ function _sincronizarDP(hP, fila) {
     proyecto:         String(f[2]  || ""), programa:         String(f[3]  || ""),
     etapa:            String(f[4]  || ""), educacion:        String(f[5]  || ""),
     apoyoEmocional:   String(f[6]  || ""), inclusionLaboral: String(f[7]  || ""),
-    categoria:        String(f[10] || ""), tarifa:           String(f[11] || ""),
-    tieneFactura:     String(f[12] || ""),
-    dpi:              String(f[13] || ""), nit:              String(f[14] || ""),
-    correo:           String(f[15] || ""), banco:            String(f[16] || ""),
-    tipoCuenta:       String(f[17] || ""), numCuenta:        String(f[18] || ""),
-    formaPago:        String(f[19] || "")
+    categoria:        String(f[8]  || ""), tarifa:           String(f[9]  || ""),
+    tieneFactura:     String(f[10] || ""),
+    dpi:              String(f[11] || ""), nit:              String(f[12] || ""),
+    correo:           String(f[13] || ""), banco:            String(f[14] || ""),
+    tipoCuenta:       String(f[15] || ""), numCuenta:        String(f[16] || ""),
+    formaPago:        String(f[17] || "")
   };
-  var urlActual = String(f[20] || "");
+  var urlActual = String(f[18] || "");
 
   var carpeta = _carpetaDP();
   var doc = _abrirOCrearDocProceso(id, nombre, carpeta, urlActual);
   _escribirContenidoDP(doc, part);
 
   var urlNueva = doc.getUrl();
-  if (urlNueva !== urlActual) hP.getRange(fila, 21).setValue(urlNueva);
+  if (urlNueva !== urlActual) hP.getRange(fila, 19).setValue(urlNueva);
   return urlNueva;
 }
 
@@ -2073,7 +2045,7 @@ function _escribirContenidoDP(doc, part) {
   var body = doc.getBody();
   body.clear();
   body.setMarginTop(36).setMarginBottom(36).setMarginLeft(54).setMarginRight(54);
-  var tz  = Session.getScriptTimeZone();
+  var tz  = CFG.TIMEZONE;
   var hoy = Utilities.formatDate(new Date(), tz, "dd/MM/yyyy");
 
   var tarifahora = part.tarifa ? "Q "+part.tarifa+"/hr" : "según categoría "+part.categoria;
@@ -2736,12 +2708,12 @@ function _calcular(mes, anio) {
   for (var pi=1; pi<partRows.length; pi++) {
     var pid = String(partRows[pi][0]).trim();
     if (!pid) continue;
-    var tarifa = parseFloat(partRows[pi][11]); // col L = Tarifa_Hora
+    var tarifa = parseFloat(partRows[pi][9]); // col J = Tarifa_Hora
     if (isNaN(tarifa) || tarifa <= 0) {
-      var cat = String(partRows[pi][10]).trim().toUpperCase(); // col K = Categoria
+      var cat = String(partRows[pi][8]).trim().toUpperCase(); // col I = Categoria
       tarifa = CFG.CATEGORIAS[cat] || CFG.CATEGORIAS.C;
     }
-    var t = String(partRows[pi][12]).trim().toLowerCase(); // col M = Tiene_Factura
+    var t = String(partRows[pi][10]).trim().toLowerCase(); // col K = Tiene_Factura
     partMap[pid] = {
       nombre:       String(partRows[pi][1]).trim(),
       tarifa:       tarifa,
@@ -2759,7 +2731,7 @@ function _calcular(mes, anio) {
     var mapeoNombres = cargarMapeoNombres();
     var diasEstudioMap = obtenerDiasEstudio();
     var listaTerapias  = obtenerListaTerapias();
-    var iTS  = (cols.end !== undefined) ? cols.end : (cols.start !== undefined) ? cols.start : 0;
+    var iTS  = (cols.start !== undefined) ? cols.start : 0;
     var iEnd = -1; // end ya es el timestamp exacto de submission
 
     // Agrupar registros por participante+día
@@ -2935,7 +2907,7 @@ function _crearOActualizarRecibo(f, carpeta, urlExistente) {
   var body=doc.getBody();
   body.clear();
   body.setMarginTop(54).setMarginBottom(54).setMarginLeft(72).setMarginRight(72);
-  var tz=Session.getScriptTimeZone();
+  var tz=CFG.TIMEZONE;
   var hoy=Utilities.formatDate(new Date(),tz,"dd/MM/yyyy");
 
   body.appendParagraph(CFG.ORG + " — Recibo de Pago")
@@ -3015,7 +2987,7 @@ function generarReporteMensual() { _run(function() {
 
   var doc=DocumentApp.create(titulo);
   var body=doc.getBody();
-  var tz=Session.getScriptTimeZone();
+  var tz=CFG.TIMEZONE;
   body.setMarginTop(36).setMarginBottom(36).setMarginLeft(54).setMarginRight(54);
 
   body.appendParagraph(CFG.ORG+" — Reporte RRHH "+nombreMes+" "+anio)
@@ -3095,7 +3067,7 @@ function generarResumenFacturacionEnHoja(mes, anio) { _run(function() {
   var catMap = {};
   hojaP.getDataRange().getValues().slice(1).forEach(function(r){
     var n = String(r[1]).trim();
-    if (n) catMap[n] = String(r[10]).trim().toUpperCase() || "?"; // col K = Categoria
+    if (n) catMap[n] = String(r[8]).trim().toUpperCase() || "?"; // col I = Categoria
   });
 
   // Agrupar por nombre → {cat, tarifa, q1{h,base,iva,total,pagado}, q2{...}}
@@ -3143,7 +3115,7 @@ function generarResumenFacturacionEnHoja(mes, anio) { _run(function() {
 
   push([CFG.ORG + " — Facturación " + nombreMes + " " + anio,
         "","","","","","","","","","","","","","",""], "titulo");
-  push(["Generado: " + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm"),
+  push(["Generado: " + Utilities.formatDate(new Date(), CFG.TIMEZONE, "dd/MM/yyyy HH:mm"),
         "","","","","","","","","","","","","","",""], "sub");
   push(cols, "enc");
 
@@ -3341,7 +3313,7 @@ function crearHojaPeriodos() {
  */
 function configurarNuevaQuincena() { _run(function() {
   var ui   = SpreadsheetApp.getUi();
-  var tz   = Session.getScriptTimeZone();
+  var tz   = CFG.TIMEZONE;
   var ahora = new Date();
 
   // Sugerir fecha inicio = hoy
@@ -3452,7 +3424,7 @@ function actualizarQuincenaActual() {
  */
 function generarReporteQuincenaPasada() { _run(function() {
   var ui  = SpreadsheetApp.getUi();
-  var tz  = Session.getScriptTimeZone();
+  var tz  = CFG.TIMEZONE;
 
   var r1 = ui.prompt("📅 Reporte de quincena pasada",
     "Fecha INICIO del período (dd/mm/yyyy):", ui.ButtonSet.OK_CANCEL);
@@ -3493,7 +3465,7 @@ function cerrarQuincenaYCrearSiguiente() { _run(function() {
   if (!periodo) { _alert("No hay quincena activa. Usa 'Configurar nueva quincena'."); return; }
 
   var ui  = SpreadsheetApp.getUi();
-  var tz  = Session.getScriptTimeZone();
+  var tz  = CFG.TIMEZONE;
   var hP  = _sh(CFG.HOJAS.PERIODOS);
 
   var r = ui.alert("Cerrar quincena",
@@ -3571,13 +3543,13 @@ function _periodoActivo() {
 }
 
 function _labelPeriodo(fi, ff) {
-  var tz  = Session.getScriptTimeZone();
+  var tz  = CFG.TIMEZONE;
   return Utilities.formatDate(fi, tz, "dd/MM/yyyy") + " al " +
          Utilities.formatDate(ff, tz, "dd/MM/yyyy");
 }
 
 function _tabNombreQuincena(fi, ff) {
-  var tz = Session.getScriptTimeZone();
+  var tz = CFG.TIMEZONE;
   return "Q_" + Utilities.formatDate(fi, tz, "dd_MM") + "_" +
                 Utilities.formatDate(ff, tz, "dd_MM_yyyy");
 }
@@ -3661,7 +3633,7 @@ function _calcularResumenPeriodo(fi, ff) {
   var cols = detectarColumnas(enc, raw.slice(0, 50));
   var mapeoNombres = cargarMapeoNombres();
 
-  var iTS  = (cols.end !== undefined) ? cols.end : (cols.start !== undefined) ? cols.start : 0;
+  var iTS  = (cols.start !== undefined) ? cols.start : 0;
   var iEnd = -1;
 
   // Agrupar por participante+día
@@ -3768,7 +3740,7 @@ function _generarReporteQuincena(fi, ff, label, tabNombre, prevHorasReponer) {
   var ss      = SpreadsheetApp.getActiveSpreadsheet();
   var resumen = _calcularResumenPeriodo(fi, ff);
   var mapa    = _construirMapaTarifas();
-  var tz      = Session.getScriptTimeZone();
+  var tz      = CFG.TIMEZONE;
   var ts      = Utilities.formatDate(new Date(), tz, "dd/MM/yyyy HH:mm");
 
   // Recrear o limpiar hoja
@@ -4024,8 +3996,8 @@ function configurarFacturacion() { _run(function() {
   var lastRow = hP.getLastRow();
   if (lastRow < 2) { _alert("Primero carga la lista de participantes."); return; }
 
-  // Leer PARTICIPANTES (A→M = cols 1-13)
-  var datos = hP.getRange(2, 1, lastRow - 1, 13).getValues(); // A→M
+  // Leer PARTICIPANTES (A→K = cols 1-11)
+  var datos = hP.getRange(2, 1, lastRow - 1, 11).getValues(); // A→K
 
   // Crear/limpiar hoja Config_IVA
   var tabName = "Config_IVA";
@@ -4057,8 +4029,8 @@ function configurarFacturacion() { _run(function() {
   datos.forEach(function(r, i) {
     var id     = String(r[0] || "").trim();
     var nombre = String(r[1] || "").trim();
-    var cat    = String(r[10] || "").trim().toUpperCase();  // col K = Categoria
-    var tieneFact = String(r[12]||"").trim();              // col M = Tiene_Factura
+    var cat    = String(r[8] || "").trim().toUpperCase();   // col I = Categoria
+    var tieneFact = String(r[10]||"").trim();              // col K = Tiene_Factura
     if (!nombre) return;
     filas.push([i+1, id, nombre, tieneFact||"Sí", cat]);
   });
@@ -4131,9 +4103,9 @@ function aplicarCambiosFacturacion() { _run(function() {
     if (!nombre || (valor !== "Sí" && valor !== "No")) continue;
     var filaP = idxP[textoParaComparar(nombre)];
     if (!filaP) continue;
-    var actual = String(hP.getRange(filaP, 13).getValue()).trim(); // col M = Tiene_Factura
+    var actual = String(hP.getRange(filaP, 11).getValue()).trim(); // col K = Tiene_Factura
     if (actual !== valor) {
-      hP.getRange(filaP, 13).setValue(valor);
+      hP.getRange(filaP, 11).setValue(valor);
       actualizados++;
     }
   }
@@ -4142,7 +4114,7 @@ function aplicarCambiosFacturacion() { _run(function() {
   var total = hP.getLastRow()-1;
   var conFact = 0;
   if (total > 0) {
-    var vals = hP.getRange(2,13,total,1).getValues(); // col M = Tiene_Factura
+    var vals = hP.getRange(2,11,total,1).getValues(); // col K = Tiene_Factura
     vals.forEach(function(v){ if(String(v[0]).trim()==="Sí") conFact++; });
   }
 
@@ -4157,7 +4129,7 @@ function aplicarCambiosFacturacion() { _run(function() {
 
 function generarChecklistPago() { _run(function() {
   var ui  = SpreadsheetApp.getUi();
-  var tz  = Session.getScriptTimeZone();
+  var tz  = CFG.TIMEZONE;
 
   // ¿Usar período activo o pedir fechas?
   var periodo = _periodoActivo();
@@ -4545,7 +4517,7 @@ function sincronizarDesdeCreamos() { _run(function() {
   var hP = _sh(CFG.HOJAS.PARTICIPANTES);
   if (!hP || hP.getLastRow() < 2) { _alert("No hay participantes cargados."); return; }
 
-  var datos = hP.getRange(2, 1, hP.getLastRow() - 1, 22).getValues();
+  var datos = hP.getRange(2, 1, hP.getLastRow() - 1, 19).getValues();
   var actualizados = [], sinEncontrar = [];
   var mapaNombreAID = {};
 
@@ -4566,9 +4538,9 @@ function sincronizarDesdeCreamos() { _run(function() {
       return;
     }
 
-    // Actualizar ID y DPI en la hoja (col N=14 = DPI)
+    // Actualizar ID y DPI en la hoja (col L=12 = DPI)
     hP.getRange(i + 2, 1).setValue(db.id).setBackground(null).setFontColor(null).setFontStyle("normal");
-    if (db.dpi) hP.getRange(i + 2, 14).setValue(db.dpi);
+    if (db.dpi) hP.getRange(i + 2, 12).setValue(db.dpi);
     mapaNombreAID[nombre] = db.id;
     actualizados.push(nombre + " → " + db.id);
   });
@@ -4725,7 +4697,7 @@ function _mapaCorreos(hojaP) {
 function actualizarDashboard() { _run(function() {
   var ss   = SpreadsheetApp.getActiveSpreadsheet();
   var dash = ss.getSheetByName(CFG.HOJAS.DASHBOARD) || ss.insertSheet(CFG.HOJAS.DASHBOARD, 0);
-  var tz   = Session.getScriptTimeZone();
+  var tz   = CFG.TIMEZONE;
   var ahora = new Date();
   var anio  = ahora.getFullYear();
   var ts    = Utilities.formatDate(ahora, tz, "dd/MM/yyyy HH:mm");
@@ -4779,7 +4751,7 @@ function actualizarDashboard() { _run(function() {
       var diasEstMap  = obtenerDiasEstudio();
       var terapiasMap = obtenerListaTerapias();
       var mapeoN = cargarMapeoNombres();
-      var iTS = (colsK.end !== undefined) ? colsK.end : (colsK.start !== undefined) ? colsK.start : 0;
+      var iTS = (colsK.start !== undefined) ? colsK.start : 0;
       var diasFormacion = {}; // "nombre|yyyy-mm-dd" → true
       rawK.forEach(function(fila) {
         var ts2 = new Date(fila[iTS]);
@@ -5104,7 +5076,7 @@ function generarReporte(tipo, fechaInicio, fechaFin, filtroParticipante, nuevaHo
   var listaTerapias   = obtenerListaTerapias();
   var mapeoNombres    = cargarMapeoNombres();
   var partMap         = _construirMapaTarifas();
-  var tz              = Session.getScriptTimeZone();
+  var tz              = CFG.TIMEZONE;
 
   // Agrupar registros por participante (dedup UUID + clave)
   var uuidVistos = {}, regVistos = {}, regPorEmp = {};
@@ -5124,7 +5096,7 @@ function generarReporte(tipo, fechaInicio, fechaFin, filtroParticipante, nuevaHo
     var tipoReg = obtenerTipoRegistro(fila, cols);
     if (!tipoReg.esIngreso && !tipoReg.esEgreso) continue;
 
-    var _tsColG = (cols.end !== undefined) ? cols.end : cols.start;
+    var _tsColG = cols.start;
     var tsRaw = _tsColG !== undefined ? fila[_tsColG] : null;
     if (!tsRaw) continue;
     var ts = tsRaw instanceof Date ? tsRaw : new Date(tsRaw);
@@ -5331,7 +5303,7 @@ function generarReporte(tipo, fechaInicio, fechaFin, filtroParticipante, nuevaHo
 // ── Auxiliar: escribir una fila en el reporte ─────────────────
 
 function _escribirFilaReporte(hoja, fila, fechaRef, start, end, tipo, horas, porc, tarifa, monto) {
-  var tz = Session.getScriptTimeZone();
+  var tz = CFG.TIMEZONE;
   hoja.getRange(fila,1,1,10).setValues([[
     Utilities.formatDate(fechaRef, tz, "dd/MM/yyyy"),
     CFG.DIAS_SEMANA[fechaRef.getDay()],
@@ -5388,7 +5360,7 @@ function _validarEnRango(tipo, fecha, fi, ff) {
 }
 
 function _obtenerTextoPeriodo(tipo, fi, ff) {
-  var tz = Session.getScriptTimeZone();
+  var tz = CFG.TIMEZONE;
   if (tipo === "dia") return Utilities.formatDate(fi, tz, "dd/MM/yyyy");
   if (tipo === "semana") {
     var fin = new Date(fi); fin.setDate(fin.getDate()+6);
@@ -5425,19 +5397,18 @@ function _construirMapaTarifas() {
       normMap[norm] = nombre;
     }
 
-    var tarifa = parseFloat(datos[i][11]); // col L = Tarifa_Hora
+    var tarifa = parseFloat(datos[i][9]); // col J = Tarifa_Hora
     if (isNaN(tarifa) || tarifa <= 0) {
-      var cat = String(datos[i][10]).trim().toUpperCase(); // col K = Categoria
+      var cat = String(datos[i][8]).trim().toUpperCase(); // col I = Categoria
       tarifa = CFG.CATEGORIAS[cat] || CFG.CATEGORIAS.C;
     }
-    var t = String(datos[i][12]).trim().toLowerCase(); // col M = Tiene_Factura
-    var est = parseFloat(datos[i][21]) || 0;           // col V = Estipendio
+    var t = String(datos[i][10]).trim().toLowerCase(); // col K = Tiene_Factura
     map[nombre] = {
       id:           String(datos[i][0]||"").trim(),
       tarifa:       tarifa,
-      categoria:    String(datos[i][10]).trim().toUpperCase(),
+      categoria:    String(datos[i][8]).trim().toUpperCase(),
       tieneFactura: t === "sí" || t === "si",
-      estipendio:   est
+      estipendio:   0
     };
   }
   return map;
@@ -5485,59 +5456,46 @@ function migrarSistema() { _run(function() {
     var nDatos  = Math.max(0, lastRow - 1);
 
     var enc = lastRow >= 1
-      ? hP.getRange(1, 1, 1, Math.max(lastCol, 22)).getValues()[0]
+      ? hP.getRange(1, 1, 1, Math.max(lastCol, 19)).getValues()[0]
             .map(function(v){ return String(v||"").trim(); })
       : [];
 
     var colIHeader = enc[8] || ""; // índice 8 = col I (1-based 9)
 
-    if (colIHeader === "Categoria") {
-      // ── Esquema ANTIGUO detectado: necesita migración ─────────
-      // Asegurar al menos 22 columnas
-      if (hP.getMaxColumns() < 22) {
-        hP.insertColumnsAfter(hP.getMaxColumns(), 22 - hP.getMaxColumns());
-      }
-
-      // Leer todos los datos (filas 2..lastRow, cols A–V)
+    if (colIHeader === "Hijos_CCI" || colIHeader === "Num_Hijos_CCI") {
+      // ── Esquema INTERMEDIO detectado (22 cols con Hijos_CCI): migrar a 19 cols ─────────
       var nFilas = Math.max(0, lastRow - 1);
       if (nFilas > 0) {
-        var datosViejos = hP.getRange(2, 1, nFilas, 22).getValues();
+        var datosViejos = hP.getRange(2, 1, nFilas, Math.min(22, hP.getLastColumn())).getValues();
 
-        // Reordenar cada fila:
-        // VIEJO: [0..7]=A-H, [8]=Cat, [9]=Tar, [10]=TieneFact, [11]=DPI,
-        //         [12]=NIT, [13]=Correo, [14]=Banco, [15]=TipoCta, [16]=NumCta,
-        //         [17]=FormaPago, [18]=URL, [19]=Estipendio, [20]=HijosCCI, [21]=NumHijosCCI
-        // NUEVO: [0..7]=A-H, [8]=HijosCCI, [9]=NumHijosCCI, [10]=Cat,
-        //         [11]=Tar, [12]=TieneFact, [13]=DPI, [14]=NIT, [15]=Correo,
-        //         [16]=Banco, [17]=TipoCta, [18]=NumCta, [19]=FormaPago,
-        //         [20]=URL, [21]=Estipendio
+        // INTERMEDIO: [0..7]=A-H, [8]=HijosCCI, [9]=NumHijos, [10]=Cat, [11]=Tar, [12]=TieneFact,
+        //              [13]=DPI, [14]=NIT, [15]=Correo, [16]=Banco, [17]=TipoCta, [18]=NumCta,
+        //              [19]=FormaPago, [20]=URL, [21]=Estipendio
+        // NUEVO (19): [0..7]=A-H, [8]=Cat, [9]=Tar, [10]=TieneFact, [11]=DPI, [12]=NIT,
+        //              [13]=Correo, [14]=Banco, [15]=TipoCta, [16]=NumCta, [17]=FormaPago, [18]=URL
         var datosNuevos = datosViejos.map(function(r) {
           return [
             r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7],  // A-H sin cambio
-            r[20], r[21],                                        // I=Hijos_CCI, J=Num_Hijos_CCI
-            r[8], r[9], r[10],                                   // K=Categoria, L=Tarifa, M=TieneFactura
-            r[11], r[12], r[13], r[14], r[15], r[16], r[17],    // N=DPI..T=FormaPago
-            r[18], r[19]                                         // U=URL, V=Estipendio
+            r[10], r[11], r[12],                                // I=Cat, J=Tarifa, K=TieneFactura
+            r[13], r[14], r[15], r[16], r[17], r[18], r[19], r[20] // L=DPI..S=URL
           ];
         });
-        hP.getRange(2, 1, nFilas, 22).setValues(datosNuevos);
+        hP.getRange(2, 1, nFilas, 19).setValues(datosNuevos);
       }
 
-      // Actualizar encabezados (por si acaso)
-      hP.getRange(1, 1, 1, 22).setValues([[
+      // Actualizar encabezados
+      hP.getRange(1, 1, 1, 19).setValues([[
         "Creamos_ID","Nombre","Proyecto","Programa","Etapa",
         "Educacion","Apoyo_Emocional","Inclusion_Laboral",
-        "Hijos_CCI","Num_Hijos_CCI",
         "Categoria","Tarifa_Hora","Tiene_Factura",
         "DPI","NIT","Correo",
-        "Banco","Tipo_Cuenta","Num_Cuenta","Forma_Pago","URL_Doc_Proceso",
-        "Estipendio"
+        "Banco","Tipo_Cuenta","Num_Cuenta","Forma_Pago","URL_Doc_Proceso"
       ]]);
 
-      log.push("✅ PARTICIPANTES: columnas reorganizadas — Hijos_CCI/Num_Hijos_CCI movidas a I/J" +
+      log.push("✅ PARTICIPANTES: migrado a esquema 19 cols (eliminados Hijos_CCI/Estipendio)" +
         (nDatos > 0 ? " (" + nDatos + " filas migradas)" : ""));
-    } else if (colIHeader === "Hijos_CCI") {
-      log.push("ℹ️ PARTICIPANTES: esquema nuevo ya aplicado (Hijos_CCI en col I) — sin cambios");
+    } else if (colIHeader === "Categoria") {
+      log.push("ℹ️ PARTICIPANTES: esquema 19 cols ya aplicado (Categoria en col I) — sin cambios");
     } else {
       log.push("⚠️ PARTICIPANTES: col I = '" + colIHeader + "' — encabezado inesperado, sin cambios");
     }
@@ -5545,12 +5503,9 @@ function migrarSistema() { _run(function() {
     // Aplicar validaciones y formatos siempre (idempotente)
     var vSiNo = SpreadsheetApp.newDataValidation().requireValueInList(["Sí","No"],true).build();
     var vCat  = SpreadsheetApp.newDataValidation().requireValueInList(["A","B","C","D"],true).build();
-    hP.getRange("I2:I500").setDataValidation(vSiNo);    // col I = Hijos_CCI
-    hP.getRange("K2:K500").setDataValidation(vCat);     // col K = Categoria
-    hP.getRange("M2:M500").setDataValidation(vSiNo);    // col M = Tiene_Factura
-    hP.getRange("J2:J500").setNumberFormat("0");          // col J = Num_Hijos_CCI (entero)
-    hP.getRange("L2:L500").setNumberFormat('"Q"#,##0.00'); // col L = Tarifa_Hora
-    hP.getRange("V2:V500").setNumberFormat('"Q"#,##0.00'); // col V = Estipendio
+    hP.getRange("I2:I500").setDataValidation(vCat);     // col I = Categoria
+    hP.getRange("K2:K500").setDataValidation(vSiNo);    // col K = Tiene_Factura
+    hP.getRange("J2:J500").setNumberFormat('"Q"#,##0.00'); // col J = Tarifa_Hora
 
   } catch(e) { errores.push("❌ PARTICIPANTES: " + e.message); }
 
@@ -5592,15 +5547,14 @@ function migrarSistema() { _run(function() {
     log.join("\n") +
     (errores.length ? "\n\n❌ ERRORES:\n" + errores.join("\n") : "") +
     "\n\n✅ Tus datos existentes no fueron modificados.\n\n" +
-    "Esquema nuevo de PARTICIPANTES (22 cols A–V):\n" +
-    "• Col I = Hijos_CCI (Sí/No)\n" +
-    "• Col J = Num_Hijos_CCI (número)\n" +
-    "• Col K = Categoria (A/B/C/D)\n" +
-    "• Col L = Tarifa_Hora\n" +
-    "• Col M = Tiene_Factura (Sí/No)\n" +
-    "• Col V = Estipendio (Q fijos/quincena)\n" +
-    "• Hoja 'Bonos' para registrar bonos individuales\n" +
-    "• Hoja 'HijosCCI' sincronizada con PARTICIPANTES"
+    "Esquema nuevo de PARTICIPANTES (19 cols A–S):\n" +
+    "• Col I = Categoria (A/B/C/D)\n" +
+    "• Col J = Tarifa_Hora\n" +
+    "• Col K = Tiene_Factura (Sí/No)\n" +
+    "• Col L = DPI\n" +
+    "• Col S = URL_Doc_Proceso\n" +
+    "• Hijos CCI → hoja auxiliar HijosCCI\n" +
+    "• Bonos individuales → hoja auxiliar Bonos"
   );
 }); }
 
@@ -5612,7 +5566,7 @@ function instalarTodo() { _run(function() {
   var ui = SpreadsheetApp.getUi();
   var resp = ui.alert("🚀 INSTALACIÓN COMPLETA — " + CFG.PROYECTO + " / " + CFG.ORG,
     "Se ejecutarán 9 pasos automáticamente:\n\n" +
-    "1 — Crear hojas: PARTICIPANTES (22 cols), DatosKobo, PERIODOS\n" +
+    "1 — Crear hojas: PARTICIPANTES (19 cols), DatosKobo, PERIODOS\n" +
     "2 — Importar datos desde Kobo\n" +
     "3 — Crear estructura en Drive (Docs_Proceso, Reportes)\n" +
     "4 — Crear hoja Días de Estudio\n" +
@@ -5730,7 +5684,7 @@ function instalarTodo() { _run(function() {
   resumen += log.join("\n");
   if (errores.length) resumen += "\n\n--- PROBLEMAS ---\n" + errores.join("\n");
   resumen += "\n\n--- HOJAS DEL SISTEMA ---\n";
-  resumen += "• PARTICIPANTES     — lista maestra (22 cols: Etapa, Banco, cuenta, Estipendio, Hijos CCI)\n";
+  resumen += "• PARTICIPANTES     — lista maestra (19 cols: Etapa, Banco, cuenta — sin Hijos CCI/Estipendio)\n";
   resumen += "• DatosKobo         — datos de Kobo (se actualiza automático cada hora)\n";
   resumen += "• PERIODOS          — control de quincenas\n";
   resumen += "• DiasEstudio       — qué días estudia cada participante\n";
@@ -5858,7 +5812,7 @@ function diagnosticarDatosKobo() { _run(function() {
   var datos  = hojaK.getDataRange().getValues();
   var cols   = detectarColumnas(datos[0], datos.slice(1));
   var mapeo  = cargarMapeoNombres();
-  var tz     = Session.getScriptTimeZone();
+  var tz     = CFG.TIMEZONE;
 
   // ── 1. Recorrer todos los registros ─────────────────────────────
   var grupos   = {};  // clave "nombre|fecha" → {ent:[], sal:[], nombre, fecha}
@@ -6104,7 +6058,7 @@ function limpiarDuplicadosParticipantes() { _run(function() {
   var hP = _sh(CFG.HOJAS.PARTICIPANTES);
   if (hP.getLastRow() < 3) { _alert("No hay datos que limpiar."); return; }
 
-  var datos = hP.getRange(2, 1, hP.getLastRow()-1, 22).getValues();
+  var datos = hP.getRange(2, 1, hP.getLastRow()-1, 19).getValues();
   var normMap = {}; // norma → índice ganador (0-based en datos)
 
   datos.forEach(function(f, i) {
@@ -6157,9 +6111,9 @@ function cambiarCategoriaParticipante() { _run(function() {
   if (!hP || hP.getLastRow() < 2) { _alert("No hay participantes cargados."); return; }
 
   // Construir lista de nombres
-  var datos  = hP.getRange(2, 1, hP.getLastRow() - 1, 12).getValues();
+  var datos  = hP.getRange(2, 1, hP.getLastRow() - 1, 10).getValues();
   var lista  = datos.map(function(f, i) {
-    return (i + 1) + ". " + String(f[1] || "").trim() + "  [" + String(f[10] || "?") + "]"; // f[10]=Categoria
+    return (i + 1) + ". " + String(f[1] || "").trim() + "  [" + String(f[8] || "?") + "]"; // f[8]=Categoria
   }).filter(function(s) { return s.indexOf(". ") !== -1 && s.length > 5; });
 
   var r1 = ui.prompt(
@@ -6182,7 +6136,7 @@ function cambiarCategoriaParticipante() { _run(function() {
     if (coincide) {
       filaEncontrada = i + 2;
       nombreEncontrado = nombre;
-      catActual = String(datos[i][10] || "").trim().toUpperCase(); // col K = Categoria
+      catActual = String(datos[i][8] || "").trim().toUpperCase(); // col I = Categoria
       break;
     }
   }
@@ -6205,8 +6159,8 @@ function cambiarCategoriaParticipante() { _run(function() {
   if (nuevaCat === catActual) { _alert("La categoría ya es " + catActual + ". No hubo cambio."); return; }
 
   var nuevaTarifa = CFG.CATEGORIAS[nuevaCat];
-  hP.getRange(filaEncontrada, 11).setValue(nuevaCat);     // col K = Categoria
-  hP.getRange(filaEncontrada, 12).setValue(nuevaTarifa); // col L = Tarifa_Hora
+  hP.getRange(filaEncontrada, 9).setValue(nuevaCat);      // col I = Categoria
+  hP.getRange(filaEncontrada, 10).setValue(nuevaTarifa); // col J = Tarifa_Hora
 
   // Actualizar LISTA_OFICIAL en memoria (no persiste pero refleja el cambio visual)
   _colorearParticipantes(hP, hP.getLastRow() - 1);
@@ -6297,7 +6251,7 @@ function eliminarParticipanteCompleto() { _run(function() {
   var hP = _sh(CFG.HOJAS.PARTICIPANTES);
   if (hP.getLastRow() < 2) { _alert("PARTICIPANTES está vacía."); return; }
 
-  var datosP = hP.getRange(2, 1, hP.getLastRow() - 1, 22).getValues();
+  var datosP = hP.getRange(2, 1, hP.getLastRow() - 1, 19).getValues();
   var normBusqueda = textoParaComparar(busqueda);
   var filaEncontrada = -1;
   var nombreEncontrado = "", idEncontrado = "";
@@ -6424,7 +6378,7 @@ function _eliminarFilasPorParticipante(hoja, colNombre_1b, colId_1b, nombre, id)
 
 function actualizarDashboardVisual() { _run(function() {
   var ss   = SpreadsheetApp.getActiveSpreadsheet();
-  var tz   = Session.getScriptTimeZone();
+  var tz   = CFG.TIMEZONE;
   var ahora = new Date();
   var anio  = ahora.getFullYear();
   var ts    = Utilities.formatDate(ahora, tz, "dd/MM/yyyy HH:mm");
@@ -6459,10 +6413,10 @@ function actualizarDashboardVisual() { _run(function() {
   var pagoCheque = 0, pagoTransf = 0;
   var hP = ss.getSheetByName(CFG.HOJAS.PARTICIPANTES);
   if (hP && hP.getLastRow() > 1) {
-    hP.getRange(2, 1, hP.getLastRow() - 1, 20).getValues().forEach(function(r) {
+    hP.getRange(2, 1, hP.getLastRow() - 1, 18).getValues().forEach(function(r) {
       var etapa = String(r[4] || "").trim();
-      var cat   = String(r[10] || "").trim().toUpperCase();
-      var pago  = String(r[19] || "").trim();
+      var cat   = String(r[8] || "").trim().toUpperCase();  // col I = Categoria
+      var pago  = String(r[17] || "").trim();               // col R = Forma_Pago
       if (etapa === "Inscritx") {
         kpiActivas++;
         if (catCount[cat] !== undefined) catCount[cat]++;
@@ -6531,7 +6485,7 @@ function actualizarDashboardVisual() { _run(function() {
       var diasEstMap  = obtenerDiasEstudio();
       var terapiasMap = obtenerListaTerapias();
       var mapeoN = cargarMapeoNombres();
-      var iTS = (colsK.end !== undefined) ? colsK.end : (colsK.start !== undefined) ? colsK.start : 0;
+      var iTS = (colsK.start !== undefined) ? colsK.start : 0;
       var diasFormacion = {};
       rawK.forEach(function(fila) {
         var ts2 = new Date(fila[iTS]);
@@ -6703,7 +6657,7 @@ function actualizarDashboardVisual() { _run(function() {
 
 function exportarParaPowerBI() { _run(function() {
   var ss    = SpreadsheetApp.getActiveSpreadsheet();
-  var tz    = Session.getScriptTimeZone();
+  var tz    = CFG.TIMEZONE;
   var hoy   = new Date();
 
   var NOMBRE_HOJA = "PowerBI_Export";
@@ -6725,9 +6679,9 @@ function exportarParaPowerBI() { _run(function() {
 
   // Leer PARTICIPANTES
   var hP = ss.getSheetByName(CFG.HOJAS.PARTICIPANTES);
-  var mapaParticipantes = {}; // nombre → {id,proyecto,programa,etapa,categoria,tarifa,tieneFactura,banco,formaPago,hijosCCI,estipendio}
+  var mapaParticipantes = {}; // nombre → {id,proyecto,programa,etapa,categoria,tarifa,tieneFactura,banco,formaPago,estipendio}
   if (hP && hP.getLastRow() > 1) {
-    hP.getRange(2, 1, hP.getLastRow() - 1, 22).getValues().forEach(function(r) {
+    hP.getRange(2, 1, hP.getLastRow() - 1, 19).getValues().forEach(function(r) {
       var nombre = String(r[1] || "").trim();
       if (!nombre) return;
       mapaParticipantes[nombre] = {
@@ -6735,13 +6689,12 @@ function exportarParaPowerBI() { _run(function() {
         proyecto:     String(r[2]  || "").trim(),
         programa:     String(r[3]  || "").trim(),
         etapa:        String(r[4]  || "").trim(),
-        categoria:    String(r[10] || "").trim(),
-        tarifa:       parseFloat(r[11]) || 0,
-        tieneFactura: String(r[12] || "").trim(),
-        banco:        String(r[16] || "").trim(),
-        formaPago:    String(r[19] || "").trim(),
-        hijosCCI:     String(r[8]  || "").trim(),
-        estipendio:   parseFloat(r[21]) || 0
+        categoria:    String(r[8]  || "").trim(),
+        tarifa:       parseFloat(r[9])  || 0,
+        tieneFactura: String(r[10] || "").trim(),
+        banco:        String(r[14] || "").trim(),
+        formaPago:    String(r[17] || "").trim(),
+        estipendio:   0
       };
     });
   }
@@ -6866,7 +6819,7 @@ function crearGuiaUso() { _run(function() {
   h.setColumnWidth(4, 180);
 
   // ── Fecha actual para el pie ──────────────────────────────────
-  var tz = Session.getScriptTimeZone();
+  var tz = CFG.TIMEZONE;
   var fechaGuia = Utilities.formatDate(new Date(), tz, "dd/MM/yyyy");
 
   // Acumulador de filas: [col A, col B, col C, col D]
@@ -6990,7 +6943,7 @@ function crearGuiaUso() { _run(function() {
         "Los días de terapia tampoco cuentan como horas de trabajo.",
         "Igual que días de estudio."], "fila");
   push(["IVA 5%", "Factura pequeño contribuyente",
-        "Solo se aplica a quien tiene \"Sí\" en col M (Tiene_Factura) de PARTICIPANTES.",
+        "Solo se aplica a quien tiene \"Sí\" en col K (Tiene_Factura) de PARTICIPANTES.",
         "Admin → Configurar IVA para cambiar esto."], "fila");
 
   push(["", "", "", ""], "vacio");
