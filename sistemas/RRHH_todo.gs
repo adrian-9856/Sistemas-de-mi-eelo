@@ -2457,6 +2457,25 @@ function _normalizarNombresEnHojas(mapeo, ss) {
   return act.join(", ");
 }
 
+// ── Timestamp helper: corrige registros cuyo formulario se abrió un día y se envió otro ──
+// Cuando start y end caen en días distintos → el día real es el de end (envío del formulario).
+// Evita entradas "fantasma" de días anteriores por formularios abiertos y no cerrados.
+function _resolverTsKobo(fila, cols) {
+  var iS = cols.start, iE = cols.end;
+  if (iS === undefined) return (iE !== undefined) ? new Date(fila[iE]) : null;
+  var tsS = new Date(fila[iS]);
+  if (isNaN(tsS)) return (iE !== undefined) ? new Date(fila[iE]) : null;
+  if (iE === undefined) return tsS;
+  var tsE = new Date(fila[iE]);
+  if (isNaN(tsE)) return tsS;
+  // mismo día → usar start (hora real de apertura del formulario)
+  if (tsS.getFullYear()===tsE.getFullYear() &&
+      tsS.getMonth()===tsE.getMonth() &&
+      tsS.getDate()===tsE.getDate()) return tsS;
+  // días distintos → usar end (día y hora de envío = llegada real)
+  return tsE;
+}
+
 // ── Detección de columnas Kobo ────────────────────────────────
 
 function detectarColumnas(encabezados, datosEjemplo) {
@@ -2729,14 +2748,11 @@ function _calcular(mes, anio) {
     var mapeoNombres = cargarMapeoNombres();
     var diasEstudioMap = obtenerDiasEstudio();
     var listaTerapias  = obtenerListaTerapias();
-    var iTS  = (cols.start !== undefined) ? cols.start : 0;
-    var iEnd = -1; // end ya es el timestamp exacto de submission
-
     // Agrupar registros por participante+día
     var porDia = {};
     raw.forEach(function(fila) {
-      var ts = new Date(fila[iTS]);
-      if (isNaN(ts)) return;
+      var ts = _resolverTsKobo(fila, cols);
+      if (!ts || isNaN(ts)) return;
       if (ts.getMonth()+1 !== mes || ts.getFullYear() !== anio) return;
       var nombreRaw = obtenerParticipanteFila(fila, cols);
       if (!nombreRaw) return;
@@ -3631,15 +3647,12 @@ function _calcularResumenPeriodo(fi, ff) {
   var cols = detectarColumnas(enc, raw.slice(0, 50));
   var mapeoNombres = cargarMapeoNombres();
 
-  var iTS  = (cols.start !== undefined) ? cols.start : 0;
-  var iEnd = -1;
-
   // Agrupar por participante+día
   var porPartDia = {};
 
   raw.forEach(function(fila) {
-    var ts = new Date(fila[iTS]);
-    if (isNaN(ts)) return;
+    var ts = _resolverTsKobo(fila, cols);
+    if (!ts || isNaN(ts)) return;
 
     var dia = new Date(ts.getFullYear(), ts.getMonth(), ts.getDate());
     if (dia < dIni || dia > dFin) return;
@@ -4749,11 +4762,10 @@ function actualizarDashboard() { _run(function() {
       var diasEstMap  = obtenerDiasEstudio();
       var terapiasMap = obtenerListaTerapias();
       var mapeoN = cargarMapeoNombres();
-      var iTS = (colsK.start !== undefined) ? colsK.start : 0;
       var diasFormacion = {}; // "nombre|yyyy-mm-dd" → true
       rawK.forEach(function(fila) {
-        var ts2 = new Date(fila[iTS]);
-        if (isNaN(ts2) || ts2.getFullYear() !== anio) return;
+        var ts2 = _resolverTsKobo(fila, colsK);
+        if (!ts2 || isNaN(ts2) || ts2.getFullYear() !== anio) return;
         var nombreRaw = obtenerParticipanteFila(fila, colsK);
         if (!nombreRaw) return;
         var nombre = normalizarNombre(nombreRaw, mapeoN) || limpiarNombre(nombreRaw);
@@ -5094,11 +5106,8 @@ function generarReporte(tipo, fechaInicio, fechaFin, filtroParticipante, nuevaHo
     var tipoReg = obtenerTipoRegistro(fila, cols);
     if (!tipoReg.esIngreso && !tipoReg.esEgreso) continue;
 
-    var _tsColG = cols.start;
-    var tsRaw = _tsColG !== undefined ? fila[_tsColG] : null;
-    if (!tsRaw) continue;
-    var ts = tsRaw instanceof Date ? tsRaw : new Date(tsRaw);
-    if (isNaN(ts)) continue;
+    var ts = _resolverTsKobo(fila, cols);
+    if (!ts || isNaN(ts)) continue;
 
     var claveReg = emp + "|" + ts.getTime() + "|" + (tipoReg.esIngreso ? "E" : "S");
     if (regVistos[claveReg]) continue; regVistos[claveReg] = true;
@@ -6483,11 +6492,10 @@ function actualizarDashboardVisual() { _run(function() {
       var diasEstMap  = obtenerDiasEstudio();
       var terapiasMap = obtenerListaTerapias();
       var mapeoN = cargarMapeoNombres();
-      var iTS = (colsK.start !== undefined) ? colsK.start : 0;
       var diasFormacion = {};
       rawK.forEach(function(fila) {
-        var ts2 = new Date(fila[iTS]);
-        if (isNaN(ts2) || ts2.getFullYear() !== anio) return;
+        var ts2 = _resolverTsKobo(fila, colsK);
+        if (!ts2 || isNaN(ts2) || ts2.getFullYear() !== anio) return;
         var nombreRaw = obtenerParticipanteFila(fila, colsK);
         if (!nombreRaw) return;
         var nombre = normalizarNombre(nombreRaw, mapeoN) || limpiarNombre(nombreRaw);
