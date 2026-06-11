@@ -248,6 +248,7 @@ function onOpen() {
     .addItem("⚡ Activar automatizaciones",              "configurarTriggers")
     .addSeparator()
     .addItem("⬆️ Migrar sistema (actualizar sin borrar)", "migrarSistema")
+    .addItem("🔄 Recalcular tarifas y factura",           "recalcularTarifas")
     .addItem("🗑️ Reinstalar sistema (borra TODO)",       "reinstalarSistema")
     .addSeparator()
     .addItem("📊 Actualizar Dashboard Visual",            "actualizarDashboardVisual")
@@ -5426,6 +5427,61 @@ function _construirMapaTarifas() {
 // ══════════════════════════════════════════════════════════════════
 
 /**
+ * Recalcula Tarifa_Hora (col J) desde Categoria (col I) para todos los participantes.
+ * Si Tiene_Factura (col K) está vacío → pone "Sí" por defecto.
+ * Seguro correr en cualquier momento; no borra ningún otro dato.
+ */
+function recalcularTarifas() { _run(function() {
+  var hP = _sh(CFG.HOJAS.PARTICIPANTES);
+  if (!hP || hP.getLastRow() < 2) { _alert("Sin datos en PARTICIPANTES."); return; }
+
+  var nRows = hP.getLastRow() - 1;
+  var datos = hP.getRange(2, 1, nRows, 11).getValues();
+
+  var tarifasNueva  = [];
+  var facturaNueva  = [];
+  var nTarifa = 0, nFact = 0, sinCat = [];
+
+  datos.forEach(function(r, i) {
+    var nombre = String(r[1] || "").trim();
+    var cat    = String(r[8] || "").trim().toUpperCase(); // col I = Categoria
+    var tarifa = CFG.CATEGORIAS[cat];
+
+    if (tarifa) {
+      tarifasNueva.push([tarifa]);
+      nTarifa++;
+    } else {
+      tarifasNueva.push([r[9] || ""]); // conservar existente si no hay cat válida
+      if (nombre) sinCat.push(nombre);
+    }
+
+    var fact = String(r[10] || "").trim(); // col K = Tiene_Factura
+    if (!fact || (fact !== "Sí" && fact !== "No")) {
+      facturaNueva.push(["Sí"]);
+      nFact++;
+    } else {
+      facturaNueva.push([fact]);
+    }
+  });
+
+  hP.getRange(2, 10, nRows, 1).setValues(tarifasNueva); // col J = Tarifa_Hora
+  hP.getRange(2, 11, nRows, 1).setValues(facturaNueva); // col K = Tiene_Factura
+
+  var msg = "✅ Tarifas y factura actualizadas\n\n" +
+    "• " + nTarifa + " tarifas calculadas desde Categoria (col I)\n" +
+    "• " + nFact + " Tiene_Factura vacíos → rellenados con 'Sí'";
+
+  if (sinCat.length > 0) {
+    msg += "\n\n⚠️ Participantes SIN categoría asignada (" + sinCat.length + "):\n" +
+      sinCat.slice(0, 10).join("\n") +
+      (sinCat.length > 10 ? "\n... y " + (sinCat.length - 10) + " más" : "") +
+      "\n\nAsigna A / B / C / D en col I para que sus tarifas se calculen correctamente.";
+  }
+
+  _alert(msg);
+}); }
+
+/**
  * Actualiza la estructura del sistema a la versión más reciente.
  * NO borra datos existentes. Seguro correr sobre una instalación ya en uso.
  *
@@ -5502,7 +5558,19 @@ function migrarSistema() { _run(function() {
       log.push("✅ PARTICIPANTES: migrado a esquema 19 cols (eliminados Hijos_CCI/Estipendio)" +
         (nDatos > 0 ? " (" + nDatos + " filas migradas)" : ""));
     } else if (colIHeader === "Categoria") {
-      log.push("ℹ️ PARTICIPANTES: esquema 19 cols ya aplicado (Categoria en col I) — sin cambios");
+      // Verificar cuántas filas tienen Categoria válida
+      var nConCat = 0;
+      if (nDatos > 0) {
+        var chkDatos = hP.getRange(2, 9, nDatos, 1).getValues();
+        chkDatos.forEach(function(r) {
+          if (CFG.CATEGORIAS[String(r[0]||"").trim().toUpperCase()]) nConCat++;
+        });
+      }
+      log.push("ℹ️ PARTICIPANTES: esquema 19 cols ya aplicado" +
+        (nDatos > 0 ? " — " + nConCat + "/" + nDatos + " participantes con Categoria válida" : ""));
+      if (nDatos > 0 && nConCat === 0) {
+        log.push("⚠️ Ningún participante tiene Categoria — se recomienda llenar col I (A/B/C/D)");
+      }
     } else {
       log.push("⚠️ PARTICIPANTES: col I = '" + colIHeader + "' — encabezado inesperado, sin cambios");
     }
@@ -5549,19 +5617,37 @@ function migrarSistema() { _run(function() {
     log.push("✅ Colores e IDs actualizados en hojas auxiliares");
   } catch(e) { errores.push("❌ Colores/IDs: " + e.message); }
 
+  // ── PASO 5: Recalcular Tarifa_Hora desde Categoria ──────────────
+  try {
+    var hP2 = _sh(CFG.HOJAS.PARTICIPANTES);
+    if (hP2 && hP2.getLastRow() > 1) {
+      var nRows2 = hP2.getLastRow() - 1;
+      var datos2 = hP2.getRange(2, 1, nRows2, 11).getValues();
+      var tarifs2 = [], facts2 = [];
+      datos2.forEach(function(r) {
+        var cat2  = String(r[8]||"").trim().toUpperCase();
+        var tarifa2 = CFG.CATEGORIAS[cat2];
+        tarifs2.push([tarifa2 || (r[9] || "")]);
+        var fact2 = String(r[10]||"").trim();
+        facts2.push([(fact2 === "Sí" || fact2 === "No") ? fact2 : "Sí"]);
+      });
+      hP2.getRange(2, 10, nRows2, 1).setValues(tarifs2);
+      hP2.getRange(2, 11, nRows2, 1).setValues(facts2);
+      log.push("✅ Tarifas y Tiene_Factura recalculadas desde Categoria");
+    }
+  } catch(e) { errores.push("❌ Tarifas: " + e.message); }
+
   _alert(
     "⬆️ MIGRACIÓN COMPLETADA\n\n" +
     log.join("\n") +
     (errores.length ? "\n\n❌ ERRORES:\n" + errores.join("\n") : "") +
     "\n\n✅ Tus datos existentes no fueron modificados.\n\n" +
-    "Esquema nuevo de PARTICIPANTES (19 cols A–S):\n" +
-    "• Col I = Categoria (A/B/C/D)\n" +
-    "• Col J = Tarifa_Hora\n" +
-    "• Col K = Tiene_Factura (Sí/No)\n" +
-    "• Col L = DPI\n" +
-    "• Col S = URL_Doc_Proceso\n" +
-    "• Hijos CCI → hoja auxiliar HijosCCI\n" +
-    "• Bonos individuales → hoja auxiliar Bonos"
+    "Esquema de PARTICIPANTES (19 cols A–S):\n" +
+    "• Col I = Categoria (A/B/C/D) → auto-genera Tarifa (col J)\n" +
+    "• Col K = Tiene_Factura (Sí/No) → determina IVA 5%\n" +
+    "• Col L = DPI  |  Col S = URL_Doc_Proceso\n\n" +
+    "Siguiente paso: si hay participantes sin Categoria en col I,\n" +
+    "llena A/B/C/D y usa Admin → 🔄 Recalcular tarifas y factura."
   );
 }); }
 
