@@ -3429,7 +3429,8 @@ function _calcularResumenPeriodo(fi, ff) {
     });
   }
 
-  // Sumar horas reales desde DatosKobo
+  // Sumar horas reales desde DatosKobo — procesamiento por participante+DÍA
+  // (evita emparejar entrada de día 2 con salida de día 3, y cuenta sin-salida correctamente)
   var hK = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
   if (!hK || hK.getLastRow() < 2) return resultado;
 
@@ -3438,10 +3439,11 @@ function _calcularResumenPeriodo(fi, ff) {
   var cols = detectarColumnas(enc, raw.slice(0, 50));
   var mapeoNombres = cargarMapeoNombres();
 
-  var iTS = (cols.start !== undefined) ? cols.start : 0;
-  var iEnd = (cols.end !== undefined) ? cols.end : -1;
+  var iTS  = (cols.start !== undefined) ? cols.start : 0;
+  var iEnd = (cols.end   !== undefined) ? cols.end   : -1;
 
-  var porPart = {};
+  // Agrupar por participante+día
+  var porPartDia = {};
 
   raw.forEach(function(fila) {
     var ts = new Date(fila[iTS]);
@@ -3458,35 +3460,23 @@ function _calcularResumenPeriodo(fi, ff) {
     var tipo = obtenerTipoRegistro(fila, cols);
     if (!tipo.esIngreso && !tipo.esEgreso) return;
 
-    if (!porPart[nombre]) porPart[nombre] = [];
+    var dClave = nombre + "|" + ts.getFullYear() + "-" + ts.getMonth() + "-" + ts.getDate();
+    if (!porPartDia[dClave]) porPartDia[dClave] = { nombre: nombre, ing: [], egr: [] };
+
     var tsEnd = (iEnd >= 0) ? new Date(fila[iEnd]) : null;
-    porPart[nombre].push({ ts: ts, tsEnd: tsEnd, tipo: tipo });
+    if (tipo.esIngreso) {
+      porPartDia[dClave].ing.push(ts);
+    } else {
+      // Para salidas usar tsEnd si razonable (<16h)
+      var tSal = (tsEnd && !isNaN(tsEnd) && (tsEnd - ts) >= 0 && (tsEnd - ts) < 57600000) ? tsEnd : ts;
+      porPartDia[dClave].egr.push(tSal);
+    }
   });
 
-  Object.keys(porPart).forEach(function(nombre) {
-    var regs = porPart[nombre].sort(function(a,b){ return a.ts - b.ts; });
-    var totalH = 0;
-    var entrada = null;
-
-    regs.forEach(function(reg) {
-      if (reg.tipo.esIngreso && !entrada) {
-        entrada = reg.ts;
-      } else if (reg.tipo.esEgreso && entrada) {
-        // Usar tsEnd del registro de salida si es confiable (< 16h de diferencia)
-        var tSalida = (reg.tsEnd && !isNaN(reg.tsEnd) &&
-                       (reg.tsEnd - entrada)/3600000 > 0 &&
-                       (reg.tsEnd - entrada)/3600000 < 16)
-                      ? reg.tsEnd : reg.ts;
-        var diffH = (tSalida - entrada) / 3600000;
-        if (diffH > 0 && diffH <= 16) totalH += diffH;
-        entrada = null;
-      }
-    });
-
-    if (entrada) {
-      // Entrada sin salida → estimar jornada normal
-      totalH += CFG.HORAS_JORNADA_NORMAL;
-    }
+  // Por cada día: earliest entrada + latest salida → horas del día
+  Object.keys(porPartDia).forEach(function(dClave) {
+    var d = porPartDia[dClave];
+    var nombre = d.nombre;
 
     if (!resultado[nombre]) {
       var info2b = _buscarInfoParticipante(mapa, nombre);
@@ -3495,8 +3485,30 @@ function _calcularResumenPeriodo(fi, ff) {
         id: info2b.id || "", codigo: info2b.id || "",
         estipendio: info2b.estipendio || 0, bono: 0 };
     }
-    resultado[nombre].horas = Math.round(totalH * 100) / 100;
+
+    if (d.ing.length === 0) return; // sin entrada → no se cuenta
+
+    d.ing.sort(function(a,b){return a-b;});
+    var entrada = d.ing[0]; // earliest entrada del día
+
+    if (d.egr.length === 0) {
+      // Sin salida → estimar jornada normal
+      resultado[nombre].horas = Math.round((resultado[nombre].horas + CFG.HORAS_JORNADA_NORMAL) * 100) / 100;
+      return;
+    }
+
+    d.egr.sort(function(a,b){return b-a;});
+    var salida = d.egr[0]; // latest salida del día
+
+    var diffH = (salida - entrada) / 3600000;
+    if (diffH > 0 && diffH <= 16) {
+      resultado[nombre].horas = Math.round((resultado[nombre].horas + diffH) * 100) / 100;
+    } else {
+      // Diferencia incoherente → estimar
+      resultado[nombre].horas = Math.round((resultado[nombre].horas + CFG.HORAS_JORNADA_NORMAL) * 100) / 100;
+    }
   });
+
 
   return resultado;
 }
