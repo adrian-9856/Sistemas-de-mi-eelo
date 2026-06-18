@@ -2450,31 +2450,52 @@ function _limpiarColumnasKobo(hoja, enc) {
     try { if (!esImp) hoja.hideColumns(i+1); else hoja.showColumns(i+1); } catch(_) {}
   }
 
-  // Normalizar columna Participante usando c_id como fuente primaria
+  // Normalizar columna Participante y poblar c_id desde LISTA_OFICIAL
   var cols = detectarColumnas(enc, []);
   if (cols.participante === undefined) return;
   var mapeo = cargarMapeoNombres();
   var lastRow = hoja.getLastRow();
   if (lastRow < 2) return;
 
-  var nCols = (cols.creamos_id !== undefined) ? Math.max(cols.participante, cols.creamos_id) + 1
-                                               : cols.participante + 1;
+  // Mapa inverso nombre_oficial → Creamos_ID desde LISTA_OFICIAL
+  var mapaNameAId = {};
+  LISTA_OFICIAL.forEach(function(it) { if (it[3]) mapaNameAId[it[1]] = it[3]; });
+
+  // Si c_id no existe en la hoja, agregar la columna al final
+  if (cols.creamos_id === undefined) {
+    var nc = hoja.getLastColumn() + 1;
+    hoja.getRange(1, nc).setValue("c_id")
+        .setFontWeight("bold").setBackground("#4a86e8").setFontColor("#fff");
+    cols.creamos_id = nc - 1; // 0-based
+  }
+
+  var nCols = Math.max(cols.participante, cols.creamos_id) + 1;
   var bloque = hoja.getRange(2, 1, lastRow - 1, nCols).getValues();
-  var cambiados = 0;
-  var nuevosP = bloque.map(function(fila) {
+  var cambiadosP = 0, cambiadosID = 0;
+  var nuevosP  = [];
+  var nuevosID = [];
+
+  bloque.forEach(function(fila) {
     var raw = String(fila[cols.participante] || "").trim();
-    var cid = (cols.creamos_id !== undefined) ? String(fila[cols.creamos_id] || "").trim() : "";
-    // Primero intentar por Creamos_ID (más confiable)
+    var cid = String(fila[cols.creamos_id]   || "").trim();
+
+    // Resolver nombre oficial
     var porId = cid ? mapeo["id:" + cid] : null;
-    if (porId) { if (porId !== raw) cambiados++; return [porId]; }
-    if (!raw) return [raw];
-    var normalizado = normalizarNombre(raw, mapeo);
-    if (normalizado !== raw) cambiados++;
-    return [normalizado];
+    var nombreFinal = porId || (raw ? normalizarNombre(raw, mapeo) : "");
+    if (nombreFinal !== raw) cambiadosP++;
+
+    // Resolver Creamos_ID desde el nombre oficial
+    var idFinal = mapaNameAId[nombreFinal] || cid || "";
+    if (idFinal !== cid) cambiadosID++;
+
+    nuevosP.push([nombreFinal]);
+    nuevosID.push([idFinal]);
   });
-  var colP = cols.participante + 1;
-  if (cambiados > 0)
-    hoja.getRange(2, colP, lastRow - 1, 1).setValues(nuevosP);
+
+  var colP  = cols.participante + 1;
+  var colID = cols.creamos_id   + 1;
+  if (cambiadosP  > 0) hoja.getRange(2, colP,  lastRow - 1, 1).setValues(nuevosP);
+  if (cambiadosID > 0) hoja.getRange(2, colID, lastRow - 1, 1).setValues(nuevosID);
 }
 
 function _normalizarAccionSilencioso(hoja) {
