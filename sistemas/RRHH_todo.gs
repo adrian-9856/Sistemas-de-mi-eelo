@@ -258,6 +258,7 @@ function onOpen() {
     .addItem("⚡ Activar automatizaciones",              "configurarTriggers")
     .addSeparator()
     .addItem("⬆️ Migrar sistema (actualizar sin borrar)", "migrarSistema")
+    .addItem("🔽 Reparar dropdowns PARTICIPANTES",        "repararDropdownsParticipantes")
     .addItem("🔄 Recalcular tarifas y factura",           "recalcularTarifas")
     .addItem("🗑️ Reinstalar sistema (borra TODO)",       "reinstalarSistema")
     .addSeparator()
@@ -5761,6 +5762,63 @@ function recalcularTarifas() { _run(function() {
  *  5. Aplica validaciones y formatos en PARTICIPANTES
  *  6. Actualiza colores e IDs en todas las hojas auxiliares
  */
+
+// ── Reparar dropdowns PARTICIPANTES ──────────────────────────────
+function repararDropdownsParticipantes() { _run(function() {
+  var hP = _sh(CFG.HOJAS.PARTICIPANTES);
+  if (hP.getLastRow() < 1) { _alert("PARTICIPANTES está vacía."); return; }
+
+  // Detectar esquema por col C
+  var colCHeader = String(hP.getRange(1, 3, 1, 1).getValue() || "").trim();
+  var es23 = (colCHeader === "Fecha_Nacimiento");
+  var es19 = (colCHeader === "Proyecto");
+
+  if (!es23 && !es19) {
+    _alert("⚠️ No se reconoce el esquema (col C = '" + colCHeader + "').\n" +
+           "Esperado: 'Fecha_Nacimiento' (23 cols) o 'Proyecto' (19 cols).\n" +
+           "Ejecuta primero ⬆️ Migrar sistema.");
+    return;
+  }
+
+  // Limpiar validaciones existentes en toda la zona de datos
+  hP.getRange("A2:Z500").clearDataValidations();
+
+  var vEtapa  = SpreadsheetApp.newDataValidation().requireValueInList(["Inscritx","Retiradx","Empleadx","Ciclo de Vida Terminado"],true).build();
+  var vCat    = SpreadsheetApp.newDataValidation().requireValueInList(["A","B","C","D"],true).build();
+  var vSiNo   = SpreadsheetApp.newDataValidation().requireValueInList(["Sí","No"],true).build();
+  var vBanco  = SpreadsheetApp.newDataValidation().requireValueInList(["Banrural","G&T Continental","BAC Credomatic","Industrial","Agromercantil","Occidente","Promerica","Vivibanco","Bantrab","CHN","Otro"],true).build();
+  var vTipoCt = SpreadsheetApp.newDataValidation().requireValueInList(["Monetaria","Ahorro",""],true).build();
+  var vPago   = SpreadsheetApp.newDataValidation().requireValueInList(["Transferencia","Cheque"],true).build();
+
+  if (es23) {
+    // 23 cols A–W
+    hP.getRange("I2:I500").setDataValidation(vEtapa);   // col I = Etapa
+    hP.getRange("M2:M500").setDataValidation(vCat);     // col M = Categoria
+    hP.getRange("O2:O500").setDataValidation(vSiNo);    // col O = Tiene_Factura
+    hP.getRange("S2:S500").setDataValidation(vBanco);   // col S = Banco
+    hP.getRange("T2:T500").setDataValidation(vTipoCt);  // col T = Tipo_Cuenta
+    hP.getRange("V2:V500").setDataValidation(vPago);    // col V = Forma_Pago
+    hP.getRange("N2:N500").setNumberFormat("Q#,##0.00"); // col N = Tarifa_Hora
+    hP.getRange("C2:C500").setNumberFormat("dd/MM/yyyy"); // col C = Fecha_Nacimiento
+    _alert("✅ Dropdowns reparados — esquema 23 cols (A–W):\n" +
+           "• I = Etapa\n• M = Categoría (A/B/C/D)\n• O = Tiene_Factura\n" +
+           "• S = Banco\n• T = Tipo_Cuenta\n• V = Forma_Pago");
+  } else {
+    // 19 cols A–S
+    hP.getRange("E2:E500").setDataValidation(vEtapa);   // col E = Etapa
+    hP.getRange("I2:I500").setDataValidation(vCat);     // col I = Categoria
+    hP.getRange("K2:K500").setDataValidation(vSiNo);    // col K = Tiene_Factura
+    hP.getRange("O2:O500").setDataValidation(vBanco);   // col O = Banco
+    hP.getRange("P2:P500").setDataValidation(vTipoCt);  // col P = Tipo_Cuenta
+    hP.getRange("R2:R500").setDataValidation(vPago);    // col R = Forma_Pago
+    hP.getRange("J2:J500").setNumberFormat("Q#,##0.00"); // col J = Tarifa_Hora
+    _alert("✅ Dropdowns reparados — esquema 19 cols (A–S):\n" +
+           "• E = Etapa\n• I = Categoría (A/B/C/D)\n• K = Tiene_Factura\n" +
+           "• O = Banco\n• P = Tipo_Cuenta\n• R = Forma_Pago\n\n" +
+           "ℹ️ Para actualizar a 23 cols usa ⬆️ Migrar sistema.");
+  }
+}); }
+
 function migrarSistema() { _run(function() {
   var ui = SpreadsheetApp.getUi();
   var resp = ui.alert(
