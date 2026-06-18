@@ -6387,7 +6387,7 @@ function repararDatosKobo() { _run(function() {
   if (Object.keys(mapeoN).length && cols.participante !== undefined) {
     for (var f=1; f<datos.length; f++) {
       var n = String(datos[f][cols.participante]||"").trim();
-      if (n && mapeoN[n] && mapeoN[n]!==n) nombresANorm++;
+      if (n) { var norm = normalizarNombre(n, mapeoN); if (norm !== n) nombresANorm++; }
     }
   }
 
@@ -6427,7 +6427,7 @@ function repararDatosKobo() { _run(function() {
   if (Object.keys(mapeoN).length && cols.participante !== undefined) {
     for (var f=1; f<datos.length; f++) {
       var n = String(datos[f][cols.participante]||"").trim();
-      if (n && mapeoN[n] && mapeoN[n]!==n) { hojaK.getRange(f+1,cols.participante+1).setValue(mapeoN[n]); cam2++; }
+      if (n) { var norm = normalizarNombre(n, mapeoN); if (norm !== n) { hojaK.getRange(f+1,cols.participante+1).setValue(norm); cam2++; } }
     }
   }
   ui.alert("✅ REPARACIÓN COMPLETADA\n\nEntrada/Salida corregidos: "+cam1+"\nNombres normalizados: "+cam2);
