@@ -2593,6 +2593,13 @@ function _normalizarAccionSilencioso(hoja) {
       else if (tipo.esEgreso) { correcto=CFG.KOBO_TIPO_SALIDA; }
       if (correcto) {
         var celda = hoja.getRange(f+1, cols.accionUnificada+1);
+        // Si había intercambio (participante col tiene acción), copiar nombre al lugar correcto
+        if (cols.participante !== undefined) {
+          var partVal = String(datos[f][cols.participante]||"").trim();
+          if (_esValorAccion(partVal) && valRaw && !_esValorAccion(valRaw)) {
+            hoja.getRange(f+1, cols.participante+1).setValue(valRaw);
+          }
+        }
         if (valRaw!==correcto) celda.setValue(correcto);
         celda.setBackground(tipo.esIngreso?"#b7e1cd":"#f4cccc")
              .setFontColor(tipo.esIngreso?"#0b5c30":"#7f0000").setFontWeight("bold");
@@ -2756,6 +2763,13 @@ function obtenerTipoRegistro(fila, cols) {
   var r={tipo:"",esIngreso:false,esEgreso:false,esTerapia:false,esPermiso:false,esComputacion:false};
   if(cols.accionUnificada!==undefined){
     var vR=String(fila[cols.accionUnificada]||"").trim(), v=vR.toLowerCase();
+    // Columnas intercambiadas: acción contiene nombre → buscar acción en columna participante
+    var looksLikeAction = _esValorAccion(vR) ||
+      v.indexOf("terapia")!==-1 || v.indexOf("permiso")!==-1 || v.indexOf("comput")!==-1;
+    if (!looksLikeAction && cols.participante !== undefined) {
+      var altAccion = String(fila[cols.participante]||"").trim();
+      if (_esValorAccion(altAccion)) { vR = altAccion; v = altAccion.toLowerCase(); }
+    }
     if(v.indexOf("entrada")!==-1||v.indexOf("ingreso")!==-1||vR.indexOf("🟢")!==-1) r.esIngreso=true;
     if(v.indexOf("salida") !==-1||v.indexOf("egreso") !==-1||vR.indexOf("🔴")!==-1) r.esEgreso=true;
     if(!r.esIngreso&&!r.esEgreso){
@@ -2784,9 +2798,22 @@ function obtenerTipoRegistro(fila, cols) {
   return r;
 }
 
+// Detecta si un string parece un valor de acción Kobo (no un nombre de persona)
+function _esValorAccion(s) {
+  var low = String(s).toLowerCase();
+  return low.indexOf("entrada") !== -1 || low.indexOf("salida") !== -1 ||
+         low.indexOf("ingreso") !== -1 || low.indexOf("egreso") !== -1 ||
+         String(s).indexOf("🟢") !== -1 || String(s).indexOf("🔴") !== -1;
+}
+
 function obtenerParticipanteFila(fila, cols) {
   var n1=cols.participante!==undefined?String(fila[cols.participante]||"").trim():"";
   var n2=cols.participante2!==undefined?String(fila[cols.participante2]||"").trim():"";
+  // Columnas intercambiadas: participante tiene acción → buscar nombre en columna acción
+  if (n1 && _esValorAccion(n1) && cols.accionUnificada !== undefined) {
+    var deAccion = String(fila[cols.accionUnificada]||"").trim();
+    if (deAccion && !_esValorAccion(deAccion)) return deAccion;
+  }
   if(!n1)return n2; if(n2&&n2.length>n1.length)return n2; return n1;
 }
 function _buscarColsParticipante(enc) {
