@@ -395,7 +395,7 @@ HORAS_JORNADA_NORMAL: 7,  // ← cambiar aquí
 | # | Síntoma | Causa | Solución |
 |---|---------|-------|----------|
 | 1 | Reporte muestra entradas en día incorrecto | Formulario Kobo abierto el día anterior en la tarde y enviado al día siguiente | Menú → 🟡 Marcar sospechosas → 🗑️ Eliminar rojas → Regenerar |
-| 2 | Filas con 0 horas (ej: 9:04–9:04) | ENTRADA y SALIDA con mismo timestamp (formularios cruzados) | Código los convierte automáticamente a "Normal (Estimado)* 7 hrs" |
+| 2 | Filas con 0 horas (ej: 9:04–9:04) | "Chained form": SALIDA abierta al instante exacto en que se submitió el form ENTRADA del día anterior. El `start` de SALIDA = `end` de ENTRADA cruzada → 0h. | Código usa `fechaEnd` (tiempo real de submit de SALIDA) como salida real. Si `fechaEnd` también falla → estima 7 hrs. |
 | 3 | Categoría muestra "Cat. NO" en reporte | Col I de PARTICIPANTES vacía o con esquema viejo | ⚙️ Admin → ⬆️ Migrar sistema → llenar col I → 🔄 Recalcular tarifas |
 | 4 | IVA = Q0 para quien debería tenerlo | `Tiene_Factura` no dice "Sí" exactamente | Verificar col K. ⚙️ Admin → 🔄 Recalcular tarifas rellena los vacíos con "Sí" |
 | 5 | Email de pagos no se envía | Los triggers no están instalados | ⚙️ Admin → ⚡ Activar automatizaciones |
@@ -413,6 +413,7 @@ HORAS_JORNADA_NORMAL: 7,  // ← cambiar aquí
 
 | Fecha | Versión | Cambios principales |
 |-------|---------|---------------------|
+| 2026-06-18 | 1.4 | Fix "chained form" (raíz de ceros). Análisis de 7,236 registros Kobo: 195 cross-day ENTRADA (ya manejadas), 2 registros con gap >7 días (deben borrarse en Kobo: row 2451 Carmen Borrayo +19d, row 6008 Vilma López +181d). `fechaEnd` almacenado en cada EGRESO; cuando `horas<=0` se usa el tiempo real de submit antes de estimar 7h. |
 | 2026-06-16 | 1.3 | Fix entradas 0 horas → estimado automático. Marcar/eliminar filas sospechosas en Kobo. Filtro ENTRADA PM (≥12:00) mejorado con hora local Guatemala. |
 | 2026-06-16 | 1.2 | `recalcularTarifas()` batch update. Mejoras en `migrarSistema()` con diagnóstico de categorías. Menú Admin: nuevo item "Recalcular tarifas y factura". |
 | 2026-06-16 | 1.1 | Fix entradas fantasma: `_resolverTsKobo()` usa `end` cuando formulario cruzó medianoche. Fix umbral PM de 17→12 hora local. |

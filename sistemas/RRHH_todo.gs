@@ -5118,8 +5118,12 @@ function generarReporte(tipo, fechaInicio, fechaFin, filtroParticipante, nuevaHo
     if (!_validarEnRango(tipo, ts, fechaInicio, fechaFin)) continue;
 
     if (!regPorEmp[emp]) regPorEmp[emp] = [];
+    // fechaEnd: raw "end" column for EGRESO — used to recover real departure when "chained forms"
+    // produce horas=0 (SALIDA opened at exact moment cross-day ENTRADA was submitted).
+    var fechaEndRaw = (tipoReg.esEgreso && cols.end !== undefined) ? new Date(fila[cols.end]) : null;
     regPorEmp[emp].push({
       fecha: ts,
+      fechaEnd: fechaEndRaw,
       esIngreso:    tipoReg.esIngreso,
       esEgreso:     tipoReg.esEgreso,
       esTerapia:    tipoReg.esTerapia,
@@ -5235,12 +5239,21 @@ function generarReporte(tipo, fechaInicio, fechaFin, filtroParticipante, nuevaHo
         var horas  = (reg.fecha - currentIngreso.fecha) / 3600000;
 
         if (horas <= 0) {
-          // SALIDA inválida (mismo instante o anterior a ENTRADA) — ignorar SALIDA, estimar jornada
+          // "Chained form" pattern: SALIDA opened at exact moment cross-day ENTRADA resolved to.
+          // Try reg.fechaEnd (raw submission time) — that is the real departure.
           var isDiaEstInv = esDiaDeEstudio(empId, currentIngreso.fecha, diasEstudioMapa);
-          var sEstInv = new Date(currentIngreso.fecha.getTime() + CFG.HORAS_JORNADA_NORMAL * 3600000);
-          _addFila(currentIngreso.fecha, currentIngreso.fecha, sEstInv,
-            (isDiaEstInv ? "Día de Estudio (Est.)" : "Normal (Estimado)") + "*",
-            CFG.HORAS_JORNADA_NORMAL, isDiaEstInv ? 0 : 100);
+          var salidaFin = reg.fechaEnd;
+          var horasReal = (salidaFin && !isNaN(salidaFin)) ? (salidaFin - currentIngreso.fecha) / 3600000 : 0;
+          if (horasReal > 0.25 && horasReal < 14) {
+            var tipoLblR = isDiaEstInv ? "Día de Estudio" : "Normal";
+            var porcR    = isDiaEstInv ? 0 : 100;
+            _addFila(currentIngreso.fecha, currentIngreso.fecha, salidaFin, tipoLblR, horasReal, porcR);
+          } else {
+            var sEstInv = new Date(currentIngreso.fecha.getTime() + CFG.HORAS_JORNADA_NORMAL * 3600000);
+            _addFila(currentIngreso.fecha, currentIngreso.fecha, sEstInv,
+              (isDiaEstInv ? "Día de Estudio (Est.)" : "Normal (Estimado)") + "*",
+              CFG.HORAS_JORNADA_NORMAL, isDiaEstInv ? 0 : 100);
+          }
           currentIngreso = null; lastEgreso = reg;
         } else {
           var isDiaEst2 = esDiaDeEstudio(empId, currentIngreso.fecha, diasEstudioMapa);
