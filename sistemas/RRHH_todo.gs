@@ -259,6 +259,7 @@ function onOpen() {
     .addSeparator()
     .addItem("⬆️ Migrar sistema (actualizar sin borrar)", "migrarSistema")
     .addItem("🔽 Reparar dropdowns PARTICIPANTES",        "repararDropdownsParticipantes")
+    .addItem("🔢 Reparar formato DPI y NIT",              "repararFormatoDPI")
     .addItem("🔄 Recalcular tarifas y factura",           "recalcularTarifas")
     .addItem("🗑️ Reinstalar sistema (borra TODO)",       "reinstalarSistema")
     .addSeparator()
@@ -5841,6 +5842,41 @@ function repararDropdownsParticipantes() { _run(function() {
            "• O = Banco\n• P = Tipo_Cuenta\n• R = Forma_Pago\n\n" +
            "ℹ️ Para actualizar a 23 cols usa ⬆️ Migrar sistema.");
   }
+}); }
+
+function repararFormatoDPI() { _run(function() {
+  var hP = _sh(CFG.HOJAS.PARTICIPANTES);
+  if (hP.getLastRow() < 2) { _alert("PARTICIPANTES vacía."); return; }
+
+  var colCHeader = String(hP.getRange(1, 3, 1, 1).getValue() || "").trim();
+  var es23 = (colCHeader === "Fecha_Nacimiento");
+
+  // En 23-col: P=DPI(16), Q=NIT(17). En 19-col: L=DPI(12), M=NIT(13)
+  var colDPI = es23 ? 16 : 12;
+  var colNIT = es23 ? 17 : 13;
+  var nRows  = hP.getLastRow() - 1;
+
+  function limpiarCol(colNum) {
+    var rango = hP.getRange(2, colNum, nRows, 1);
+    rango.setNumberFormat("@"); // texto plano primero
+    var vals = rango.getValues();
+    var nuevos = vals.map(function(r) {
+      var v = r[0];
+      if (v === "" || v === null || v === undefined) return [v];
+      // Si es número, convertir a string sin decimales ni formato
+      if (typeof v === "number") return [String(Math.round(v))];
+      // Si es string con Q, comas y .00 → limpiar
+      var s = String(v).replace(/^Q/,"").replace(/,/g,"").replace(/\.00$/,"").trim();
+      return [s];
+    });
+    rango.setValues(nuevos);
+  }
+
+  limpiarCol(colDPI);
+  limpiarCol(colNIT);
+
+  _alert("✅ DPI y NIT corregidos — ahora son texto plano sin formato moneda.\n" +
+         "Esquema: " + (es23 ? "23 cols (P=DPI, Q=NIT)" : "19 cols (L=DPI, M=NIT)"));
 }); }
 
 function migrarSistema() { _run(function() {
