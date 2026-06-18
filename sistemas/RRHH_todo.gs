@@ -1394,14 +1394,15 @@ function crearHojaEstipendio() { _run(function() {
 }); }
 
 // Importar estipendios desde Kobo — solo 2026, solo período reciente, sin duplicar
-function importarEstipendioDesdeKobo() { _run(function() {
+function importarEstipendioDesdeKobo(silencioso) { _run(function() {
+  function _msg(m) { if (!silencioso) _alert(m); else Logger.log(m); }
   var resp = UrlFetchApp.fetch(CFG.KOBO_URL_ESTIPENDIO, { muteHttpExceptions: true });
   var code = resp.getResponseCode();
-  if (code === 503) { _alert("⏳ Kobo ocupado (503). Espera 2 min e intenta de nuevo."); return; }
+  if (code === 503) { _msg("⏳ Kobo ocupado (503). Espera 2 min e intenta de nuevo."); return; }
   if (code !== 200) throw new Error("Error Kobo HTTP " + code);
 
   var datos = Utilities.parseCsv(resp.getContentText(), ";");
-  if (datos.length < 2) { _alert("Kobo no devolvió registros de estipendio."); return; }
+  if (datos.length < 2) { _msg("Kobo no devolvió registros de estipendio."); return; }
 
   var enc = datos[0].map(function(h){ return String(h).trim().toLowerCase(); });
 
@@ -1421,7 +1422,7 @@ function importarEstipendioDesdeKobo() { _run(function() {
   var iNotas  = _idx(["nota","note","descripcion","motivo","concepto"]);
 
   if (iStart < 0 || iPart < 0 || iMonto < 0) {
-    _alert("❌ No se detectaron columnas en el CSV de estipendio.\n" +
+    _msg("❌ No se detectaron columnas en el CSV de estipendio.\n" +
       "Cabeceras encontradas:\n" + datos[0].join(", "));
     return;
   }
@@ -1487,11 +1488,11 @@ function importarEstipendioDesdeKobo() { _run(function() {
     clavesExist[clave] = true;
   }
 
-  if (nuevas.length === 0) { _alert("✅ Sin estipendios nuevos para importar."); return; }
+  if (nuevas.length === 0) { _msg("✅ Sin estipendios nuevos para importar."); return; }
   hoja.getRange(hoja.getLastRow()+1, 1, nuevas.length, 5).setValues(nuevas);
   hoja.getRange(hoja.getLastRow()-nuevas.length+2, 1, nuevas.length, 1).setNumberFormat("dd/MM/yyyy");
   hoja.getRange(hoja.getLastRow()-nuevas.length+2, 4, nuevas.length, 1).setNumberFormat('"Q"#,##0.00');
-  _alert("✅ " + nuevas.length + " estipendios importados desde Kobo.");
+  _msg("✅ " + nuevas.length + " estipendios importados desde Kobo.");
 }); }
 
 // ── Hojas de pago: Cheques y Transferencias ──────────────────────
@@ -2535,8 +2536,9 @@ function importarDesdeKobo() { _run(function() {
 
 // Llamado por el trigger instalable onOpen (tiene permisos completos)
 function importarAlAbrir() {
-  // Import automático desactivado — evita jalar registros históricos de Kobo al abrir.
+  // DatosKobo (asistencia): desactivado — jalaría todos los históricos de 2026 al abrir.
   // Importar manualmente desde menú: 📥 Datos Kobo → 📥 Importar desde Kobo
+  try { importarEstipendioDesdeKobo(true); } catch(_) {}  // estipendio auto-actualiza silencioso
   try { actualizarDetalleQuincena(); } catch(_) {}
   try { actualizarQuincenaActual(); } catch(_) {}
 }
