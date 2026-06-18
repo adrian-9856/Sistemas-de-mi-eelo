@@ -413,6 +413,7 @@ HORAS_JORNADA_NORMAL: 7,  // ← cambiar aquí
 
 | Fecha | Versión | Cambios principales |
 |-------|---------|---------------------|
+| 2026-06-18 | 1.5 | Fix crítico `iEnd is not defined` (generarReporteMensual y _calcularResumenPeriodo). Nueva hoja Estipendio (datos manuales, suma a col L del reporte). Matching por Creamos_ID en Bonos y Estipendio (antes solo por nombre). Auto-refresh "📋 Detalle Quincena" en onOpen. Botón "🔁 Limpiar y reimportar DatosKobo". |
 | 2026-06-18 | 1.4 | Fix "chained form" (raíz de ceros). Análisis de 7,236 registros Kobo: 195 cross-day ENTRADA (ya manejadas), 2 registros con gap >7 días (deben borrarse en Kobo: row 2451 Carmen Borrayo +19d, row 6008 Vilma López +181d). `fechaEnd` almacenado en cada EGRESO; cuando `horas<=0` se usa el tiempo real de submit antes de estimar 7h. |
 | 2026-06-16 | 1.3 | Fix entradas 0 horas → estimado automático. Marcar/eliminar filas sospechosas en Kobo. Filtro ENTRADA PM (≥12:00) mejorado con hora local Guatemala. |
 | 2026-06-16 | 1.2 | `recalcularTarifas()` batch update. Mejoras en `migrarSistema()` con diagnóstico de categorías. Menú Admin: nuevo item "Recalcular tarifas y factura". |
