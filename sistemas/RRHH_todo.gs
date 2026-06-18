@@ -6553,19 +6553,42 @@ function repararDatosKobo() { _run(function() {
       if (v && correcciones[v]) { hojaK.getRange(f+1,cols.accionUnificada+1).setValue(correcciones[v]); cam1++; }
     }
   }
+  // Fase 2: normalizar nombres y poblar c_id
   datos = hojaK.getDataRange().getValues();
-  if (Object.keys(mapeoN).length && cols.participante !== undefined) {
+  cols = detectarColumnas(datos[0], datos.slice(1));
+  var mapaNameAId = {};
+  LISTA_OFICIAL.forEach(function(it) { if (it[3]) mapaNameAId[it[1]] = it[3]; });
+
+  // Si c_id no existe, crear columna
+  if (cols.creamos_id === undefined) {
+    var nc = hojaK.getLastColumn() + 1;
+    hojaK.getRange(1, nc).setValue("c_id")
+        .setFontWeight("bold").setBackground("#4a86e8").setFontColor("#fff");
+    cols.creamos_id = nc - 1;
+    datos = hojaK.getDataRange().getValues(); // recargar con nueva col
+  }
+
+  if (cols.participante !== undefined) {
+    var cam2b = 0;
     for (var f=1; f<datos.length; f++) {
       var n = String(datos[f][cols.participante]||"").trim();
-      if (n) { var norm = normalizarNombre(n, mapeoN); if (norm !== n) { hojaK.getRange(f+1,cols.participante+1).setValue(norm); cam2++; } }
+      if (!n) continue;
+      var norm = normalizarNombre(n, mapeoN);
+      if (norm !== n) { hojaK.getRange(f+1, cols.participante+1).setValue(norm); cam2++; }
+      var idActual = String(datos[f][cols.creamos_id]||"").trim();
+      var idCorrecto = mapaNameAId[norm] || mapaNameAId[n] || "";
+      if (idCorrecto && idCorrecto !== idActual) {
+        hojaK.getRange(f+1, cols.creamos_id+1).setValue(idCorrecto); cam2b++;
+      }
     }
+    cam2 = cam2 + (cam2b > 0 ? " (+" + cam2b + " c_id)" : "");
   }
   // Fase 3: eliminar filas no oficiales (de abajo hacia arriba para no desplazar índices)
   var cam3 = filasNoOficiales.length;
   for (var ri = filasNoOficiales.length - 1; ri >= 0; ri--) {
     hojaK.deleteRow(filasNoOficiales[ri]);
   }
-  ui.alert("✅ REPARACIÓN COMPLETADA\n\nEntrada/Salida corregidos: "+cam1+"\nNombres normalizados: "+cam2+"\nFilas no oficiales eliminadas: "+cam3);
+  ui.alert("✅ REPARACIÓN COMPLETADA\n\nEntrada/Salida corregidos: "+cam1+"\nNombres/IDs normalizados: "+cam2+"\nFilas no oficiales eliminadas: "+cam3);
 }); }
 
 /**
