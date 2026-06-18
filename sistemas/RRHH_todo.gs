@@ -221,7 +221,8 @@ function onOpen() {
     .addSeparator()
     .addItem("💳 Registrar pagos de quincena",           "registrarPagosQuincena")
     .addSeparator()
-    .addItem("🩺 Diagnosticar cálculo de horas",         "diagnosticarCalculoHoras");
+    .addItem("🩺 Diagnosticar cálculo de horas",         "diagnosticarCalculoHoras")
+    .addItem("🔎 Detalle participantes en Kobo",         "diagnosticarParticipantesKobo");
 
   // ══════════════════════════════════════════════════════════
   // BLOQUE 3: ADMIN (uso ocasional)
@@ -7949,4 +7950,81 @@ function diagnosticarCalculoHoras() { _run(function() {
                       : "⚠️ Corrige los pasos marcados ❌ primero."));
 
   _alert("🔍 DIAGNÓSTICO DE HORAS\n\n" + lin.join("\n"));
+}); }
+
+/*
+ * Muestra detalle por participante: quién tiene datos en DatosKobo en el período
+ * activo, cuántas entradas/salidas, y si su nombre hace match con PARTICIPANTES.
+ * Útil para identificar por qué algún participante no aparece en el reporte.
+ */
+function diagnosticarParticipantesKobo() { _run(function() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var periodo = _periodoActivo();
+  if (!periodo) { _alert("No hay período activo. Configura la quincena primero."); return; }
+
+  var hK = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
+  if (!hK || hK.getLastRow() < 2) { _alert("DatosKobo está vacío."); return; }
+
+  var fi = new Date(periodo.fi), ff = new Date(periodo.ff);
+  var dIni = new Date(fi.getFullYear(), fi.getMonth(), fi.getDate());
+  var dFin = new Date(ff.getFullYear(), ff.getMonth(), ff.getDate());
+
+  var enc  = hK.getRange(1, 1, 1, hK.getLastColumn()).getValues()[0];
+  var raw  = hK.getRange(2, 1, hK.getLastRow()-1, hK.getLastColumn()).getValues();
+  var cols = detectarColumnas(enc, raw.slice(0, 50));
+  var mapeoNombres = cargarMapeoNombres();
+  var mapa = _construirMapaTarifas();
+
+  // Contar entradas/salidas por participante en el período
+  var porPart = {};
+  raw.forEach(function(fila) {
+    var ts = _resolverTsKobo(fila, cols);
+    if (!ts || isNaN(ts)) return;
+    var dia = new Date(ts.getFullYear(), ts.getMonth(), ts.getDate());
+    if (dia < dIni || dia > dFin) return;
+    var nRaw = obtenerParticipanteFila(fila, cols);
+    if (!nRaw) return;
+    var nombre = normalizarNombre(nRaw, mapeoNombres) || limpiarNombre(nRaw);
+    if (!nombre) return;
+    if (!porPart[nombre]) porPart[nombre] = { ing: 0, egr: 0, raw: nRaw };
+    var tipo = obtenerTipoRegistro(fila, cols);
+    if (tipo.esIngreso) porPart[nombre].ing++;
+    if (tipo.esEgreso)  porPart[nombre].egr++;
+  });
+
+  var nombres = Object.keys(porPart).sort(function(a,b){return a.localeCompare(b,"es");});
+  if (nombres.length === 0) {
+    _alert("No se encontraron registros de participantes en el período " + periodo.label);
+    return;
+  }
+
+  var lin = ["📋 PARTICIPANTES EN PERÍODO: " + periodo.label + "\n"];
+  var conHoras = 0, sinEntrada = 0, sinMatch = 0;
+
+  nombres.forEach(function(nombre) {
+    var d = porPart[nombre];
+    var enPart = !!mapa[nombre];
+    var estado = "";
+    if (!enPart) {
+      // Buscar match parcial
+      var info = _buscarInfoParticipante(mapa, nombre);
+      enPart = !!(info && info.tarifa);
+      if (!enPart) { estado = "⚠️ SIN MATCH en PARTICIPANTES"; sinMatch++; }
+      else { estado = "✅ match parcial"; }
+    } else {
+      estado = "✅ match exacto";
+    }
+    if (d.ing === 0) { estado += " | ❌ SIN ENTRADA (solo salida)"; sinEntrada++; }
+    else { conHoras++; }
+    lin.push((d.ing === 0 || !enPart ? "❌" : "✅") + " " + nombre +
+             " — entradas:" + d.ing + " salidas:" + d.egr + " | " + estado);
+  });
+
+  lin.push("\n──────────────────────────────");
+  lin.push("Total en período: " + nombres.length);
+  lin.push("Con entradas (calculan horas): " + conHoras);
+  lin.push("Sin entrada (no calculan): " + sinEntrada);
+  lin.push("Sin match en PARTICIPANTES: " + sinMatch);
+
+  _alert(lin.join("\n"));
 }); }
