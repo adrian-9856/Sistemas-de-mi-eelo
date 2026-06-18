@@ -607,6 +607,8 @@ function crearHojas() { _run(function() {
   hP.getRange("V2:V500").setDataValidation(vPago);    // col V = Forma_Pago
   hP.getRange("N2:N500").setNumberFormat("Q#,##0.00"); // col N = Tarifa_Hora
   hP.getRange("C2:C500").setNumberFormat("dd/MM/yyyy"); // col C = Fecha_Nacimiento
+  hP.getRange("P2:P500").setNumberFormat("@");          // col P = DPI (texto plano)
+  hP.getRange("Q2:Q500").setNumberFormat("@");          // col Q = NIT (texto plano)
   if (esNuevaP) {
     hP.setColumnWidth(2, 220);  // Nombre
     hP.setColumnWidth(3, 110);  // Fecha_Nacimiento
@@ -5818,9 +5820,11 @@ function repararDropdownsParticipantes() { _run(function() {
     hP.getRange("V2:V500").setDataValidation(vPago);    // col V = Forma_Pago
     hP.getRange("N2:N500").setNumberFormat("Q#,##0.00"); // col N = Tarifa_Hora
     hP.getRange("C2:C500").setNumberFormat("dd/MM/yyyy"); // col C = Fecha_Nacimiento
+    hP.getRange("P2:P500").setNumberFormat("@");          // col P = DPI (texto plano)
+    hP.getRange("Q2:Q500").setNumberFormat("@");          // col Q = NIT (texto plano)
     _alert("✅ Dropdowns reparados — esquema 23 cols (A–W):\n" +
            "• I = Etapa\n• M = Categoría (A/B/C/D)\n• O = Tiene_Factura\n" +
-           "• S = Banco\n• T = Tipo_Cuenta\n• V = Forma_Pago");
+           "• S = Banco\n• T = Tipo_Cuenta\n• V = Forma_Pago\n• P = DPI (texto)");
   } else {
     // 19 cols A–S
     hP.getRange("E2:E500").setDataValidation(vEtapa);   // col E = Etapa
@@ -5830,6 +5834,8 @@ function repararDropdownsParticipantes() { _run(function() {
     hP.getRange("P2:P500").setDataValidation(vTipoCt);  // col P = Tipo_Cuenta
     hP.getRange("R2:R500").setDataValidation(vPago);    // col R = Forma_Pago
     hP.getRange("J2:J500").setNumberFormat("Q#,##0.00"); // col J = Tarifa_Hora
+    hP.getRange("L2:L500").setNumberFormat("@");          // col L = DPI (texto plano)
+    hP.getRange("M2:M500").setNumberFormat("@");          // col M = NIT (texto plano)
     _alert("✅ Dropdowns reparados — esquema 19 cols (A–S):\n" +
            "• E = Etapa\n• I = Categoría (A/B/C/D)\n• K = Tiene_Factura\n" +
            "• O = Banco\n• P = Tipo_Cuenta\n• R = Forma_Pago\n\n" +
