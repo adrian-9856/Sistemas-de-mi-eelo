@@ -5612,9 +5612,6 @@ function generarReporte(tipo, fechaInicio, fechaFin, filtroParticipante, nuevaHo
       fechaAnt = reg.fecha;
 
       if (reg.esIngreso) {
-        // Entradas reales son siempre AM (< 12:00). Ignorar ENTRADA en tarde si no hay sesión abierta.
-        var hLocal = parseInt(Utilities.formatDate(reg.fecha, CFG.TIMEZONE, "H"), 10);
-        if (currentIngreso === null && lastEgreso === null && hLocal >= 12) continue;
         if (currentIngreso && _esMismaFecha(currentIngreso.fecha, reg.fecha)) continue;
         currentIngreso = reg; lastEgreso = null;
       } else if (reg.esEgreso && currentIngreso) {
