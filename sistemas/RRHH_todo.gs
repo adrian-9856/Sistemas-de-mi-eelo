@@ -595,8 +595,7 @@ function crearHojas() { _run(function() {
   var vCat     = SpreadsheetApp.newDataValidation().requireValueInList(["A","B","C","D"],true).build();
   var vSiNo    = SpreadsheetApp.newDataValidation().requireValueInList(["Sí","No"],true).build();
   var vBanco   = SpreadsheetApp.newDataValidation().requireValueInList([
-    "Banrural","G&T Continental","BAC Credomatic","Industrial","Agromercantil",
-    "Occidente","Promerica","Vivibanco","Bantrab","CHN","Otro"
+    "Banrural","Industrial","BAC Credomatic","G&T Continental","Banco Azteca","N/A","Otro"
   ],true).build();
   var vTipoCta = SpreadsheetApp.newDataValidation().requireValueInList(["Monetaria","Ahorro",""],true).build();
   var vPago    = SpreadsheetApp.newDataValidation().requireValueInList(["Transferencia","Cheque"],true).build();
@@ -5805,7 +5804,7 @@ function repararDropdownsParticipantes() { _run(function() {
   var vEtapa  = SpreadsheetApp.newDataValidation().requireValueInList(["Inscritx","Retiradx","Empleadx","Ciclo de Vida Terminado"],true).build();
   var vCat    = SpreadsheetApp.newDataValidation().requireValueInList(["A","B","C","D"],true).build();
   var vSiNo   = SpreadsheetApp.newDataValidation().requireValueInList(["Sí","No"],true).build();
-  var vBanco  = SpreadsheetApp.newDataValidation().requireValueInList(["Banrural","G&T Continental","BAC Credomatic","Industrial","Agromercantil","Occidente","Promerica","Vivibanco","Bantrab","CHN","Otro"],true).build();
+  var vBanco  = SpreadsheetApp.newDataValidation().requireValueInList(["Banrural","Industrial","BAC Credomatic","G&T Continental","Banco Azteca","N/A","Otro"],true).build();
   var vTipoCt = SpreadsheetApp.newDataValidation().requireValueInList(["Monetaria","Ahorro",""],true).build();
   var vPago   = SpreadsheetApp.newDataValidation().requireValueInList(["Transferencia","Cheque"],true).build();
 
@@ -5884,7 +5883,7 @@ function migrarSistema() { _run(function() {
       var vEtapaMig = SpreadsheetApp.newDataValidation().requireValueInList(["Inscritx","Retiradx","Empleadx","Ciclo de Vida Terminado"],true).build();
       var vCatMig   = SpreadsheetApp.newDataValidation().requireValueInList(["A","B","C","D"],true).build();
       var vSiNoMig  = SpreadsheetApp.newDataValidation().requireValueInList(["Sí","No"],true).build();
-      var vBancoMig = SpreadsheetApp.newDataValidation().requireValueInList(["Banrural","G&T Continental","BAC Credomatic","Industrial","Agromercantil","Occidente","Promerica","Vivibanco","Bantrab","CHN","Otro"],true).build();
+      var vBancoMig = SpreadsheetApp.newDataValidation().requireValueInList(["Banrural","Industrial","BAC Credomatic","G&T Continental","Banco Azteca","N/A","Otro"],true).build();
       var vTipoCMig = SpreadsheetApp.newDataValidation().requireValueInList(["Monetaria","Ahorro",""],true).build();
       var vPagoMig  = SpreadsheetApp.newDataValidation().requireValueInList(["Transferencia","Cheque"],true).build();
       hP.getRange("I2:I500").setDataValidation(vEtapaMig);
