@@ -2370,6 +2370,23 @@ function reimportarTodoDesdeKobo() { _run(function() {
   }
   datos = filtrado;
 
+  // Filtrar participantes no oficiales (solo las 33 de LISTA_OFICIAL)
+  var nombresOficiales = {};
+  LISTA_OFICIAL.forEach(function(it) { nombresOficiales[it[1]] = true; });
+  var mapeoNombres = cargarMapeoNombres();
+  var colsHdr = detectarColumnas(datos[0], []);
+  var descartadosNP = 0;
+  if (colsHdr.participante !== undefined) {
+    var filtrado2 = [datos[0]];
+    for (var fi2 = 1; fi2 < datos.length; fi2++) {
+      var rawN = String(datos[fi2][colsHdr.participante] || "").trim();
+      var normN = rawN ? normalizarNombre(rawN, mapeoNombres) : "";
+      if (!normN || !nombresOficiales[normN]) { descartadosNP++; continue; }
+      filtrado2.push(datos[fi2]);
+    }
+    datos = filtrado2;
+  }
+
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var hOld = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
   if (hOld) ss.deleteSheet(hOld);
@@ -2380,7 +2397,9 @@ function reimportarTodoDesdeKobo() { _run(function() {
   hoja.setFrozenRows(1);
   _limpiarColumnasKobo(hoja, datos[0]);
   _normalizarAccionSilencioso(hoja);
-  _alert("✅ Reimportación completa: " + (datos.length-1) + " registros de " + anioMinimo + "+ importados.\n(" + descartados + " registros anteriores descartados)");
+  _alert("✅ Reimportación completa: " + (datos.length-1) + " registros importados.\n" +
+    "(" + descartados + " anteriores a " + anioMinimo + " descartados)\n" +
+    (descartadosNP > 0 ? "(" + descartadosNP + " registros de participantes no oficiales eliminados)" : "✅ Todos los participantes son oficiales"));
 }); }
 
 function _buscarIndice(enc, clave) {
@@ -6373,6 +6392,18 @@ function repararDatosKobo() { _run(function() {
   var cols = detectarColumnas(datos[0], datos.slice(1));
   var mapeoN = cargarMapeoNombres();
 
+  // Fase 0: detectar participantes no oficiales
+  var nombresOficialesSet = {};
+  LISTA_OFICIAL.forEach(function(it) { nombresOficialesSet[it[1]] = true; });
+  var filasNoOficiales = []; // índices 1-based en la hoja
+  if (cols.participante !== undefined) {
+    for (var f=1; f<datos.length; f++) {
+      var rawN = String(datos[f][cols.participante]||"").trim();
+      var normN = rawN ? normalizarNombre(rawN, mapeoN) : "";
+      if (rawN && !nombresOficialesSet[normN]) filasNoOficiales.push(f+1); // +1 = fila hoja
+    }
+  }
+
   // Fase 1: detectar problemas
   var desconocidos = {}, nombresANorm = 0;
   if (cols.accionUnificada !== undefined) {
@@ -6411,8 +6442,9 @@ function repararDatosKobo() { _run(function() {
     Object.keys(desconocidos).forEach(function(v){ msg += "• \""+v+"\" ("+desconocidos[v]+"x)"+( correcciones[v]?" → "+correcciones[v]:" → sin corrección")+"\n"; });
   }
   msg += nombresANorm>0 ? "\n📋 Nombres a normalizar en DatosKobo: "+nombresANorm+" celdas\n" : "\n✅ Nombres ya normalizados.\n";
+  if (filasNoOficiales.length) msg += "\n🚫 Filas con participantes NO oficiales: "+filasNoOficiales.length+" (se eliminarán)\n";
 
-  if (!Object.keys(desconocidos).length && !nombresANorm) { ui.alert(msg+"\nNo hay nada que reparar."); return; }
+  if (!Object.keys(desconocidos).length && !nombresANorm && !filasNoOficiales.length) { ui.alert(msg+"\nNo hay nada que reparar."); return; }
 
   if (ui.alert("🔧 Reparar Datos", msg+"\n¿Aplicar correcciones?", ui.ButtonSet.YES_NO) !== ui.Button.YES) return;
 
@@ -6430,7 +6462,12 @@ function repararDatosKobo() { _run(function() {
       if (n) { var norm = normalizarNombre(n, mapeoN); if (norm !== n) { hojaK.getRange(f+1,cols.participante+1).setValue(norm); cam2++; } }
     }
   }
-  ui.alert("✅ REPARACIÓN COMPLETADA\n\nEntrada/Salida corregidos: "+cam1+"\nNombres normalizados: "+cam2);
+  // Fase 3: eliminar filas no oficiales (de abajo hacia arriba para no desplazar índices)
+  var cam3 = filasNoOficiales.length;
+  for (var ri = filasNoOficiales.length - 1; ri >= 0; ri--) {
+    hojaK.deleteRow(filasNoOficiales[ri]);
+  }
+  ui.alert("✅ REPARACIÓN COMPLETADA\n\nEntrada/Salida corregidos: "+cam1+"\nNombres normalizados: "+cam2+"\nFilas no oficiales eliminadas: "+cam3);
 }); }
 
 /**
