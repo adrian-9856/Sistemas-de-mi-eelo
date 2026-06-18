@@ -3986,6 +3986,29 @@ function _calcularResumenPeriodo(fi, ff) {
     }
   });
 
+  // Rescatar sesiones huérfanas: entrada con nombre falso ("Entrada" u otro valor de acción)
+  // + salida registrada bajo el nombre real del participante en el mismo día.
+  // Construir pool de entradas falsas por fecha
+  var fakePorDia = {};
+  Object.keys(porPartDia).forEach(function(dClave) {
+    var nomPart = porPartDia[dClave].nombre;
+    if (!_esValorAccion(nomPart)) return;
+    var datePart = dClave.split("|").slice(1).join("|");
+    if (!fakePorDia[datePart]) fakePorDia[datePart] = [];
+    porPartDia[dClave].ing.forEach(function(ts) { fakePorDia[datePart].push(ts); });
+    delete porPartDia[dClave]; // eliminar participante falso
+  });
+  // Asignar entradas falsas a participantes reales que tienen salida sin entrada ese día
+  Object.keys(porPartDia).forEach(function(dClave) {
+    var d = porPartDia[dClave];
+    if (d.ing.length > 0 || d.egr.length === 0) return;
+    var datePart = dClave.split("|").slice(1).join("|");
+    var fakes = fakePorDia[datePart];
+    if (!fakes || fakes.length === 0) return;
+    fakes.sort(function(a,b){return a-b;});
+    d.ing.push(fakes.shift());
+  });
+
   // Por cada día: earliest entrada + latest salida → horas del día
   Object.keys(porPartDia).forEach(function(dClave) {
     var d = porPartDia[dClave];
@@ -5435,6 +5458,7 @@ function generarReporte(tipo, fechaInicio, fechaFin, filtroParticipante, nuevaHo
     var nombreRaw = obtenerParticipanteFila(fila, cols);
     if (!nombreRaw) continue;
     var emp = normalizarNombre(nombreRaw, mapeoNombres);
+    if (!emp || _esValorAccion(emp)) continue; // ignorar entradas/salidas como nombre
     if (filtroParticipante && emp.toLowerCase() !== filtroParticipante.toLowerCase()) continue;
 
     var tipoReg = obtenerTipoRegistro(fila, cols);
