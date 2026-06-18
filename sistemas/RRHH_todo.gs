@@ -200,6 +200,7 @@ function onOpen() {
     .addItem("🟡 Marcar filas sospechosas",              "marcarFilasSospechosas")
     .addItem("🗑️ Eliminar filas marcadas en rojo",       "eliminarFilasRojas")
     .addItem("🔧 Reparar datos Kobo",                    "repararDatosKobo")
+    .addItem("🧹 Eliminar columnas innecesarias",         "eliminarColumnasKobo")
     .addSeparator()
     .addItem("🔁 Limpiar y reimportar DatosKobo",        "reimportarTodoDesdeKobo");
 
@@ -2387,6 +2388,9 @@ function reimportarTodoDesdeKobo() { _run(function() {
     datos = filtrado2;
   }
 
+  // Filtrar columnas: solo conservar las necesarias para el sistema
+  datos = _filtrarColumnasKobo(datos);
+
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var hOld = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
   if (hOld) ss.deleteSheet(hOld);
@@ -2401,6 +2405,33 @@ function reimportarTodoDesdeKobo() { _run(function() {
     "(" + descartados + " anteriores a " + anioMinimo + " descartados)\n" +
     (descartadosNP > 0 ? "(" + descartadosNP + " registros de participantes no oficiales eliminados)" : "✅ Todos los participantes son oficiales"));
 }); }
+
+// Palabras clave que identifican columnas necesarias para el sistema
+var _COLS_KOBO_NECESARIAS = [
+  "start", "end",
+  "ingreso", "egreso", "entrada", "salida", "accion", "acción",
+  "seleccione", "ingreso_egreso",
+  "participante", "nombre",
+  "c_id", "_id",
+  "terapia", "permiso", "comput", "subtipo"
+];
+
+// Devuelve una copia del array datos con solo las columnas necesarias
+function _filtrarColumnasKobo(datos) {
+  if (!datos || datos.length < 1) return datos;
+  var enc = datos[0];
+  var idxKeep = [];
+  for (var i = 0; i < enc.length; i++) {
+    var h = String(enc[i]).trim().toLowerCase();
+    if (h && _COLS_KOBO_NECESARIAS.some(function(p){ return h.indexOf(p) !== -1; })) {
+      idxKeep.push(i);
+    }
+  }
+  if (idxKeep.length === enc.length) return datos; // nada que filtrar
+  return datos.map(function(fila) {
+    return idxKeep.map(function(i){ return fila[i]; });
+  });
+}
 
 function _buscarIndice(enc, clave) {
   var c = clave.toLowerCase();
@@ -6385,6 +6416,34 @@ function diagnosticarDatosKobo() { _run(function() {
     "• Sin tipo válido:    " + sinTipo.length + (sinTipo.length ? " ⚠️" : " ✅") + "\n\n" +
     (sinSalida.length ? "Para recuperar horas perdidas: 'Reparar Datos Kobo'" : "")
   );
+}); }
+
+function eliminarColumnasKobo() { _run(function() {
+  var ui = SpreadsheetApp.getUi();
+  var hojaK = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CFG.HOJAS.DATOS_KOBO);
+  if (!hojaK) { _alert("No existe DatosKobo."); return; }
+
+  var enc = hojaK.getRange(1, 1, 1, hojaK.getLastColumn()).getValues()[0];
+  var aEliminar = [];
+  for (var i = 0; i < enc.length; i++) {
+    var h = String(enc[i]).trim().toLowerCase();
+    var esNecesaria = h && _COLS_KOBO_NECESARIAS.some(function(p){ return h.indexOf(p) !== -1; });
+    if (!esNecesaria) aEliminar.push(i + 1); // 1-based
+  }
+
+  if (!aEliminar.length) { ui.alert("✅ DatosKobo ya está limpia — no hay columnas innecesarias."); return; }
+
+  var nombresAEliminar = aEliminar.map(function(c){ return String(enc[c-1]||"Col "+c).trim(); });
+  if (ui.alert("🧹 ELIMINAR COLUMNAS",
+    "Se eliminarán " + aEliminar.length + " columnas:\n" + nombresAEliminar.join(", ") +
+    "\n\nEsta acción no se puede deshacer. ¿Continuar?",
+    ui.ButtonSet.YES_NO) !== ui.Button.YES) return;
+
+  // Eliminar de derecha a izquierda para no desplazar índices
+  for (var ri = aEliminar.length - 1; ri >= 0; ri--) {
+    hojaK.deleteColumn(aEliminar[ri]);
+  }
+  ui.alert("✅ Listo. Se eliminaron " + aEliminar.length + " columnas de DatosKobo.");
 }); }
 
 function repararDatosKobo() { _run(function() {
