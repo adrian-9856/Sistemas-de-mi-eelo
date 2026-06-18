@@ -199,7 +199,9 @@ function onOpen() {
     .addItem("🔍 Diagnosticar registros Kobo",           "diagnosticarDatosKobo")
     .addItem("🟡 Marcar filas sospechosas",              "marcarFilasSospechosas")
     .addItem("🗑️ Eliminar filas marcadas en rojo",       "eliminarFilasRojas")
-    .addItem("🔧 Reparar datos Kobo",                    "repararDatosKobo");
+    .addItem("🔧 Reparar datos Kobo",                    "repararDatosKobo")
+    .addSeparator()
+    .addItem("🔁 Limpiar y reimportar DatosKobo",        "reimportarTodoDesdeKobo");
 
   // ══════════════════════════════════════════════════════════
   // BLOQUE 2: QUINCENA
