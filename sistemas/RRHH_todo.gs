@@ -2342,8 +2342,37 @@ function importarDesdeKobo() { _run(function() {
   if (code === 503) { _alert("⏳ Kobo ocupado (503). Espera 2 min e intenta de nuevo."); return; }
   if (code !== 200) throw new Error("Error Kobo HTTP " + code + ": " + resp.getContentText().substring(0,200));
 
-  var datosNuevos = Utilities.parseCsv(resp.getContentText(), ";");
-  if (datosNuevos.length < 2) { _alert("Kobo no devolvió registros."); return; }
+  var datosRaw = Utilities.parseCsv(resp.getContentText(), ";");
+  if (datosRaw.length < 2) { _alert("Kobo no devolvió registros."); return; }
+
+  // Filtrar solo 2026+ (igual que reimportarTodoDesdeKobo)
+  var anioMinimo = 2026;
+  var hdrRaw = datosRaw[0];
+  var filtrado = [hdrRaw];
+  for (var fi = 1; fi < datosRaw.length; fi++) {
+    var anio = parseInt(String(datosRaw[fi][0] || "").substring(0, 4), 10);
+    if (isNaN(anio) || anio < anioMinimo) continue;
+    filtrado.push(datosRaw[fi]);
+  }
+  datosRaw = filtrado;
+
+  // Filtrar participantes oficiales
+  var nombresOficiales2 = {};
+  LISTA_OFICIAL.forEach(function(it) { nombresOficiales2[it[1]] = true; });
+  var mapeoNombres2 = cargarMapeoNombres();
+  var colsHdr2 = detectarColumnas(datosRaw[0], []);
+  if (colsHdr2.participante !== undefined) {
+    var filtrado2 = [datosRaw[0]];
+    for (var fi2 = 1; fi2 < datosRaw.length; fi2++) {
+      var rawN2 = String(datosRaw[fi2][colsHdr2.participante] || "").trim();
+      var normN2 = rawN2 ? normalizarNombre(rawN2, mapeoNombres2) : "";
+      if (_esValorAccion(rawN2) || normN2 && nombresOficiales2[normN2]) filtrado2.push(datosRaw[fi2]);
+    }
+    datosRaw = filtrado2;
+  }
+
+  // Filtrar columnas necesarias
+  var datosNuevos = _filtrarColumnasKobo(datosRaw);
 
   var ss   = SpreadsheetApp.getActiveSpreadsheet();
   var hoja = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
