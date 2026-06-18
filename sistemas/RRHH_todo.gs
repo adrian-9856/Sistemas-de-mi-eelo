@@ -2345,6 +2345,19 @@ function reimportarTodoDesdeKobo() { _run(function() {
   var datos = Utilities.parseCsv(resKobo.getContentText(), ";");
   if (datos.length < 2) { _alert("Kobo no devolvió registros."); return; }
 
+  // Filtrar solo 2026+ para evitar datos viejos y acelerar imports
+  var anioMinimo = 2026;
+  var header = datos[0];
+  var filtrado = [header];
+  var descartados = 0;
+  for (var fi = 1; fi < datos.length; fi++) {
+    var startStr = String(datos[fi][0] || "");
+    var anio = parseInt(startStr.substring(0, 4), 10);
+    if (isNaN(anio) || anio < anioMinimo) { descartados++; continue; }
+    filtrado.push(datos[fi]);
+  }
+  datos = filtrado;
+
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var hOld = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
   if (hOld) ss.deleteSheet(hOld);
@@ -2355,7 +2368,7 @@ function reimportarTodoDesdeKobo() { _run(function() {
   hoja.setFrozenRows(1);
   _limpiarColumnasKobo(hoja, datos[0]);
   _normalizarAccionSilencioso(hoja);
-  _alert("✅ Reimportación completa: " + (datos.length-1) + " registros importados desde Kobo.");
+  _alert("✅ Reimportación completa: " + (datos.length-1) + " registros de " + anioMinimo + "+ importados.\n(" + descartados + " registros anteriores descartados)");
 }); }
 
 function _buscarIndice(enc, clave) {
@@ -6252,6 +6265,34 @@ function diagnosticarDatosKobo() { _run(function() {
     p(["Fila","Participante","Valor detectado","","",""],"enc");
     sinTipo.forEach(function(r){
       p([r.fila, r.nombre, '"'+r.valor+'"','','',''],"warn");
+    });
+    p(["","","","","",""],"vacio");
+  }
+
+  // ── Sección 4b: Nombres que no coinciden con ninguna PARTICIPANTE ─
+  var hP2 = ss.getSheetByName(CFG.HOJAS.PARTICIPANTES);
+  var nombresParticipantes = {};
+  if (hP2 && hP2.getLastRow() >= 2) {
+    hP2.getRange(2, 2, hP2.getLastRow()-1, 1).getValues().forEach(function(r) {
+      var n = String(r[0]||"").trim();
+      if (n) nombresParticipantes[n.toLowerCase()] = n;
+    });
+  }
+  var nomNoMatch = [];
+  Object.keys(resumenPart).forEach(function(nom) {
+    var k = nom.toLowerCase().replace(/[áàä]/g,"a").replace(/[éèë]/g,"e")
+               .replace(/[íìï]/g,"i").replace(/[óòö]/g,"o").replace(/[úùü]/g,"u");
+    var match = nombresParticipantes[nom.toLowerCase()] ||
+      Object.keys(nombresParticipantes).some(function(pk){
+        return pk.indexOf(k) !== -1 || k.indexOf(pk) !== -1;
+      });
+    if (!match) nomNoMatch.push(nom);
+  });
+  if (nomNoMatch.length > 0) {
+    p(["❌  NOMBRES KOBO SIN COINCIDENCIA EN PARTICIPANTES — horas perdidas","","","","",""],"sec_warn");
+    p(["Nombre en Kobo (normalizado)","Acción","","","",""],"enc");
+    nomNoMatch.forEach(function(n){
+      p([n, "Agregar a PARTICIPANTES o a hoja NombresCanonicos","","","",""],"warn");
     });
     p(["","","","","",""],"vacio");
   }
