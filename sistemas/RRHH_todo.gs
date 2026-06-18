@@ -3974,37 +3974,45 @@ function generarReporteQuincenaPasada() { _run(function() {
 /*
  * Cierra la quincena activa y abre la siguiente.
  */
-// Crea (o abre) la hoja HistorialQuincenas con cabeceras
+// Crea o actualiza la hoja HistorialQuincenas — siempre reescribe el encabezado
 function crearHojaHistorialQuincenas() { _run(function() {
   var ss   = SpreadsheetApp.getActiveSpreadsheet();
   var hoja = ss.getSheetByName("HistorialQuincenas");
-  if (!hoja) {
-    hoja = ss.insertSheet("HistorialQuincenas");
-    var enc = ["#","Período","Fecha_Inicio","Fecha_Fin","Fecha_Cierre",
-               "Total_Q","Total_Horas","Participantes_Con_Horas","Participantes_Sin_Horas",
-               "Retiradx_Período","Dias_Estudio_Período","Estipendio_Total",
-               "Ciclos_Vida_Año","Ingreso_Promedio_Q","Horas_Formacion_Período","Promedio_Horas_Mes",
-               "Notas"];
-    hoja.getRange(1,1,1,enc.length).setValues([enc])
-        .setFontWeight("bold").setBackground("#1a237e").setFontColor("#fff").setHorizontalAlignment("center");
-    hoja.setFrozenRows(1);
-    hoja.setColumnWidth(1, 40); hoja.setColumnWidth(2, 160);
-    hoja.setColumnWidth(3, 110); hoja.setColumnWidth(4, 110); hoja.setColumnWidth(5, 110);
-    hoja.setColumnWidth(6, 110); hoja.setColumnWidth(7, 100);
-    hoja.setColumnWidth(8, 130); hoja.setColumnWidth(9, 130);
-    hoja.setColumnWidth(10, 110); hoja.setColumnWidth(11, 120); hoja.setColumnWidth(12, 110);
-    hoja.setColumnWidth(13, 100); hoja.setColumnWidth(14, 120);
-    hoja.setColumnWidth(15, 130); hoja.setColumnWidth(16, 130); hoja.setColumnWidth(17, 200);
-    hoja.getRange("C2:E500").setNumberFormat("dd/MM/yyyy");
-    hoja.getRange("F2:F500").setNumberFormat('"Q"#,##0.00');
-    hoja.getRange("G2:G500").setNumberFormat("0.0");
-    hoja.getRange("L2:L500").setNumberFormat('"Q"#,##0.00');
-    hoja.getRange("N2:N500").setNumberFormat('"Q"#,##0.00');  // Ingreso_Promedio_Q
-    hoja.getRange("O2:O500").setNumberFormat("0.0");           // Horas_Formacion
-    hoja.getRange("P2:P500").setNumberFormat("0.0");           // Promedio_Horas_Mes
-  }
+  if (!hoja) hoja = ss.insertSheet("HistorialQuincenas");
+
+  // Asegurar columnas suficientes
+  while (hoja.getMaxColumns() < 17) hoja.insertColumnsAfter(hoja.getMaxColumns(), 1);
+
+  // Siempre actualizar encabezado (permite agregar columnas nuevas sin borrar datos)
+  var enc = ["#","Período","Fecha_Inicio","Fecha_Fin","Fecha_Cierre",
+             "Total_Q","Total_Horas","Participantes_Con_Horas","Participantes_Sin_Horas",
+             "Retiradx_Período","Dias_Estudio_Período","Estipendio_Total",
+             "Ciclos_Vida_Año","Ingreso_Promedio_Q","Horas_Formacion_Período","Promedio_Horas_Mes",
+             "Notas"];
+  hoja.getRange(1,1,1,enc.length).setValues([enc])
+      .setFontWeight("bold").setBackground("#1a237e").setFontColor("#fff").setHorizontalAlignment("center");
+  hoja.setFrozenRows(1);
+
+  // Anchos de columna
+  hoja.setColumnWidth(1, 40);  hoja.setColumnWidth(2, 160);
+  hoja.setColumnWidth(3, 110); hoja.setColumnWidth(4, 110); hoja.setColumnWidth(5, 110);
+  hoja.setColumnWidth(6, 110); hoja.setColumnWidth(7, 100);
+  hoja.setColumnWidth(8, 130); hoja.setColumnWidth(9, 130);
+  hoja.setColumnWidth(10,110); hoja.setColumnWidth(11,120); hoja.setColumnWidth(12,110);
+  hoja.setColumnWidth(13,100); hoja.setColumnWidth(14,120);
+  hoja.setColumnWidth(15,130); hoja.setColumnWidth(16,130); hoja.setColumnWidth(17,200);
+
+  // Formatos de datos
+  hoja.getRange("C2:E500").setNumberFormat("dd/MM/yyyy");
+  hoja.getRange("F2:F500").setNumberFormat('"Q"#,##0.00');
+  hoja.getRange("G2:G500").setNumberFormat("0.0");
+  hoja.getRange("L2:L500").setNumberFormat('"Q"#,##0.00');
+  hoja.getRange("N2:N500").setNumberFormat('"Q"#,##0.00');
+  hoja.getRange("O2:O500").setNumberFormat("0.0");
+  hoja.getRange("P2:P500").setNumberFormat("0.0");
+
   hoja.activate();
-  _alert("✅ Hoja HistorialQuincenas lista.\nSe llena automáticamente al cerrar cada quincena.");
+  _alert("✅ Hoja HistorialQuincenas actualizada con 17 columnas.\nUsa 'Cargar historial de quincenas pasadas' para llenar las filas existentes.");
 }); }
 
 // Calcula todos los KPIs para un período — usado por _guardar y _upsert
@@ -4159,30 +4167,42 @@ function backfillHistorialQuincenas() { _run(function() {
   var hH = ss.getSheetByName("HistorialQuincenas");
   if (!hH) { crearHojaHistorialQuincenas(); hH = ss.getSheetByName("HistorialQuincenas"); }
 
-  // Leer labels ya en historial
-  var labelsExist = {};
+  // Mapa label → fila en HistorialQuincenas (para detectar filas incompletas)
+  var mapaFilas = {};
   if (hH.getLastRow() > 1) {
-    hH.getRange(2, 2, hH.getLastRow()-1, 1).getValues().forEach(function(r) {
-      labelsExist[String(r[0]).trim()] = true;
+    var existData = hH.getRange(2, 2, hH.getLastRow()-1, 16).getValues();
+    existData.forEach(function(r, idx) {
+      var label = String(r[0]).trim();
+      if (label) mapaFilas[label] = { fila: idx + 2, ciclos: r[11] }; // col 13 = idx 11 en 0-based desde col B
     });
   }
 
   var datos = hP.getDataRange().getValues();
-  var agregados = 0;
+  var agregados = 0, actualizados = 0;
   for (var i = 1; i < datos.length; i++) {
     var estado = String(datos[i][4]).trim();
     var label  = String(datos[i][1]).trim();
     if (estado !== "Cerrado") continue;
-    if (labelsExist[label]) continue;
     var fi = datos[i][2], ff = datos[i][3];
     if (!fi || !ff) continue;
-    _guardarHistorialQuincena({ label: label, fi: fi, ff: ff, fila: i+1 });
-    labelsExist[label] = true;
-    agregados++;
+
+    if (!mapaFilas[label]) {
+      // Fila nueva
+      _guardarHistorialQuincena({ label: label, fi: fi, ff: ff, fila: i+1 });
+      agregados++;
+    } else if (mapaFilas[label].ciclos === "" || mapaFilas[label].ciclos === null || mapaFilas[label].ciclos === undefined) {
+      // Fila existente pero con columnas nuevas vacías → rellenar solo cols 13-16
+      var k = _calcularKPIsHistorial(new Date(fi), new Date(ff));
+      var filaH = mapaFilas[label].fila;
+      hH.getRange(filaH, 13, 1, 4).setValues([[k.kCiclosAnio, k.kIngresoProm, k.kHrsFormacion, k.kPromHrsMes]]);
+      _formatearFilaHistorial(hH, filaH);
+      actualizados++;
+    }
   }
-  _alert(agregados > 0
-    ? "✅ " + agregados + " quincena(s) cargadas al historial."
-    : "✅ Historial ya está al día — nada nuevo que agregar.");
+  _alert("✅ Historial actualizado.\n" +
+    (agregados  > 0 ? agregados  + " quincena(s) nueva(s) agregadas.\n" : "") +
+    (actualizados > 0 ? actualizados + " fila(s) con indicadores completados.\n" : "") +
+    (agregados + actualizados === 0 ? "Todo ya estaba al día." : ""));
 }); }
 
 // Actualiza (o inserta) la fila de la quincena activa en HistorialQuincenas — silencioso
