@@ -206,6 +206,7 @@ function onOpen() {
     .addItem("🔧 Reparar datos Kobo",                    "repararDatosKobo")
     .addItem("🧹 Eliminar columnas innecesarias",         "eliminarColumnasKobo")
     .addSeparator()
+    .addItem("🧽 Limpiar datos antes del período activo", "limpiarDatosKoboAntesDePeriodo")
     .addItem("🧽 Eliminar registros anteriores a 2026",   "limpiarFilasAnteriores2026")
     .addSeparator()
     .addItem("🔁 Limpiar y reimportar DatosKobo",        "reimportarTodoDesdeKobo");
@@ -2476,15 +2477,15 @@ function importarDesdeKobo() { _run(function() {
   var datosRaw = Utilities.parseCsv(resp.getContentText(), ";");
   if (datosRaw.length < 2) { _alert("Kobo no devolvió registros."); return; }
 
-  // Filtrar solo registros recientes: desde 60 días antes del inicio del período activo
+  // Solo importar registros del período activo (inicio - 7 días de buffer)
   var periodo = _periodoActivo();
   var fechaMinima;
   if (periodo && periodo.fi) {
     fechaMinima = new Date(periodo.fi);
-    fechaMinima.setDate(fechaMinima.getDate() - 60);
+    fechaMinima.setDate(fechaMinima.getDate() - 7); // buffer de 7 días
   } else {
     fechaMinima = new Date();
-    fechaMinima.setDate(fechaMinima.getDate() - 90);
+    fechaMinima.setDate(fechaMinima.getDate() - 30);
   }
   var hdrRaw = datosRaw[0];
   var filtrado = [hdrRaw];
@@ -2583,6 +2584,42 @@ function actualizarDetalleQuincena() {
   var h  = ss.getSheetByName("📋 Detalle Quincena");
   if (h) ss.setActiveSheet(h);
 }
+
+// Elimina filas de DatosKobo anteriores al inicio del período activo (sin descargar nada)
+function limpiarDatosKoboAntesDePeriodo() { _run(function() {
+  var ss      = SpreadsheetApp.getActiveSpreadsheet();
+  var hoja    = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
+  if (!hoja || hoja.getLastRow() < 2) { _alert("DatosKobo está vacío."); return; }
+
+  var periodo = _periodoActivo();
+  if (!periodo) { _alert("No hay período activo. Configura la quincena primero."); return; }
+
+  var corte = new Date(periodo.fi);
+  corte.setDate(corte.getDate() - 7); // conservar 7 días de buffer antes del período
+  corte.setHours(0,0,0,0);
+
+  var total  = hoja.getLastRow() - 1;
+  var datos  = hoja.getRange(2, 1, total, 1).getValues();
+  var borrar = [];
+  for (var i = datos.length - 1; i >= 0; i--) {
+    var s = String(datos[i][0] || "").trim();
+    var ts = new Date(s);
+    if (isNaN(ts)) { var m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/); if (m) ts = new Date(m[3],m[2]-1,m[1]); }
+    if (!isNaN(ts) && ts < corte) borrar.push(i + 2);
+  }
+
+  if (borrar.length === 0) { _alert("✅ No hay filas anteriores al período activo."); return; }
+
+  // Borrar en bloques consecutivos de abajo hacia arriba
+  var ini = borrar[0], fin = borrar[0], eliminadas = 0;
+  for (var j = 1; j < borrar.length; j++) {
+    if (borrar[j] === ini - 1) { ini = borrar[j]; }
+    else { hoja.deleteRows(ini, fin-ini+1); eliminadas += fin-ini+1; ini = borrar[j]; fin = borrar[j]; }
+  }
+  hoja.deleteRows(ini, fin-ini+1); eliminadas += fin-ini+1;
+  _alert("✅ " + eliminadas + " filas anteriores al " +
+    Utilities.formatDate(corte, CFG.TIMEZONE, "dd/MM/yyyy") + " eliminadas.\nQuedan " + (hoja.getLastRow()-1) + " registros.");
+}); }
 
 // Elimina en-lugar las filas con fecha anterior a 2026 sin descargar nada de Kobo
 function limpiarFilasAnteriores2026() { _run(function() {
