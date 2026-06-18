@@ -1039,6 +1039,41 @@ function _buscarEnCreamos_DB(nombre) {
   return { noEncontrado: true };
 }
 
+function _buscarEnCreamos_DB_porID(id) {
+  if (!id) return { noEncontrado: true };
+  var ss  = SpreadsheetApp.getActiveSpreadsheet();
+  var hDB = ss.getSheetByName(CFG.HOJAS.CREAMOS_DB);
+  if (!hDB || hDB.getLastRow() < 2) return { noEncontrado: true };
+  var datos = hDB.getDataRange().getValues();
+  var enc   = datos[0];
+  var iID = -1, iNombre = -1, iAnio = -1, iEdad = -1, iGenero = -1, iFechaNac = -1, iDPI = -1;
+  enc.forEach(function(h, i) {
+    var hl = String(h).toLowerCase().trim();
+    if (hl.indexOf("nombre") !== -1)               iNombre   = i;
+    if ((hl.indexOf("creamos") !== -1 && hl.indexOf("id") !== -1) || hl === "id") iID = i;
+    if (hl.indexOf("año") !== -1 || hl.indexOf("anio") !== -1 || hl.indexOf("entró") !== -1) iAnio = i;
+    if (hl === "age" || hl === "edad")             iEdad     = i;
+    if (hl === "gender" || hl.indexOf("género") !== -1 || hl.indexOf("genero") !== -1) iGenero = i;
+    if (hl.indexOf("nacimiento") !== -1 || hl.indexOf("fecha") !== -1) iFechaNac = i;
+    if (hl.indexOf("dpi") !== -1)                  iDPI      = i;
+  });
+  if (iID === -1) return { noEncontrado: true };
+  var idBusc = id.trim().toUpperCase();
+  for (var i = 1; i < datos.length; i++) {
+    if (String(datos[i][iID] || "").trim().toUpperCase() === idBusc) {
+      return {
+        id:          String(datos[i][iID]      || "").trim(),
+        dpi:         iDPI     >= 0 ? String(datos[i][iDPI]     || "").trim() : "",
+        edad:        iEdad    >= 0 ? String(datos[i][iEdad]    || "").trim() : "",
+        genero:      iGenero  >= 0 ? String(datos[i][iGenero]  || "").trim() : "",
+        fechaNac:    iFechaNac>= 0 ? datos[i][iFechaNac]                     : "",
+        anioEntrada: iAnio    >= 0 ? String(datos[i][iAnio]   || "").trim() : ""
+      };
+    }
+  }
+  return { noEncontrado: true };
+}
+
 /**
  * Diagnóstico: para cada participante sin Creamos_ID muestra los 5 mejores
  * candidatos que encontró en la base de datos. Útil cuando la sincronización
@@ -4789,8 +4824,11 @@ function sincronizarDesdeCreamos() { _run(function() {
 
     ss.toast("Buscando: " + nombre, "🔍", -1);
     var db = _buscarEnCreamos_DB(nombre);
+    // Si no encontró por nombre pero tiene ID real → buscar por ID como fallback
+    if ((db.noEncontrado || !db.id) && _esCreamos_ID_real(idActual)) {
+      db = _buscarEnCreamos_DB_porID(idActual);
+    }
     if (db.noEncontrado || !db.id) {
-      // Si ya tiene ID real aunque no se encuentre en DB, conservar en mapa
       if (_esCreamos_ID_real(idActual)) mapaNombreAID[nombre] = idActual;
       else sinEncontrar.push(nombre);
       return;
