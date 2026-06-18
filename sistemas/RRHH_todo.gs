@@ -2450,24 +2450,31 @@ function _limpiarColumnasKobo(hoja, enc) {
     try { if (!esImp) hoja.hideColumns(i+1); else hoja.showColumns(i+1); } catch(_) {}
   }
 
-  // Normalizar columna Participante: slug → nombre oficial
+  // Normalizar columna Participante usando c_id como fuente primaria
   var cols = detectarColumnas(enc, []);
   if (cols.participante === undefined) return;
   var mapeo = cargarMapeoNombres();
   var lastRow = hoja.getLastRow();
   if (lastRow < 2) return;
 
-  var colP = cols.participante + 1; // 1-indexed
-  var valores = hoja.getRange(2, colP, lastRow - 1, 1).getValues();
+  var nCols = (cols.creamos_id !== undefined) ? Math.max(cols.participante, cols.creamos_id) + 1
+                                               : cols.participante + 1;
+  var bloque = hoja.getRange(2, 1, lastRow - 1, nCols).getValues();
   var cambiados = 0;
-  var nuevos = valores.map(function(r) {
-    var raw = String(r[0] || "").trim();
+  var nuevosP = bloque.map(function(fila) {
+    var raw = String(fila[cols.participante] || "").trim();
+    var cid = (cols.creamos_id !== undefined) ? String(fila[cols.creamos_id] || "").trim() : "";
+    // Primero intentar por Creamos_ID (más confiable)
+    var porId = cid ? mapeo["id:" + cid] : null;
+    if (porId) { if (porId !== raw) cambiados++; return [porId]; }
     if (!raw) return [raw];
     var normalizado = normalizarNombre(raw, mapeo);
     if (normalizado !== raw) cambiados++;
     return [normalizado];
   });
-  if (cambiados > 0) hoja.getRange(2, colP, lastRow - 1, 1).setValues(nuevos);
+  var colP = cols.participante + 1;
+  if (cambiados > 0)
+    hoja.getRange(2, colP, lastRow - 1, 1).setValues(nuevosP);
 }
 
 function _normalizarAccionSilencioso(hoja) {
@@ -2625,6 +2632,7 @@ function detectarColumnas(encabezados, datosEjemplo) {
     if(hLow==="_submission_time"||hLow==="submission_time"){cols.submissionTime=i;continue;}
     if(hLow==="_uuid"){cols.uuid=i;continue;}
     if(hLow.indexOf("uuid")!==-1&&cols.uuid===undefined){cols.uuid=i;continue;}
+    if(hLow==="c_id"||hLow==="_c_id"){cols.creamos_id=i;continue;}
     if(hLow.indexOf("participante")!==-1||hLow.indexOf("nombre")!==-1||hLow.indexOf("seleccione")!==-1){
       if(cols.participante===undefined)cols.participante=i; else if(cols.participante2===undefined)cols.participante2=i; continue;
     }
