@@ -1,6 +1,6 @@
 # 📋 Guía de Conocimiento — Sistema RRHH mi eelo
 
-> **Versión:** 1.6 | **Última actualización:** 2026-06-18 | **Responsable:** Adrian (adrian@creamosguatemala.org)
+> **Versión:** 1.7 | **Última actualización:** 2026-06-18 | **Responsable:** Adrian (adrian@creamosguatemala.org)
 
 ---
 
@@ -90,7 +90,7 @@ El sistema automatiza todo ese proceso.
 
 | Hoja | Propósito | Columnas |
 |------|-----------|----------|
-| `PARTICIPANTES` | Lista maestra de todas las participantes | 19 cols A–S |
+| `PARTICIPANTES` | Lista maestra de todas las participantes | 23 cols A–W |
 | `DatosKobo` | Registros de entrada/salida importados desde Kobo | Variable (depende de Kobo) |
 | `PERIODOS` | Control de quincenas abiertas y cerradas | 7 cols |
 | `Copy of CREAMOS ID nuevo` | Base de datos oficial de Creamos/Salesforce | Protegida, solo lectura |
@@ -122,29 +122,35 @@ El sistema automatiza todo ese proceso.
 | `Rep_DIA_...` / `Rep_MES_...` | Al generar reportes por período |
 | `DASHBOARD` | Dashboard visual con KPIs |
 
-### Esquema de PARTICIPANTES (19 columnas)
+### Esquema de PARTICIPANTES (23 columnas)
 
 | Col | Campo | Descripción |
 |-----|-------|-------------|
 | A | `Creamos_ID` | ID oficial de Salesforce (ej: MACI030373) |
 | B | `Nombre` | Nombre completo oficial |
-| C | `Proyecto` | Siempre "Textil" |
-| D | `Programa` | Siempre "mi eelo" |
-| E | `Etapa` | Inscritx / Retiradx / Empleadx / Ciclo de Vida Terminado |
-| F | `Educacion` | Sí/No (auto desde hoja DiasEstudio) |
-| G | `Apoyo_Emocional` | Sí/No (auto desde hoja ListaTerapias) |
-| H | `Inclusion_Laboral` | Sí/No (auto desde hoja InclusionLaboral) |
-| I | `Categoria` | A / B / C / D |
-| J | `Tarifa_Hora` | Q/hr (se llena automático al poner Categoria) |
-| K | `Tiene_Factura` | Sí / No (determina si aplica IVA 5%) |
-| L | `DPI` | Número de DPI |
-| M | `NIT` | NIT fiscal |
-| N | `Correo` | Email de contacto |
-| O | `Banco` | Banco para transferencia |
-| P | `Tipo_Cuenta` | Monetaria / Ahorro |
-| Q | `Num_Cuenta` | Número de cuenta bancaria |
-| R | `Forma_Pago` | Cheque / Transferencia |
-| S | `URL_Doc_Proceso` | Link al Documento de Proceso en Drive |
+| C | `Fecha_Nacimiento` | Fecha de nacimiento (auto desde Creamos DB) |
+| D | `Edad` | Edad actual (auto desde Creamos DB) |
+| E | `Genero` | Género (auto desde Creamos DB) |
+| F | `Ano_Entrada_Creamos` | Año de ingreso a Creamos (auto desde Creamos DB) |
+| G | `Proyecto` | Siempre "Textil" |
+| H | `Programa` | Siempre "mi eelo" |
+| I | `Etapa` | Inscritx / Retiradx / Empleadx / Ciclo de Vida Terminado |
+| J | `Educacion` | Sí/No (auto desde hoja DiasEstudio) |
+| K | `Apoyo_Emocional` | Sí/No (auto desde hoja ListaTerapias) |
+| L | `Inclusion_Laboral` | Sí/No (auto desde hoja InclusionLaboral) |
+| M | `Categoria` | A / B / C / D |
+| N | `Tarifa_Hora` | Q/hr (se llena automático al poner Categoria) |
+| O | `Tiene_Factura` | Sí / No (determina si aplica IVA 5%) |
+| P | `DPI` | Número de DPI |
+| Q | `NIT` | NIT fiscal |
+| R | `Correo` | Email de contacto |
+| S | `Banco` | Banco para transferencia |
+| T | `Tipo_Cuenta` | Monetaria / Ahorro |
+| U | `Num_Cuenta` | Número de cuenta bancaria |
+| V | `Forma_Pago` | Cheque / Transferencia |
+| W | `URL_Doc_Proceso` | Link al Documento de Proceso en Drive |
+
+> **Nota v1.7:** Las columnas C–F (Fecha_Nacimiento, Edad, Genero, Ano_Entrada_Creamos) se agregaron entre Nombre y Proyecto. Se llenan automáticamente al ejecutar **⚙️ Admin → 🔄 Sincronizar desde Creamos DB**. El esquema anterior (19 cols A–S) ya no aplica.
 
 ### Tarifas por categoría
 
@@ -290,9 +296,9 @@ Día de corte (10 o 25 del mes):
 
 | Elemento | Cómo |
 |----------|------|
-| Categoría (A/B/C/D) en PARTICIPANTES col I | Escribir directo; tarifa se actualiza sola |
-| Tiene_Factura (Sí/No) en PARTICIPANTES col K | Escribir directo |
-| Datos bancarios (Banco, Tipo_Cuenta, Num_Cuenta) | Escribir directo en PARTICIPANTES |
+| Categoría (A/B/C/D) en PARTICIPANTES col M | Escribir directo; tarifa se actualiza sola |
+| Tiene_Factura (Sí/No) en PARTICIPANTES col O | Escribir directo |
+| Datos bancarios (Banco, Tipo_Cuenta, Num_Cuenta) | Escribir directo en PARTICIPANTES cols S/T/U |
 | Correo y DPI de participante | Escribir directo en PARTICIPANTES |
 | Filas en DiasEstudio (X o vacío) | Cambiar qué días tiene estudio |
 | Filas en ListaTerapias (X o vacío) | Marcar quién recibe terapia |
@@ -316,7 +322,7 @@ Día de corte (10 o 25 del mes):
 |----------|---------|
 | Hoja `Copy of CREAMOS ID nuevo` | Base de datos oficial de Salesforce. Si se borra o edita, se pierden todos los IDs |
 | Función `reinstalarSistema()` en producción | Borra absolutamente todo. Solo usar en entorno de pruebas |
-| Estructura de columnas de PARTICIPANTES (A–S) | El código usa índices numéricos. Si se mueven columnas, todo se rompe |
+| Estructura de columnas de PARTICIPANTES (A–W) | El código usa índices numéricos. Si se mueven columnas, todo se rompe |
 | Triggers instalados | No borrar los triggers de `onEditInstalable` o `importarDesdeKobo`; son los que hacen funcionar emails e importación automática |
 
 ---
@@ -328,7 +334,7 @@ Día de corte (10 o 25 del mes):
 1. **Menú:** ⚙️ Admin → ➕ Nuevo participante
 2. El sistema busca automáticamente en `Copy of CREAMOS ID nuevo`
 3. Si no la encuentra: aparece advertencia "⚠️ Crear perfil en Salesforce"
-4. Llenar manualmente: Categoría (col I), Tiene_Factura (col K), datos bancarios
+4. Llenar manualmente: Categoría (col M), Tiene_Factura (col O), datos bancarios (cols S–V)
 5. Si tiene terapia, días de estudio o inclusión laboral: marcar en las hojas respectivas
 
 ### Agregar una nueva hoja de seguimiento
@@ -413,6 +419,7 @@ HORAS_JORNADA_NORMAL: 7,  // ← cambiar aquí
 
 | Fecha | Versión | Cambios principales |
 |-------|---------|---------------------|
+| 2026-06-18 | 1.7 | Migración esquema PARTICIPANTES 19→23 cols. Nuevas columnas C–F (Fecha_Nacimiento, Edad, Genero, Ano_Entrada_Creamos) insertadas entre Nombre y Proyecto. Columnas anteriores C–S desplazadas a G–W (+4 en todos los índices). `sincronizarDesdeCreamos()` ahora escribe cols 3–6. 18+ funciones actualizadas con nuevos índices. `cargarListaParticipantes()` y `nuevoParticipante()` leen datos de Creamos DB al crear filas. |
 | 2026-06-18 | 1.6 | Fix matching nombres Kobo: `limpiarNombre` ahora convierte slugs (`_` → espacio, strip `_` inicial). Nueva constante `ALIASES_KOBO` con 7 aliases hardcoded (nombres cortos/typos). Cargados en `cargarMapeoNombres()` como paso 0. Resuelve: `leticia rodriguez`→Mirna Leticia, `ericka vasquez`→Erika Vásquez Tocay, `otiilia turuy paz`→Otilia (typo), `jeanette saquic`→Rosaura Jeannette, `mar a aide alvarado`→María Aidé, `mayra cifuentes`→Mayra Lorena, `ruth sara pivaral`→Ruth Saraí. Auto-resuelven: `_Lorena_del_Rosario_Urrea`, `_Sandra_Aracely_Vicente_Cortéz`. Pendiente confirmar: `_Rosario_Soberanis`, `_Roció_López`, `rosa_elizabeth_vian_alvarado` (no están en LISTA_OFICIAL). |
 | 2026-06-18 | 1.5 | Fix crítico `iEnd is not defined` (generarReporteMensual y _calcularResumenPeriodo). Nueva hoja Estipendio (datos manuales, suma a col L del reporte). Matching por Creamos_ID en Bonos y Estipendio (antes solo por nombre). Auto-refresh "📋 Detalle Quincena" en onOpen. Botón "🔁 Limpiar y reimportar DatosKobo". |
 | 2026-06-18 | 1.4 | Fix "chained form" (raíz de ceros). Análisis de 7,236 registros Kobo: 195 cross-day ENTRADA (ya manejadas), 2 registros con gap >7 días (deben borrarse en Kobo: row 2451 Carmen Borrayo +19d, row 6008 Vilma López +181d). `fechaEnd` almacenado en cada EGRESO; cuando `horas<=0` se usa el tiempo real de submit antes de estimar 7h. |
