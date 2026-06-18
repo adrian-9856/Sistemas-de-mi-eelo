@@ -3993,6 +3993,7 @@ function _calcularResumenPeriodo(fi, ff) {
 
     var dia = new Date(ts.getFullYear(), ts.getMonth(), ts.getDate());
     if (dia < dIni || dia > dFin) return;
+    if (dia.getDay() === 5) return; // viernes = entrada al trabajo, no sesión
 
     var nombreRaw = obtenerParticipanteFila(fila, cols);
     if (!nombreRaw) return;
@@ -8062,6 +8063,7 @@ function diagnosticarParticipantesKobo() { _run(function() {
     if (!ts || isNaN(ts)) return;
     var dia = new Date(ts.getFullYear(), ts.getMonth(), ts.getDate());
     if (dia < dIni || dia > dFin) return;
+    if (dia.getDay() === 5) return; // viernes = entrada al trabajo, no sesión
     var nRaw = obtenerParticipanteFila(fila, cols);
     if (!nRaw) return;
     var nombre = normalizarNombre(nRaw, mapeoNombres) || limpiarNombre(nRaw);
