@@ -274,6 +274,8 @@ function onOpen() {
     .addItem("🧹 Limpiar duplicados en PARTICIPANTES",   "limpiarDuplicadosParticipantes")
     .addItem("📄 Actualizar todos los DPs",              "actualizarTodosLosDps")
     .addSeparator()
+    .addItem("📊 Cargar historial de quincenas pasadas",  "backfillHistorialQuincenas")
+    .addSeparator()
     .addItem("⚡ Activar automatizaciones",              "configurarTriggers")
     .addItem("⬆️ Migrar sistema",                        "migrarSistema")
     .addItem("🔽 Reparar dropdowns",                     "repararDropdownsParticipantes")
@@ -2562,6 +2564,7 @@ function importarAlAbrir() {
   // DatosKobo (asistencia): desactivado — jalaría todos los históricos de 2026 al abrir.
   // Importar manualmente desde menú: 📥 Datos Kobo → 📥 Importar desde Kobo
   try { importarEstipendioDesdeKobo(true); } catch(_) {}  // estipendio auto-actualiza silencioso
+  try { _upsertHistorialActivo(); } catch(_) {}           // historial quincena activa al día
   try { actualizarDetalleQuincena(); } catch(_) {}
   try { actualizarQuincenaActual(); } catch(_) {}
 }
@@ -4069,6 +4072,121 @@ function _guardarHistorialQuincena(periodo) {
     var bg = (num % 2 === 0) ? "#e8eaf6" : "#ffffff";
     hH.getRange(lr, 1, 1, fila.length).setBackground(bg);
   } catch(e) { Logger.log("_guardarHistorialQuincena: " + e.message); }
+}
+
+// Llena HistorialQuincenas con todas las quincenas cerradas que no estén ya registradas
+function backfillHistorialQuincenas() { _run(function() {
+  var ss  = SpreadsheetApp.getActiveSpreadsheet();
+  var hP  = ss.getSheetByName(CFG.HOJAS.PERIODOS);
+  if (!hP || hP.getLastRow() < 2) { _alert("No hay períodos en PERIODOS."); return; }
+
+  var hH = ss.getSheetByName("HistorialQuincenas");
+  if (!hH) { crearHojaHistorialQuincenas(); hH = ss.getSheetByName("HistorialQuincenas"); }
+
+  // Leer labels ya en historial
+  var labelsExist = {};
+  if (hH.getLastRow() > 1) {
+    hH.getRange(2, 2, hH.getLastRow()-1, 1).getValues().forEach(function(r) {
+      labelsExist[String(r[0]).trim()] = true;
+    });
+  }
+
+  var datos = hP.getDataRange().getValues();
+  var agregados = 0;
+  for (var i = 1; i < datos.length; i++) {
+    var estado = String(datos[i][4]).trim();
+    var label  = String(datos[i][1]).trim();
+    if (estado !== "Cerrado") continue;
+    if (labelsExist[label]) continue;
+    var fi = datos[i][2], ff = datos[i][3];
+    if (!fi || !ff) continue;
+    _guardarHistorialQuincena({ label: label, fi: fi, ff: ff, fila: i+1 });
+    labelsExist[label] = true;
+    agregados++;
+  }
+  _alert(agregados > 0
+    ? "✅ " + agregados + " quincena(s) cargadas al historial."
+    : "✅ Historial ya está al día — nada nuevo que agregar.");
+}); }
+
+// Actualiza (o inserta) la fila de la quincena activa en HistorialQuincenas — silencioso
+function _upsertHistorialActivo() {
+  try {
+    var periodo = _periodoActivo();
+    if (!periodo) return;
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var hH = ss.getSheetByName("HistorialQuincenas");
+    if (!hH) return;
+
+    var fi  = new Date(periodo.fi), ff = new Date(periodo.ff);
+    var dIni = new Date(fi.getFullYear(), fi.getMonth(), fi.getDate());
+    var dFin = new Date(ff.getFullYear(), ff.getMonth(), ff.getDate());
+
+    var resumen = _calcularResumenPeriodo(fi, ff);
+    var totalQ = 0, totalHrs = 0, conHoras = 0, sinHoras = 0;
+    Object.keys(resumen).forEach(function(n) {
+      var d = resumen[n];
+      var base = Math.round(d.horas * d.tarifa * 100) / 100;
+      var iva  = d.tieneFactura ? Math.round(base * CFG.IVA_PCT * 100) / 100 : 0;
+      var bono = Math.round((d.bono || 0) * 100) / 100;
+      totalQ += Math.round((base + iva + bono) * 100) / 100;
+      totalHrs += d.horas;
+      if (d.horas > 0) conHoras++; else sinHoras++;
+    });
+
+    var kRetiradx = 0, kDiasEst = 0, kEstip = 0;
+    var hRet = ss.getSheetByName("Retiradx");
+    if (hRet && hRet.getLastRow() > 1) {
+      hRet.getRange(2,1,hRet.getLastRow()-1,1).getValues().forEach(function(r) {
+        var d = new Date(r[0]); var dia = new Date(d.getFullYear(),d.getMonth(),d.getDate());
+        if (!isNaN(d) && dia >= dIni && dia <= dFin) kRetiradx++;
+      });
+    }
+    var hDE = ss.getSheetByName("DiasEstudio");
+    if (hDE && hDE.getLastRow() > 1) {
+      hDE.getRange(2,1,hDE.getLastRow()-1,1).getValues().forEach(function(r) {
+        var d = new Date(r[0]); var dia = new Date(d.getFullYear(),d.getMonth(),d.getDate());
+        if (!isNaN(d) && dia >= dIni && dia <= dFin) kDiasEst++;
+      });
+    }
+    var hES = ss.getSheetByName("Estipendio");
+    if (hES && hES.getLastRow() > 1) {
+      hES.getRange(2,1,hES.getLastRow()-1,4).getValues().forEach(function(r) {
+        var d = new Date(r[0]); var dia = new Date(d.getFullYear(),d.getMonth(),d.getDate());
+        if (!isNaN(d) && dia >= dIni && dia <= dFin) kEstip += parseFloat(r[3])||0;
+      });
+    }
+
+    var valores = [periodo.label, fi, ff, "— activo —",
+                   Math.round(totalQ*100)/100, Math.round(totalHrs*100)/100,
+                   conHoras, sinHoras, kRetiradx, kDiasEst,
+                   Math.round(kEstip*100)/100, ""];
+
+    // Buscar fila existente con mismo label
+    var filaExist = -1;
+    if (hH.getLastRow() > 1) {
+      var labels = hH.getRange(2, 2, hH.getLastRow()-1, 1).getValues();
+      for (var i = 0; i < labels.length; i++) {
+        if (String(labels[i][0]).trim() === periodo.label) { filaExist = i + 2; break; }
+      }
+    }
+
+    if (filaExist > 0) {
+      hH.getRange(filaExist, 2, 1, valores.length).setValues([valores]);
+    } else {
+      var num = hH.getLastRow();
+      hH.appendRow([num].concat(valores));
+      var lr = hH.getLastRow();
+      var bg = (num % 2 === 0) ? "#e8f5e9" : "#f1f8e9"; // verde claro = activa
+      hH.getRange(lr, 1, 1, 13).setBackground(bg);
+    }
+    // Formatos de fecha y Q en la fila
+    var fActual = filaExist > 0 ? filaExist : hH.getLastRow();
+    hH.getRange(fActual, 3, 1, 2).setNumberFormat("dd/MM/yyyy");
+    hH.getRange(fActual, 6).setNumberFormat('"Q"#,##0.00');
+    hH.getRange(fActual, 7).setNumberFormat("0.0");
+    hH.getRange(fActual, 12).setNumberFormat('"Q"#,##0.00');
+  } catch(e) { Logger.log("_upsertHistorialActivo: " + e.message); }
 }
 
 function cerrarQuincenaYCrearSiguiente() { _run(function() {
