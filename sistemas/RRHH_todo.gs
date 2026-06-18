@@ -228,52 +228,74 @@ function onOpen() {
     .addItem("🔎 Detalle participantes en Kobo",         "diagnosticarParticipantesKobo");
 
   // ══════════════════════════════════════════════════════════
-  // BLOQUE 3: ADMIN (uso ocasional)
+  // BLOQUE 3: ADMIN — submenús para mantener orden
   // ══════════════════════════════════════════════════════════
-  var menuAdmin = ui.createMenu("⚙️ Admin")
-    .addItem("📋 Cargar lista oficial (33 participantes)","cargarListaParticipantes")
-    .addItem("🔄 Sincronizar desde Creamos DB",          "sincronizarDesdeCreamos")
-    .addItem("📲 Sincronizar IDs desde DatosKobo",       "sincronizarIDsDesdeKobo")
-    .addItem("🔍 Diagnosticar IDs no encontrados",        "diagnosticarBusquedaCreamos")
+
+  // Submenú: Participantes (cambios individuales)
+  var subParticipantes = ui.createMenu("👤 Participantes")
     .addItem("➕ Nuevo participante",                     "nuevoParticipante")
-    .addItem("👥 Directorio de participantes",           "generarDirectorioParticipantes")
+    .addItem("🔼 Cambiar categoría",                     "cambiarCategoriaParticipante")
+    .addItem("✏️ Cambiar nombre",                        "cambiarNombreParticipante")
+    .addItem("🗑️ Eliminar participante completo",         "eliminarParticipanteCompleto")
     .addSeparator()
-    .addItem("📚 Días de estudio",                       "crearHojaDiasEstudio")
-    .addItem("🧘 Lista de terapias",                     "crearHojaListaTerapias")
-    .addItem("💼 Inclusión Laboral",                     "crearHojaInclusionLaboral")
-    .addItem("🔴 Hoja Retiradx",                         "crearHojaRetiradx")
-    .addItem("🔵 Hoja CiclosVida",                        "crearHojaCiclosVida")
-    .addItem("📊 Historial de Quincenas",                 "crearHojaHistorialQuincenas")
-    .addItem("💵 Hoja Bonos",                             "crearHojaBonos")
-    .addItem("🟣 Hoja Estipendio",                        "crearHojaEstipendio")
-    .addItem("🟣 Importar Estipendio desde Kobo",         "importarEstipendioDesdeKobo")
-    .addItem("🏦 Hoja Cheques",                           "crearHojaCheques")
-    .addItem("🔄 Hoja Transferencias",                    "crearHojaTransferencias")
-    .addItem("👶 Hijos CCI",                             "crearHojaHijosCCI")
-    .addItem("🔗 Sincronizar participación (→ PARTICIPANTES)", "sincronizarParticipacion")
-    .addItem("🎨 Actualizar colores e IDs en todas las hojas", "actualizarColoresYIDs")
-    .addSeparator()
+    .addItem("📄 Generar DP (fila activa)",              "generarDpFilaActiva")
+    .addItem("👥 Directorio de participantes",           "generarDirectorioParticipantes");
+
+  // Submenú: Facturación y pagos
+  var subFacturacion = ui.createMenu("🧾 Facturación")
     .addItem("🧾 Configurar IVA (quién tiene factura)",  "configurarFacturacion")
     .addItem("✅ Guardar cambios de facturación",         "aplicarCambiosFacturacion")
     .addSeparator()
-    .addItem("🧹 Limpiar duplicados en PARTICIPANTES",    "limpiarDuplicadosParticipantes")
-    .addItem("🗑️ Eliminar participante completo",         "eliminarParticipanteCompleto")
-    .addItem("🔼 Cambiar categoría de participante",      "cambiarCategoriaParticipante")
-    .addItem("✏️ Cambiar nombre de participante",        "cambiarNombreParticipante")
-    .addItem("📄 Generar DP (fila activa)",              "generarDpFilaActiva")
+    .addItem("🟣 Importar Estipendio desde Kobo",         "importarEstipendioDesdeKobo");
+
+  // Submenú: Hojas del sistema (creación/recreación — uso ocasional)
+  var subHojas = ui.createMenu("📋 Crear hojas")
+    .addItem("📚 Días de estudio",                       "crearHojaDiasEstudio")
+    .addItem("🧘 Lista de terapias",                     "crearHojaListaTerapias")
+    .addItem("💼 Inclusión Laboral",                     "crearHojaInclusionLaboral")
+    .addItem("🔴 Retiradx",                              "crearHojaRetiradx")
+    .addItem("🔵 CiclosVida",                            "crearHojaCiclosVida")
+    .addItem("📊 Historial de Quincenas",                "crearHojaHistorialQuincenas")
+    .addItem("💵 Bonos",                                 "crearHojaBonos")
+    .addItem("🟣 Estipendio",                            "crearHojaEstipendio")
+    .addItem("🏦 Cheques",                               "crearHojaCheques")
+    .addItem("🔄 Transferencias",                        "crearHojaTransferencias")
+    .addItem("👶 Hijos CCI",                             "crearHojaHijosCCI");
+
+  // Submenú: Mantenimiento / setup (raro uso en sistema activo)
+  var subMant = ui.createMenu("🔧 Mantenimiento")
+    .addItem("📋 Cargar lista oficial",                  "cargarListaParticipantes")
+    .addItem("🔄 Sincronizar desde Creamos DB",          "sincronizarDesdeCreamos")
+    .addItem("📲 Sincronizar IDs desde DatosKobo",       "sincronizarIDsDesdeKobo")
+    .addItem("🔍 Diagnosticar IDs no encontrados",       "diagnosticarBusquedaCreamos")
+    .addSeparator()
+    .addItem("🔗 Sincronizar participación",             "sincronizarParticipacion")
+    .addItem("🎨 Actualizar colores e IDs",              "actualizarColoresYIDs")
+    .addItem("🧹 Limpiar duplicados en PARTICIPANTES",   "limpiarDuplicadosParticipantes")
     .addItem("📄 Actualizar todos los DPs",              "actualizarTodosLosDps")
     .addSeparator()
     .addItem("⚡ Activar automatizaciones",              "configurarTriggers")
+    .addItem("⬆️ Migrar sistema",                        "migrarSistema")
+    .addItem("🔽 Reparar dropdowns",                     "repararDropdownsParticipantes")
+    .addItem("🔢 Reparar formato DPI y NIT",             "repararFormatoDPI")
+    .addItem("🔄 Recalcular tarifas",                    "recalcularTarifas")
+    .addItem("📤 Exportar para PowerBI",                 "exportarParaPowerBI")
+    .addItem("📖 Guía de Uso",                           "crearGuiaUso")
     .addSeparator()
-    .addItem("⬆️ Migrar sistema (actualizar sin borrar)", "migrarSistema")
-    .addItem("🔽 Reparar dropdowns PARTICIPANTES",        "repararDropdownsParticipantes")
-    .addItem("🔢 Reparar formato DPI y NIT",              "repararFormatoDPI")
-    .addItem("🔄 Recalcular tarifas y factura",           "recalcularTarifas")
-    .addItem("🗑️ Reinstalar sistema (borra TODO)",       "reinstalarSistema")
+    .addItem("🗑️ Reinstalar sistema (borra TODO)",       "reinstalarSistema");
+
+  // Admin principal — solo lo de uso frecuente
+  var menuAdmin = ui.createMenu("⚙️ Admin")
+    .addSubMenu(subParticipantes)
+    .addSubMenu(subFacturacion)
     .addSeparator()
-    .addItem("📊 Actualizar Dashboard Visual",            "actualizarDashboardVisual")
-    .addItem("📤 Exportar para PowerBI",                  "exportarParaPowerBI")
-    .addItem("📖 Crear / actualizar Guía de Uso",         "crearGuiaUso");
+    .addItem("🔄 Sincronizar desde Creamos DB",          "sincronizarDesdeCreamos")
+    .addItem("🎨 Actualizar colores e IDs",              "actualizarColoresYIDs")
+    .addSeparator()
+    .addItem("📊 Actualizar Dashboard Visual",           "actualizarDashboardVisual")
+    .addSeparator()
+    .addSubMenu(subHojas)
+    .addSubMenu(subMant);
 
   // ══════════════════════════════════════════════════════════
   // MENÚ PRINCIPAL
