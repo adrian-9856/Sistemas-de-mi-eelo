@@ -219,7 +219,9 @@ function onOpen() {
     .addItem("🔍 Reporte de quincena pasada",            "generarReporteQuincenaPasada")
     .addItem("📊 Reporte por rango de fechas",           "generarReportePorRango")
     .addSeparator()
-    .addItem("💳 Registrar pagos de quincena",           "registrarPagosQuincena");
+    .addItem("💳 Registrar pagos de quincena",           "registrarPagosQuincena")
+    .addSeparator()
+    .addItem("🩺 Diagnosticar cálculo de horas",         "diagnosticarCalculoHoras");
 
   // ══════════════════════════════════════════════════════════
   // BLOQUE 3: ADMIN (uso ocasional)
@@ -7821,4 +7823,125 @@ function crearGuiaUso() { _run(function() {
   h.setFrozenRows(1);
   ss.setActiveSheet(h);
   ss.toast("✅ Guía de Pagos creada/actualizada", "📋", 4);
+}); }
+
+// ══════════════════════════════════════════════════════════════════
+// DIAGNÓSTICO DE HORAS
+// ══════════════════════════════════════════════════════════════════
+function diagnosticarCalculoHoras() { _run(function() {
+  var ss  = SpreadsheetApp.getActiveSpreadsheet();
+  var lin = [];
+  var ok  = true;
+
+  // ── 1. ¿Hay período activo? ───────────────────────────────────
+  var periodo = _periodoActivo();
+  if (!periodo) {
+    lin.push("❌ PASO 1 — NO HAY PERÍODO ACTIVO en hoja PERIODOS.");
+    lin.push("   → Menú 📅 Quincena → 🗓️ Nueva quincena (manual)");
+    lin.push("   → Pon las fechas de la quincena actual y ponla como 'Activo'.");
+    ok = false;
+  } else {
+    var tz = CFG.TIMEZONE;
+    lin.push("✅ PASO 1 — Período activo: " + periodo.label +
+             "\n   Hoja reporte: '" + periodo.tab + "'");
+  }
+
+  // ── 2. ¿DatosKobo tiene datos? ───────────────────────────────
+  var hK = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
+  if (!hK || hK.getLastRow() < 2) {
+    lin.push("\n❌ PASO 2 — DatosKobo está VACÍO o no existe.");
+    lin.push("   → Menú 📥 Asistencia → 📥 Importar desde Kobo");
+    ok = false;
+  } else {
+    var nRegistros = hK.getLastRow() - 1;
+    lin.push("\n✅ PASO 2 — DatosKobo tiene " + nRegistros + " registros.");
+  }
+
+  // ── 3. ¿Se detectan columnas correctamente? ──────────────────
+  if (hK && hK.getLastRow() >= 2) {
+    var enc = hK.getRange(1, 1, 1, hK.getLastColumn()).getValues()[0];
+    var raw50 = hK.getRange(2, 1, Math.min(50, hK.getLastRow()-1), hK.getLastColumn()).getValues();
+    var cols = detectarColumnas(enc, raw50);
+
+    var colInfo = [];
+    if (cols.start          !== undefined) colInfo.push("start(col "+(cols.start+1)+")");
+    if (cols.end            !== undefined) colInfo.push("end(col "+(cols.end+1)+")");
+    if (cols.participante   !== undefined) colInfo.push("participante(col "+(cols.participante+1)+")");
+    if (cols.accionUnificada!== undefined) colInfo.push("acción(col "+(cols.accionUnificada+1)+")");
+    else if (cols.ingreso   !== undefined) colInfo.push("ingreso(col "+(cols.ingreso+1)+")");
+
+    if (cols.participante === undefined) {
+      lin.push("\n❌ PASO 3 — No se detectó columna de PARTICIPANTE en DatosKobo.");
+      lin.push("   Encabezados encontrados: " + enc.slice(0,10).join(", "));
+      ok = false;
+    } else if (cols.accionUnificada === undefined && cols.ingreso === undefined) {
+      lin.push("\n❌ PASO 3 — No se detectó columna de ACCIÓN (Entrada/Salida).");
+      lin.push("   Encabezados: " + enc.slice(0,10).join(", "));
+      ok = false;
+    } else {
+      lin.push("\n✅ PASO 3 — Columnas detectadas: " + colInfo.join(", "));
+    }
+
+    // ── 4. Muestra de registros en período activo ─────────────
+    if (periodo && ok) {
+      var fi = new Date(periodo.fi);
+      var ff = new Date(periodo.ff);
+      var dIni = new Date(fi.getFullYear(), fi.getMonth(), fi.getDate());
+      var dFin = new Date(ff.getFullYear(), ff.getMonth(), ff.getDate());
+      var raw = hK.getRange(2, 1, hK.getLastRow()-1, hK.getLastColumn()).getValues();
+      var mapeo = cargarMapeoNombres();
+
+      var enPeriodo = 0, entradas = 0, salidas = 0, sinNombre = 0;
+      var nombresVis = {};
+      raw.forEach(function(fila) {
+        var ts = _resolverTsKobo(fila, cols);
+        if (!ts || isNaN(ts)) return;
+        var dia = new Date(ts.getFullYear(), ts.getMonth(), ts.getDate());
+        if (dia < dIni || dia > dFin) return;
+        enPeriodo++;
+        var nRaw = obtenerParticipanteFila(fila, cols);
+        if (!nRaw) { sinNombre++; return; }
+        var nombre = normalizarNombre(nRaw, mapeo);
+        nombresVis[nombre] = true;
+        var tipo = obtenerTipoRegistro(fila, cols);
+        if (tipo.esIngreso) entradas++;
+        if (tipo.esEgreso)  salidas++;
+      });
+
+      lin.push("\n✅ PASO 4 — En el período activo:");
+      lin.push("   Registros: " + enPeriodo + " (entradas: " + entradas + ", salidas: " + salidas + ")");
+      lin.push("   Participantes con datos: " + Object.keys(nombresVis).length);
+      if (sinNombre > 0) lin.push("   ⚠️ " + sinNombre + " registros sin nombre de participante");
+
+      if (enPeriodo === 0) {
+        lin.push("\n❌ No hay registros de Kobo dentro del período " + periodo.label);
+        lin.push("   ¿Las fechas del período son correctas?");
+        lin.push("   Primer registro en DatosKobo: " + (function(){
+          var ts0 = _resolverTsKobo(raw[0], cols);
+          return ts0 ? Utilities.formatDate(ts0, CFG.TIMEZONE, "dd/MM/yyyy") : "no detectado";
+        })());
+        lin.push("   Último registro: " + (function(){
+          var ts0 = _resolverTsKobo(raw[raw.length-1], cols);
+          return ts0 ? Utilities.formatDate(ts0, CFG.TIMEZONE, "dd/MM/yyyy") : "no detectado";
+        })());
+        ok = false;
+      }
+    }
+  }
+
+  // ── 5. ¿PARTICIPANTES tiene categorías? ──────────────────────
+  var mapa = _construirMapaTarifas();
+  var nPart = Object.keys(mapa).length;
+  var nConTarifa = Object.keys(mapa).filter(function(k){ return mapa[k].tarifa > 0; }).length;
+  if (nPart === 0) {
+    lin.push("\n❌ PASO 5 — PARTICIPANTES sin datos de tarifa. ¿Está cargada la lista?");
+    ok = false;
+  } else {
+    lin.push("\n✅ PASO 5 — " + nConTarifa + "/" + nPart + " participantes con tarifa válida.");
+  }
+
+  lin.push("\n" + (ok ? "✅ TODO LISTO — corre 📅 Quincena → Ver / actualizar quincena actual"
+                      : "⚠️ Corrige los pasos marcados ❌ primero."));
+
+  _alert("🔍 DIAGNÓSTICO DE HORAS\n\n" + lin.join("\n"));
 }); }
