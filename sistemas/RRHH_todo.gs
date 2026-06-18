@@ -21,6 +21,7 @@ const CFG = {
   IVA_PCT:      0.05,  // 5% Pequeño Contribuyente Guatemala (solo quien tiene factura)
   HORAS_JORNADA_NORMAL: 7,
   KOBO_URL_CSV: "https://kf.kobotoolbox.org/api/v2/assets/agi395bJj6ojXJzPPDT9n6/export-settings/esFyGoVugvB2pNtpgngLSGD/data.csv",
+  KOBO_URL_ESTIPENDIO: "https://kf.kobotoolbox.org/api/v2/assets/aXKv6g3zzpTN2byxajnxyp/export-settings/es5ZJRFNHmd8EDEQdoDu5jj/data.csv",
   KOBO_TIPO_ENTRADA: "🟢 Entrada",   // valor normalizado interno (no el label de Kobo)
   KOBO_TIPO_SALIDA:  "🔴 Salida",    // Kobo exporta "Entrada"/"Salida" — detectarColumnas detecta ambos
   HOJAS: {
@@ -244,6 +245,7 @@ function onOpen() {
     .addItem("🔵 Hoja CiclosVida",                        "crearHojaCiclosVida")
     .addItem("💵 Hoja Bonos",                             "crearHojaBonos")
     .addItem("🟣 Hoja Estipendio",                        "crearHojaEstipendio")
+    .addItem("🟣 Importar Estipendio desde Kobo",         "importarEstipendioDesdeKobo")
     .addItem("🏦 Hoja Cheques",                           "crearHojaCheques")
     .addItem("🔄 Hoja Transferencias",                    "crearHojaTransferencias")
     .addItem("👶 Hijos CCI",                             "crearHojaHijosCCI")
@@ -1389,6 +1391,107 @@ function crearHojaEstipendio() { _run(function() {
     "• Notas: descripción (ej: 'Transporte Q1 junio')\n\n" +
     "El estipendio aparece en col Estipendio del reporte de quincena y se suma al total."
   );
+}); }
+
+// Importar estipendios desde Kobo — solo 2026, solo período reciente, sin duplicar
+function importarEstipendioDesdeKobo() { _run(function() {
+  var resp = UrlFetchApp.fetch(CFG.KOBO_URL_ESTIPENDIO, { muteHttpExceptions: true });
+  var code = resp.getResponseCode();
+  if (code === 503) { _alert("⏳ Kobo ocupado (503). Espera 2 min e intenta de nuevo."); return; }
+  if (code !== 200) throw new Error("Error Kobo HTTP " + code);
+
+  var datos = Utilities.parseCsv(resp.getContentText(), ";");
+  if (datos.length < 2) { _alert("Kobo no devolvió registros de estipendio."); return; }
+
+  var enc = datos[0].map(function(h){ return String(h).trim().toLowerCase(); });
+
+  // Detectar columnas clave
+  function _idx(palabras) {
+    for (var pi = 0; pi < palabras.length; pi++) {
+      for (var ei = 0; ei < enc.length; ei++) {
+        if (enc[ei].indexOf(palabras[pi]) !== -1) return ei;
+      }
+    }
+    return -1;
+  }
+  var iStart  = _idx(["start"]);
+  var iPart   = _idx(["participante","nombre","participant"]);
+  var iMonto  = _idx(["monto","amount","valor","total","estipendio","q_"]);
+  var iID     = _idx(["c_id","creamos","cid","codigo"]);
+  var iNotas  = _idx(["nota","note","descripcion","motivo","concepto"]);
+
+  if (iStart < 0 || iPart < 0 || iMonto < 0) {
+    _alert("❌ No se detectaron columnas en el CSV de estipendio.\n" +
+      "Cabeceras encontradas:\n" + datos[0].join(", "));
+    return;
+  }
+
+  // Filtrar solo registros recientes (desde 60 días antes del período activo)
+  var periodo = _periodoActivo();
+  var fechaMinima;
+  if (periodo && periodo.fi) {
+    fechaMinima = new Date(periodo.fi);
+    fechaMinima.setDate(fechaMinima.getDate() - 60);
+  } else {
+    fechaMinima = new Date(); fechaMinima.setDate(fechaMinima.getDate() - 90);
+  }
+
+  var mapeoNombres = cargarMapeoNombres();
+  var ss   = SpreadsheetApp.getActiveSpreadsheet();
+  var hoja = ss.getSheetByName("Estipendio");
+  if (!hoja) { crearHojaEstipendio(); hoja = ss.getSheetByName("Estipendio"); }
+
+  // Leer UUIDs ya en la hoja para evitar duplicados
+  var iUUID = _idx(["_uuid","uuid"]);
+  var uuidsExist = {};
+  if (iUUID >= 0 && hoja.getLastRow() >= 2) {
+    // Estipendio sheet no guarda UUID, usamos Fecha+Nombre como clave
+  }
+  // Usar Fecha+Participante como clave de dedup
+  var clavesExist = {};
+  if (hoja.getLastRow() >= 2) {
+    var exRows = hoja.getRange(2, 1, hoja.getLastRow()-1, 3).getValues();
+    exRows.forEach(function(r) {
+      var k = String(r[0]||"").substring(0,10) + "|" + String(r[2]||"").trim().toLowerCase();
+      clavesExist[k] = true;
+    });
+  }
+
+  var nuevas = [];
+  for (var i = 1; i < datos.length; i++) {
+    var fila = datos[i];
+    var rawStart = String(fila[iStart] || "").trim();
+    var tsRow = new Date(rawStart);
+    if (isNaN(tsRow)) {
+      var pm = rawStart.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+      if (pm) tsRow = new Date(pm[3], pm[2]-1, pm[1]);
+    }
+    if (isNaN(tsRow) || tsRow < fechaMinima) continue;
+
+    var anio = tsRow.getFullYear();
+    if (anio < 2026) continue;
+
+    var rawNombre = String(fila[iPart] || "").trim();
+    if (!rawNombre) continue;
+    var nombre = normalizarNombre(rawNombre, mapeoNombres) || limpiarNombre(rawNombre) || rawNombre;
+    var monto  = parseFloat(String(fila[iMonto]||"").replace(",",".")) || 0;
+    if (!monto) continue;
+
+    var fechaFmt = Utilities.formatDate(tsRow, CFG.TIMEZONE, "yyyy-MM-dd");
+    var clave = fechaFmt + "|" + nombre.trim().toLowerCase();
+    if (clavesExist[clave]) continue;
+
+    var id    = iID >= 0 ? String(fila[iID]||"").trim() : "";
+    var notas = iNotas >= 0 ? String(fila[iNotas]||"").trim() : "";
+    nuevas.push([tsRow, id, nombre, monto, notas]);
+    clavesExist[clave] = true;
+  }
+
+  if (nuevas.length === 0) { _alert("✅ Sin estipendios nuevos para importar."); return; }
+  hoja.getRange(hoja.getLastRow()+1, 1, nuevas.length, 5).setValues(nuevas);
+  hoja.getRange(hoja.getLastRow()-nuevas.length+2, 1, nuevas.length, 1).setNumberFormat("dd/MM/yyyy");
+  hoja.getRange(hoja.getLastRow()-nuevas.length+2, 4, nuevas.length, 1).setNumberFormat('"Q"#,##0.00');
+  _alert("✅ " + nuevas.length + " estipendios importados desde Kobo.");
 }); }
 
 // ── Hojas de pago: Cheques y Transferencias ──────────────────────
@@ -4235,9 +4338,9 @@ function _generarReporteQuincena(fi, ff, label, tabNombre, prevHorasReponer) {
     var iva     = d.tieneFactura ? Math.round(base * CFG.IVA_PCT * 100) / 100 : 0;
     var bono    = Math.round((d.bono || 0) * 100) / 100;
     var estip   = Math.round((d.estipendio || 0) * 100) / 100;
-    var orgPaga = Math.round((base + iva + bono + estip) * 100) / 100;
+    var orgPaga = Math.round((base + iva + bono) * 100) / 100;  // estipendio NO entra al total org
     var redond  = Math.round(orgPaga);
-    var neto    = Math.round((base + bono + estip) * 100) / 100; // participante retiene base+bono+estip; IVA va a SAT
+    var neto    = Math.round((base + bono) * 100) / 100; // participante retiene base+bono; IVA va a SAT
 
     sumBase  += base;
     sumIVA   += iva;
@@ -4647,7 +4750,7 @@ function generarChecklistPago() { _run(function() {
       var iva  = d.tieneFactura ? Math.round(base * CFG.IVA_PCT * 100) / 100 : 0;
       var bono = Math.round((d.bono || 0) * 100) / 100;
       var estip = Math.round((d.estipendio || 0) * 100) / 100;
-      var org  = Math.round((base + iva + bono + estip) * 100) / 100;
+      var org  = Math.round((base + iva + bono) * 100) / 100;  // estipendio NO entra al total org
       totalBase += base; totalIVA += iva; totalOrg += org;
 
       h.getRange(filaActual,1,1,12).setValues([[
@@ -4707,7 +4810,7 @@ function generarChecklistPago() { _run(function() {
     var iva = d.tieneFactura ? Math.round(base * CFG.IVA_PCT * 100) / 100 : 0;
     var bono2 = Math.round((d.bono || 0) * 100) / 100;
     var estip2 = Math.round((d.estipendio || 0) * 100) / 100;
-    gBase += base; gIVA += iva; gOrg += Math.round((base+iva+bono2+estip2)*100)/100;
+    gBase += base; gIVA += iva; gOrg += Math.round((base+iva+bono2)*100)/100; // estipendio NO en total
   });
 
   h.getRange(filaActual,1,1,12).setValues([
