@@ -727,7 +727,7 @@ function actualizarTodosLosDps() { _run(function() {
 var LISTA_OFICIAL = [
   //  #   Nombre oficial                           Cat  Creamos_ID    Kobo slug
   [ 1, "Sindy Paola Lazaro Diaz",            "B", "SILA161192", "sindy_paola_lazaro_diaz"],
-  [ 2, "Rosaura Jeannette Saquic Lopez",     "C", "ROSA301178", "rosaura_jeannette_saquic_lopez"],
+  [ 2, "Rosaura Jeannette Saquic Lopez",     "C", "ROSA070794", "rosaura_jeannette_saquic_lopez"],
   [ 3, "Maria del Carmen Borrayo Vásquez",   "C", "MABO280871", "maria_del_carmen_borrayo_vasquez"],
   [ 4, "Maria Audelia Velasquez Cabrera",    "C", "MAVE130766", "maria_audelia_velasquez_cabrera"],
   [ 5, "María Ricarda Suret Chamalé",        "C", "MASU150784", "maria_ricarda_suret_chamale"],
@@ -736,19 +736,19 @@ var LISTA_OFICIAL = [
   [ 8, "Yoselin Melissa Zurdo Tocay",        "C", "YOZU230190", "yoselin_melissa_zurdo_tocay"],
   [ 9, "Erika Vásquez Tocay de López",       "C", "ERVA031282", "ericka_vasquez_tocay"],
   [10, "Leticia Sumalé Arredondo",           "C", "LESU210172", "leticia_sumale_arredondo"],
-  [11, "Alicia Lopez Reynoso",               "D", "",           "alicia_lopez_reynoso"],
+  [11, "Alicia Lopez Reynoso",               "D", "MAXA220801", "alicia_lopez_reynoso"],
   [12, "Otilia Turuy Paz",                   "D", "",           "otilia_turuy_paz"],
   [13, "Angelica Casandra Veliz Vián",       "A", "ANVE241097", "angelica_casandra_veliz_vian"],
   [14, "Karin Nineth Balcarcel Santizo",     "B", "KABA221273", "karin_nineth_balcarcel_santizo"],
   [15, "Lorena del Rosario Urrea",           "C", "",           "lorena_del_rosario_urrea"],
-  [16, "Brenda Azucena del Cid Urrea",       "D", "",           "brenda_azucena_del_cid_urrea"],
+  [16, "Brenda Azucena del Cid Urrea",       "D", "BRDE260486", "brenda_azucena_del_cid_urrea"],
   [17, "Vilma Elizabeth Lopez Vasquez",      "C", "VILO040971", "vilma_elizabeth_lopez_vasquez"],
   [18, "Angélica Maribel Cuxe Pérez",        "D", "ANCU300380", "angelica_maribel_cuxe_perez"],
   [19, "Sara Evilia Raymundo Rivera",        "B", "SARA010779", "sara_evilia_raymundo_rivera"],
   [20, "Helen Melany Rodas López",           "C", "HERO171201", "helen_melany_rodas_lopez"],
-  [21, "Elendi Nicol Pedroza Cuxé",          "D", "",           "elendi_nicol_pedroza_cuxe"],
+  [21, "Elendi Nicol Pedroza Cuxé",          "D", "ELPE261105", "elendi_nicol_pedroza_cuxe"],
   [22, "Emily Cristina Zacarías Morales",    "B", "EMZA021099", "emily_cristina_zacarias_morales"],
-  [23, "Juana del Rosario Vicente Choy",     "B", "",           "juana_del_rosario_vicente_choy"],
+  [23, "Juana del Rosario Vicente Choy",     "B", "JUVI281187", "juana_del_rosario_vicente_choy"],
   [24, "Mayra Lorena Cifuentes García",      "C", "MACI030373", "mayra_lorena_cifuentes_garcia"],
   [25, "Ana Rebeca Larios Perez",            "D", "ANLA060686", "ana_rebeca_larios_perez"],
   [26, "Jeimy Suceli Barrientos",            "D", "JEBA011090", "jeimy_suceli_barrientos"],
@@ -756,8 +756,8 @@ var LISTA_OFICIAL = [
   [28, "Yocelin Yajaira Celada Rodriguez",   "C", "YOCE041291", "yocelin_yajaira_celada_rodriguez"],
   [29, "Ruth Saraí Pivaral Sequen",          "C", "RUPI170992", "ruth_sarai_pivaral_sequen"],
   [30, "Laura Elizabeth Gonzalez Figueroa",  "C", "LAGO091289", "laura_elizabeth_gonzalez_figueroa"],
-  [31, "Sandra Aracely Vicente Cortéz",      "C", "",           "sandra_aracely_vicente_cortez"],
-  [32, "Heidy Yessenía Morales Lázaro",      "C", "",           "heidy_yessenia_morales_lazaro"],
+  [31, "Sandra Aracely Vicente Cortéz",      "C", "SADI081176", "sandra_aracely_vicente_cortez"],
+  [32, "Heidy Yessenía Morales Lázaro",      "C", "HEMO120203", "heidy_yessenia_morales_lazaro"],
   [33, "Anaid Lluleydi Mateo Morales",       "C", "ANMA100605", "anaid_lluleydi_mateo_morales"]
 ];
 
@@ -2725,14 +2725,16 @@ function cargarMapeoNombres() {
     m[alias.replace(/\s+/g, "_")] = oficial; // versión slug también
   });
 
-  // 1. Desde LISTA_OFICIAL: slug kobo → nombre oficial
+  // 1. Desde LISTA_OFICIAL: slug kobo + Creamos_ID → nombre oficial
   LISTA_OFICIAL.forEach(function(item) {
     var nombreOficial = item[1];
+    var id            = item[3] || "";
     var slug          = item[4] || "";
     if (slug) {
       m[slug] = nombreOficial;
       m[slug.replace(/_/g, " ")] = nombreOficial;
     }
+    if (id) m["id:" + id] = nombreOficial; // lookup por ID desde LISTA_OFICIAL
     var sinTildes = textoParaComparar(item[1]);
     if (sinTildes !== nombreOficial.toLowerCase()) m[sinTildes] = nombreOficial;
   });
