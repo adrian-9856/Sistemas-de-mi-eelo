@@ -39,20 +39,23 @@ const CFG = {
 };
 
 /*
- PARTICIPANTES — 19 columnas (A–S)
- A  Creamos_ID (0)           I  Categoria (8)
- B  Nombre (1)               J  Tarifa_Hora (9)      — Q/hr (auto desde Categoria)
- C  Proyecto (2)             K  Tiene_Factura (10)   — Sí/No (aplica IVA)
- D  Programa (3)             L  DPI (11)
- E  Etapa (4)                M  NIT (12)
- F  Educacion (5)            N  Correo (13)
- G  Apoyo_Emocional (6)      O  Banco (14)
- H  Inclusion_Laboral (7)    P  Tipo_Cuenta (15)
-                             Q  Num_Cuenta (16)
-                             R  Forma_Pago (17)
-                             S  URL_Doc_Proceso (18)
- Etapa: Inscritx / Retiradx / Empleadx / Ciclo de Vida Terminado
- Eliminados: Hijos_CCI, Num_Hijos_CCI, Estipendio (→ hojas auxiliares HijosCCI/Bonos)
+ PARTICIPANTES — 23 columnas (A–W)
+ A  Creamos_ID (0)           I  Etapa (8)             — Inscritx/Retiradx/Empleadx/Ciclo de Vida Terminado
+ B  Nombre (1)               J  Educacion (9)
+ C  Fecha_Nacimiento (2)     K  Apoyo_Emocional (10)
+ D  Edad (3)                 L  Inclusion_Laboral (11)
+ E  Genero (4)               M  Categoria (12)        — A/B/C/D
+ F  Ano_Entrada_Creamos (5)  N  Tarifa_Hora (13)      — Q/hr (auto desde Categoria)
+ G  Proyecto (6)             O  Tiene_Factura (14)    — Sí/No (aplica IVA 5%)
+ H  Programa (7)             P  DPI (15)
+                             Q  NIT (16)
+                             R  Correo (17)
+                             S  Banco (18)
+                             T  Tipo_Cuenta (19)
+                             U  Num_Cuenta (20)
+                             V  Forma_Pago (21)
+                             W  URL_Doc_Proceso (22)
+ C-F se llenan automático desde "Copy of CREAMOS ID nuevo" vía sincronizarDesdeCreamos()
 */
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -5787,30 +5790,63 @@ function migrarSistema() { _run(function() {
             .map(function(v){ return String(v||"").trim(); })
       : [];
 
-    var colIHeader = enc[8] || ""; // índice 8 = col I (1-based 9)
+    var colCHeader = enc[2] || ""; // índice 2 = col C
+    var colIHeader = enc[8] || ""; // índice 8 = col I
 
-    if (colIHeader === "Hijos_CCI" || colIHeader === "Num_Hijos_CCI") {
+    if (colCHeader === "Proyecto" && (colIHeader === "Categoria" || colIHeader === "Etapa")) {
+      // ── MIGRACIÓN 19 → 23 cols: insertar Fecha_Nacimiento/Edad/Genero/Ano_Entrada después de col B ──
+      hP.insertColumns(3, 4); // inserta 4 cols vacías en pos 3-6; datos existentes C-S → G-W automático
+      hP.getRange(1, 3, 1, 4).setValues([["Fecha_Nacimiento","Edad","Genero","Ano_Entrada_Creamos"]]);
+      _fmtEnc(hP, "#639922"); // reaplicar color encabezado (insertColumns puede romper formato)
+      hP.getRange("C2:C500").setNumberFormat("dd/MM/yyyy");
+      hP.setColumnWidth(3, 110); // Fecha_Nacimiento
+      hP.setColumnWidth(4, 60);  // Edad
+      hP.setColumnWidth(5, 80);  // Genero
+      hP.setColumnWidth(6, 80);  // Ano_Entrada
+      // Reaplicar validaciones en nuevas posiciones (las existentes se desplazaron con los datos)
+      var vEtapaMig = SpreadsheetApp.newDataValidation().requireValueInList(["Inscritx","Retiradx","Empleadx","Ciclo de Vida Terminado"],true).build();
+      var vCatMig   = SpreadsheetApp.newDataValidation().requireValueInList(["A","B","C","D"],true).build();
+      var vSiNoMig  = SpreadsheetApp.newDataValidation().requireValueInList(["Sí","No"],true).build();
+      var vBancoMig = SpreadsheetApp.newDataValidation().requireValueInList(["Banrural","G&T Continental","BAC Credomatic","Industrial","Agromercantil","Occidente","Promerica","Vivibanco","Bantrab","CHN","Otro"],true).build();
+      var vTipoCMig = SpreadsheetApp.newDataValidation().requireValueInList(["Monetaria","Ahorro",""],true).build();
+      var vPagoMig  = SpreadsheetApp.newDataValidation().requireValueInList(["Transferencia","Cheque"],true).build();
+      hP.getRange("I2:I500").setDataValidation(vEtapaMig);
+      hP.getRange("M2:M500").setDataValidation(vCatMig);
+      hP.getRange("O2:O500").setDataValidation(vSiNoMig);
+      hP.getRange("S2:S500").setDataValidation(vBancoMig);
+      hP.getRange("T2:T500").setDataValidation(vTipoCMig);
+      hP.getRange("V2:V500").setDataValidation(vPagoMig);
+      hP.getRange("N2:N500").setNumberFormat("Q#,##0.00");
+      log.push("✅ PARTICIPANTES: migrado a 23 cols — cols C-F (Fecha_Nacimiento/Edad/Genero/Año) insertadas" +
+        (nDatos > 0 ? " — " + nDatos + " filas conservadas sin cambios" : ""));
+      log.push("ℹ️ Ejecuta ⚙️ Admin → 🔄 Sincronizar desde Creamos DB para llenar las nuevas columnas");
+
+    } else if (colCHeader === "Fecha_Nacimiento") {
+      // ── Ya en esquema 23 cols ─────────────────────────────────────────────────────────────
+      var nConCat23 = 0;
+      if (nDatos > 0) {
+        var chkDatos23 = hP.getRange(2, 13, nDatos, 1).getValues(); // col M = Categoria
+        chkDatos23.forEach(function(r) {
+          if (CFG.CATEGORIAS[String(r[0]||"").trim().toUpperCase()]) nConCat23++;
+        });
+      }
+      log.push("ℹ️ PARTICIPANTES: esquema 23 cols (A–W) ya aplicado" +
+        (nDatos > 0 ? " — " + nConCat23 + "/" + nDatos + " con Categoria válida" : ""));
+
+    } else if (colIHeader === "Hijos_CCI" || colIHeader === "Num_Hijos_CCI") {
       // ── Esquema INTERMEDIO detectado (22 cols con Hijos_CCI): migrar a 19 cols ─────────
       var nFilas = Math.max(0, lastRow - 1);
       if (nFilas > 0) {
         var datosViejos = hP.getRange(2, 1, nFilas, Math.min(22, hP.getLastColumn())).getValues();
-
-        // INTERMEDIO: [0..7]=A-H, [8]=HijosCCI, [9]=NumHijos, [10]=Cat, [11]=Tar, [12]=TieneFact,
-        //              [13]=DPI, [14]=NIT, [15]=Correo, [16]=Banco, [17]=TipoCta, [18]=NumCta,
-        //              [19]=FormaPago, [20]=URL, [21]=Estipendio
-        // NUEVO (19): [0..7]=A-H, [8]=Cat, [9]=Tar, [10]=TieneFact, [11]=DPI, [12]=NIT,
-        //              [13]=Correo, [14]=Banco, [15]=TipoCta, [16]=NumCta, [17]=FormaPago, [18]=URL
         var datosNuevos = datosViejos.map(function(r) {
           return [
-            r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7],  // A-H sin cambio
-            r[10], r[11], r[12],                                // I=Cat, J=Tarifa, K=TieneFactura
-            r[13], r[14], r[15], r[16], r[17], r[18], r[19], r[20] // L=DPI..S=URL
+            r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7],
+            r[10], r[11], r[12],
+            r[13], r[14], r[15], r[16], r[17], r[18], r[19], r[20]
           ];
         });
         hP.getRange(2, 1, nFilas, 19).setValues(datosNuevos);
       }
-
-      // Actualizar encabezados
       hP.getRange(1, 1, 1, 19).setValues([[
         "Creamos_ID","Nombre","Proyecto","Programa","Etapa",
         "Educacion","Apoyo_Emocional","Inclusion_Laboral",
@@ -5818,11 +5854,10 @@ function migrarSistema() { _run(function() {
         "DPI","NIT","Correo",
         "Banco","Tipo_Cuenta","Num_Cuenta","Forma_Pago","URL_Doc_Proceso"
       ]]);
-
       log.push("✅ PARTICIPANTES: migrado a esquema 19 cols (eliminados Hijos_CCI/Estipendio)" +
         (nDatos > 0 ? " (" + nDatos + " filas migradas)" : ""));
+
     } else if (colIHeader === "Categoria") {
-      // Verificar cuántas filas tienen Categoria válida
       var nConCat = 0;
       if (nDatos > 0) {
         var chkDatos = hP.getRange(2, 9, nDatos, 1).getValues();
@@ -5832,19 +5867,19 @@ function migrarSistema() { _run(function() {
       }
       log.push("ℹ️ PARTICIPANTES: esquema 19 cols ya aplicado" +
         (nDatos > 0 ? " — " + nConCat + "/" + nDatos + " participantes con Categoria válida" : ""));
-      if (nDatos > 0 && nConCat === 0) {
-        log.push("⚠️ Ningún participante tiene Categoria — se recomienda llenar col I (A/B/C/D)");
-      }
+
     } else {
-      log.push("⚠️ PARTICIPANTES: col I = '" + colIHeader + "' — encabezado inesperado, sin cambios");
+      log.push("⚠️ PARTICIPANTES: col C = '" + colCHeader + "', col I = '" + colIHeader + "' — encabezado inesperado, sin cambios");
     }
 
-    // Aplicar validaciones y formatos siempre (idempotente)
-    var vSiNo = SpreadsheetApp.newDataValidation().requireValueInList(["Sí","No"],true).build();
-    var vCat  = SpreadsheetApp.newDataValidation().requireValueInList(["A","B","C","D"],true).build();
-    hP.getRange("I2:I500").setDataValidation(vCat);     // col I = Categoria
-    hP.getRange("K2:K500").setDataValidation(vSiNo);    // col K = Tiene_Factura
-    hP.getRange("J2:J500").setNumberFormat('"Q"#,##0.00'); // col J = Tarifa_Hora
+    // Aplicar validaciones base (solo si esquema 19-col antiguo — para 23-col ya se aplican arriba)
+    if (colCHeader === "Proyecto") {
+      var vSiNo = SpreadsheetApp.newDataValidation().requireValueInList(["Sí","No"],true).build();
+      var vCat  = SpreadsheetApp.newDataValidation().requireValueInList(["A","B","C","D"],true).build();
+      hP.getRange("I2:I500").setDataValidation(vCat);
+      hP.getRange("K2:K500").setDataValidation(vSiNo);
+      hP.getRange("J2:J500").setNumberFormat('"Q"#,##0.00');
+    }
 
   } catch(e) { errores.push("❌ PARTICIPANTES: " + e.message); }
 
@@ -5886,18 +5921,27 @@ function migrarSistema() { _run(function() {
     var hP2 = _sh(CFG.HOJAS.PARTICIPANTES);
     if (hP2 && hP2.getLastRow() > 1) {
       var nRows2 = hP2.getLastRow() - 1;
-      var datos2 = hP2.getRange(2, 1, nRows2, 11).getValues();
+      // Detectar esquema por encabezado col C
+      var encP2 = hP2.getRange(1, 3, 1, 1).getValue();
+      var es23cols = String(encP2||"").trim() === "Fecha_Nacimiento";
+      var iCat  = es23cols ? 12 : 8;  // 0-based: col M(13)=12 en 23-col, col I(9)=8 en 19-col
+      var iTar  = es23cols ? 13 : 9;
+      var iFact = es23cols ? 14 : 10;
+      var colTar  = es23cols ? 14 : 10; // 1-based col N o J
+      var colFact = es23cols ? 15 : 11;
+      var nCols2  = es23cols ? 15 : 11;
+      var datos2 = hP2.getRange(2, 1, nRows2, nCols2).getValues();
       var tarifs2 = [], facts2 = [];
       datos2.forEach(function(r) {
-        var cat2  = String(r[8]||"").trim().toUpperCase();
+        var cat2    = String(r[iCat]||"").trim().toUpperCase();
         var tarifa2 = CFG.CATEGORIAS[cat2];
-        tarifs2.push([tarifa2 || (r[9] || "")]);
-        var fact2 = String(r[10]||"").trim();
+        tarifs2.push([tarifa2 || (r[iTar] || "")]);
+        var fact2 = String(r[iFact]||"").trim();
         facts2.push([(fact2 === "Sí" || fact2 === "No") ? fact2 : "Sí"]);
       });
-      hP2.getRange(2, 10, nRows2, 1).setValues(tarifs2);
-      hP2.getRange(2, 11, nRows2, 1).setValues(facts2);
-      log.push("✅ Tarifas y Tiene_Factura recalculadas desde Categoria");
+      hP2.getRange(2, colTar,  nRows2, 1).setValues(tarifs2);
+      hP2.getRange(2, colFact, nRows2, 1).setValues(facts2);
+      log.push("✅ Tarifas y Tiene_Factura recalculadas desde Categoria (" + (es23cols ? "23 cols" : "19 cols") + ")");
     }
   } catch(e) { errores.push("❌ Tarifas: " + e.message); }
 
@@ -5906,12 +5950,12 @@ function migrarSistema() { _run(function() {
     log.join("\n") +
     (errores.length ? "\n\n❌ ERRORES:\n" + errores.join("\n") : "") +
     "\n\n✅ Tus datos existentes no fueron modificados.\n\n" +
-    "Esquema de PARTICIPANTES (19 cols A–S):\n" +
-    "• Col I = Categoria (A/B/C/D) → auto-genera Tarifa (col J)\n" +
-    "• Col K = Tiene_Factura (Sí/No) → determina IVA 5%\n" +
-    "• Col L = DPI  |  Col S = URL_Doc_Proceso\n\n" +
-    "Siguiente paso: si hay participantes sin Categoria en col I,\n" +
-    "llena A/B/C/D y usa Admin → 🔄 Recalcular tarifas y factura."
+    "Esquema actual de PARTICIPANTES (23 cols A–W):\n" +
+    "• Cols C–F = Fecha_Nacimiento / Edad / Genero / Año Entrada Creamos\n" +
+    "• Col I = Etapa  |  Col M = Categoria  |  Col N = Tarifa\n" +
+    "• Col O = Tiene_Factura  |  Col P = DPI  |  Col W = URL Doc\n\n" +
+    "Siguiente paso: ⚙️ Admin → 🔄 Sincronizar desde Creamos DB\n" +
+    "para llenar los datos de Fecha_Nacimiento, Edad, Genero y Año."
   );
 }); }
 
