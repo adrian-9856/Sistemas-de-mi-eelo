@@ -2457,9 +2457,14 @@ function reimportarTodoDesdeKobo() { _run(function() {
 
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var hOld = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
-  if (hOld) ss.deleteSheet(hOld);
-
-  var hoja = ss.insertSheet(CFG.HOJAS.DATOS_KOBO);
+  var hoja;
+  if (hOld) {
+    hOld.clearContents();
+    hOld.clearFormats();
+    hoja = hOld;
+  } else {
+    hoja = ss.insertSheet(CFG.HOJAS.DATOS_KOBO);
+  }
   hoja.getRange(1,1,datos.length,datos[0].length).setValues(datos);
   hoja.getRange(1,1,1,datos[0].length).setFontWeight("bold").setBackground("#4a86e8").setFontColor("#fff");
   hoja.setFrozenRows(1);
