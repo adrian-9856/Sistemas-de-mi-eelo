@@ -2087,8 +2087,13 @@ function _abrirOCrearDocProceso(id, nombre, carpeta, urlExistente) {
         catch(_) { if (i < 2) Utilities.sleep(500); }
       }
     }
-    if (!doc) throw new Error("No se pudo abrir el DP de " + nombre + ": " + urlExistente);
-    doc.setName(titulo);
+    // Documento inaccesible/borrado → crear uno nuevo
+    if (!doc) {
+      doc = DocumentApp.create(titulo);
+      DriveApp.getFileById(doc.getId()).moveTo(carpeta);
+    } else {
+      doc.setName(titulo);
+    }
   } else {
     doc = DocumentApp.create(titulo);
     DriveApp.getFileById(doc.getId()).moveTo(carpeta);
