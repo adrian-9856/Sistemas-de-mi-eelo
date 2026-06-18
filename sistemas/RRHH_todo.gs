@@ -755,7 +755,7 @@ var LISTA_OFICIAL = [
   [ 8, "Yoselin Melissa Zurdo Tocay",        "C", "YOZU230190", "yoselin_melissa_zurdo_tocay"],
   [ 9, "Erika Vásquez Tocay de López",       "C", "ERVA031282", "ericka_vasquez_tocay"],
   [10, "Leticia Sumalé Arredondo",           "C", "LESU210172", "leticia_sumale_arredondo"],
-  [11, "Alicia Lopez Reynoso",               "D", "MAXA220801", "alicia_lopez_reynoso"],
+  [11, "Alicia Lopez Reynoso",               "D", "",           "alicia_lopez_reynoso"],
   [12, "Otilia Turuy Paz",                   "D", "",           "otilia_turuy_paz"],
   [13, "Angelica Casandra Veliz Vián",       "A", "ANVE241097", "angelica_casandra_veliz_vian"],
   [14, "Karin Nineth Balcarcel Santizo",     "B", "KABA221273", "karin_nineth_balcarcel_santizo"],
