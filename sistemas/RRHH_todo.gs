@@ -87,12 +87,12 @@ function _mapaDatosParticipantes(ss) {
   var mapa = {};
   var hP = ss.getSheetByName(CFG.HOJAS.PARTICIPANTES);
   if (hP && hP.getLastRow() >= 2) {
-    var datos = hP.getRange(2, 1, hP.getLastRow() - 1, 9).getValues(); // A–I
+    var datos = hP.getRange(2, 1, hP.getLastRow() - 1, 13).getValues(); // A–M
     datos.forEach(function(f) {
       var nombre = String(f[1] || "").trim();
       if (!nombre) return;
       var id  = _esCreamos_ID_real(String(f[0] || "").trim()) ? String(f[0]).trim() : "";
-      var cat = String(f[8] || "").trim().toUpperCase(); // col I = Categoria
+      var cat = String(f[12] || "").trim().toUpperCase(); // col M = Categoria (idx 12)
       mapa[nombre] = { id: id, cat: cat };
     });
   }
@@ -277,10 +277,10 @@ function onOpen() {
 }
 
 // onEdit: col I = Categoria → auto-llenar Tarifa_Hora en PARTICIPANTES
-//         col E = Etapa → si "Retiradx" dispara flujo de retiro
-//         DiasEstudio cols C-I → Educacion en PARTICIPANTES  (A=ID, B=Nombre, C-I=días)
-//         ListaTerapias col C  → Apoyo_Emocional en PARTICIPANTES
-//         InclusionLaboral col C → Inclusion_Laboral en PARTICIPANTES
+//         col I = Etapa → si "Retiradx" dispara flujo de retiro
+//         DiasEstudio cols C-I → Educacion (col J) en PARTICIPANTES  (A=ID, B=Nombre, C-I=días)
+//         ListaTerapias col C  → Apoyo_Emocional (col K) en PARTICIPANTES
+//         InclusionLaboral col C → Inclusion_Laboral (col L) en PARTICIPANTES
 //         HijosCCI cols C-D → datos propios de hoja auxiliar (no se reflejan en PARTICIPANTES)
 function onEdit(e) {
   var sheet = e.range.getSheet();
@@ -288,15 +288,15 @@ function onEdit(e) {
   var col    = e.range.getColumn();
   var fila   = e.range.getRow();
 
-  // PARTICIPANTES — Categoria (col I=9) cambia → auto-llenar Tarifa_Hora (col J=10)
-  if (nombre === CFG.HOJAS.PARTICIPANTES && col === 9 && fila >= 2) {
+  // PARTICIPANTES — Categoria (col M=13) cambia → auto-llenar Tarifa_Hora (col N=14)
+  if (nombre === CFG.HOJAS.PARTICIPANTES && col === 13 && fila >= 2) {
     var cat = String(e.range.getValue()).trim().toUpperCase();
     var tarifa = CFG.CATEGORIAS[cat];
-    if (tarifa) sheet.getRange(fila, 10).setValue(tarifa);
+    if (tarifa) sheet.getRange(fila, 14).setValue(tarifa);
   }
 
-  // PARTICIPANTES — Etapa (col E=5) cambia a "Retiradx" o "Ciclo de Vida Terminado"
-  if (nombre === CFG.HOJAS.PARTICIPANTES && col === 5 && fila >= 2) {
+  // PARTICIPANTES — Etapa (col I=9) cambia a "Retiradx" o "Ciclo de Vida Terminado"
+  if (nombre === CFG.HOJAS.PARTICIPANTES && col === 9 && fila >= 2) {
     var etapa = String(e.range.getValue()).trim();
     if (etapa === "Retiradx") {
       try { _iniciarRetiro(sheet, fila); } catch(err) { Logger.log("Error retiro: " + err.message); }
@@ -438,7 +438,7 @@ function _syncEducacionFila(hDE, fila) {
     if (String(fila_[d + 2] || "").trim().toUpperCase() === "X") activos.push(DIAS_NOM[d]); // días en cols C-I (índice 2-8)
   }
   var texto = activos.length > 0 ? "Sí — " + activos.join(", ") : "No";
-  _actualizarColParticipante(participante, 6, texto); // col F = Educacion
+  _actualizarColParticipante(participante, 10, texto); // col J = Educacion (idx 9, col 10)
 }
 
 /** Sincroniza la fila de ListaTerapias hacia col G (Apoyo_Emocional=7) de PARTICIPANTES */
@@ -447,7 +447,7 @@ function _syncApoyoFila(hLT, fila) {
   var participante = String(fila_[1] || "").trim(); // col B = Participante
   if (!participante) return;
   var texto = String(fila_[2] || "").trim().toUpperCase() === "X" ? "Sí" : "No";
-  _actualizarColParticipante(participante, 7, texto); // col G = Apoyo_Emocional
+  _actualizarColParticipante(participante, 11, texto); // col K = Apoyo_Emocional
 }
 
 /** Sincroniza la fila de InclusionLaboral hacia col H (Inclusion_Laboral=8) de PARTICIPANTES */
@@ -456,7 +456,7 @@ function _syncInclusionFila(hIL, fila) {
   var participante = String(fila_[1] || "").trim(); // col B = Participante
   if (!participante) return;
   var texto = String(fila_[2] || "").trim().toUpperCase() === "X" ? "Sí" : "No";
-  _actualizarColParticipante(participante, 8, texto); // col H = Inclusion_Laboral
+  _actualizarColParticipante(participante, 12, texto); // col L = Inclusion_Laboral
 }
 
 /** HijosCCI ya no se almacena en PARTICIPANTES (esquema 19 cols) — función conservada por compatibilidad */
@@ -496,7 +496,7 @@ function sincronizarParticipacion() { _run(function() {
   var DIAS_NOM = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
   var actDE = 0, actLT = 0, actIL = 0, actHC = 0;
 
-  // DiasEstudio → Educacion (col F = 6)  — A=ID, B=Nombre, C-I=días
+  // DiasEstudio → Educacion (col J = 10)  — A=ID, B=Nombre, C-I=días
   if (hDE && hDE.getLastRow() >= 2) {
     var datDE = hDE.getRange(2, 1, hDE.getLastRow() - 1, 9).getValues();
     datDE.forEach(function(f) {
@@ -507,31 +507,31 @@ function sincronizarParticipacion() { _run(function() {
         if (String(f[d + 2] || "").trim().toUpperCase() === "X") activos.push(DIAS_NOM[d]);
       }
       var texto = activos.length > 0 ? "Sí — " + activos.join(", ") : "No";
-      _actualizarColParticipante(participante, 6, texto);
+      _actualizarColParticipante(participante, 10, texto);
       if (activos.length) actDE++;
     });
   }
 
-  // ListaTerapias → Apoyo_Emocional (col G = 7)
+  // ListaTerapias → Apoyo_Emocional (col K = 11)
   if (hLT && hLT.getLastRow() >= 2) {
     var datLT = hLT.getRange(2, 1, hLT.getLastRow() - 1, 3).getValues();
     datLT.forEach(function(f) {
       var participante = String(f[1] || "").trim(); // col B
       if (!participante) return;
       var texto = String(f[2] || "").trim().toUpperCase() === "X" ? "Sí" : "No";
-      _actualizarColParticipante(participante, 7, texto);
+      _actualizarColParticipante(participante, 11, texto);
       if (texto === "Sí") actLT++;
     });
   }
 
-  // InclusionLaboral → Inclusion_Laboral (col H = 8)
+  // InclusionLaboral → Inclusion_Laboral (col L = 12)
   if (hIL && hIL.getLastRow() >= 2) {
     var datIL = hIL.getRange(2, 1, hIL.getLastRow() - 1, 3).getValues();
     datIL.forEach(function(f) {
       var participante = String(f[1] || "").trim(); // col B
       if (!participante) return;
       var texto = String(f[2] || "").trim().toUpperCase() === "X" ? "Sí" : "No";
-      _actualizarColParticipante(participante, 8, texto);
+      _actualizarColParticipante(participante, 12, texto);
       if (texto === "Sí") actIL++;
     });
   }
@@ -569,12 +569,17 @@ function crearHojas() { _run(function() {
 
   // (CLASIFICACION eliminada — la info de categorías está en el Directorio)
 
-  // PARTICIPANTES — 19 cols (A–S)
+  // PARTICIPANTES — 23 cols (A–W)
+  // A=Creamos_ID, B=Nombre, C=Fecha_Nacimiento, D=Edad, E=Genero, F=Ano_Entrada_Creamos,
+  // G=Proyecto, H=Programa, I=Etapa, J=Educacion, K=Apoyo_Emocional, L=Inclusion_Laboral,
+  // M=Categoria, N=Tarifa_Hora, O=Tiene_Factura, P=DPI, Q=NIT, R=Correo,
+  // S=Banco, T=Tipo_Cuenta, U=Num_Cuenta, V=Forma_Pago, W=URL_Doc_Proceso
   var hP = ss.getSheetByName(CFG.HOJAS.PARTICIPANTES) || ss.insertSheet(CFG.HOJAS.PARTICIPANTES);
   var esNuevaP = hP.getLastRow() === 0;
   if (esNuevaP) {
     hP.appendRow([
-      "Creamos_ID","Nombre","Proyecto","Programa","Etapa",
+      "Creamos_ID","Nombre","Fecha_Nacimiento","Edad","Genero","Ano_Entrada_Creamos",
+      "Proyecto","Programa","Etapa",
       "Educacion","Apoyo_Emocional","Inclusion_Laboral",
       "Categoria","Tarifa_Hora","Tiene_Factura",
       "DPI","NIT","Correo",
@@ -591,21 +596,26 @@ function crearHojas() { _run(function() {
   ],true).build();
   var vTipoCta = SpreadsheetApp.newDataValidation().requireValueInList(["Monetaria","Ahorro",""],true).build();
   var vPago    = SpreadsheetApp.newDataValidation().requireValueInList(["Transferencia","Cheque"],true).build();
-  hP.getRange("E2:E500").setDataValidation(vEtapa);   // col E = Etapa
-  hP.getRange("I2:I500").setDataValidation(vCat);     // col I = Categoria
-  hP.getRange("K2:K500").setDataValidation(vSiNo);    // col K = Tiene_Factura
-  hP.getRange("O2:O500").setDataValidation(vBanco);   // col O = Banco
-  hP.getRange("P2:P500").setDataValidation(vTipoCta); // col P = Tipo_Cuenta
-  hP.getRange("R2:R500").setDataValidation(vPago);    // col R = Forma_Pago
-  hP.getRange("J2:J500").setNumberFormat("Q#,##0.00"); // col J = Tarifa_Hora
+  hP.getRange("I2:I500").setDataValidation(vEtapa);   // col I = Etapa
+  hP.getRange("M2:M500").setDataValidation(vCat);     // col M = Categoria
+  hP.getRange("O2:O500").setDataValidation(vSiNo);    // col O = Tiene_Factura
+  hP.getRange("S2:S500").setDataValidation(vBanco);   // col S = Banco
+  hP.getRange("T2:T500").setDataValidation(vTipoCta); // col T = Tipo_Cuenta
+  hP.getRange("V2:V500").setDataValidation(vPago);    // col V = Forma_Pago
+  hP.getRange("N2:N500").setNumberFormat("Q#,##0.00"); // col N = Tarifa_Hora
+  hP.getRange("C2:C500").setNumberFormat("dd/MM/yyyy"); // col C = Fecha_Nacimiento
   if (esNuevaP) {
     hP.setColumnWidth(2, 220);  // Nombre
-    hP.setColumnWidth(9, 100);  // Categoria
-    hP.setColumnWidth(15, 120); // Banco
-    hP.setColumnWidth(16, 100); // Tipo_Cuenta
-    hP.setColumnWidth(17, 130); // Num_Cuenta
-    hP.setColumnWidth(18, 120); // Forma_Pago
-    hP.setColumnWidth(19, 300); // URL_Doc_Proceso
+    hP.setColumnWidth(3, 110);  // Fecha_Nacimiento
+    hP.setColumnWidth(4, 60);   // Edad
+    hP.setColumnWidth(5, 80);   // Genero
+    hP.setColumnWidth(6, 80);   // Ano_Entrada
+    hP.setColumnWidth(13, 100); // Categoria
+    hP.setColumnWidth(19, 120); // Banco
+    hP.setColumnWidth(20, 100); // Tipo_Cuenta
+    hP.setColumnWidth(21, 130); // Num_Cuenta
+    hP.setColumnWidth(22, 120); // Forma_Pago
+    hP.setColumnWidth(23, 300); // URL_Doc_Proceso
   }
 
   // PERIODOS — hoja de control de quincenas
@@ -679,10 +689,12 @@ function nuevoParticipante() { _run(function() {
   var part = { id:id, nombre:nombre, proyecto:CFG.PROYECTO, programa:CFG.ORG, etapa:"Inscritx",
                educacion:"", apoyoEmocional:"", inclusionLaboral:"",
                categoria:"", tarifa:"", tieneFactura:"Sí",
-               dpi:dpi, nit:"", correo:"", banco:"", tipoCuenta:"", numCuenta:"", formaPago:"" };
+               dpi:dpi||db.dpi||"", nit:"", correo:"", banco:"", tipoCuenta:"", numCuenta:"", formaPago:"" };
   _escribirContenidoDP(doc, part, [], []);
 
-  hP.appendRow([id, nombre, CFG.PROYECTO, CFG.ORG, "Inscritx", "", "", "", "", 0, "Sí", dpi, "", "", "", "", "", "", url]);
+  hP.appendRow([id, nombre, db.fechaNac||"", db.edad||"", db.genero||"", db.anioEntrada||"",
+               CFG.PROYECTO, CFG.ORG, "Inscritx", "", "", "",
+               "", 0, "Sí", dpi, "", "", "", "", "", "", url]);
   hP.setActiveRange(hP.getRange(hP.getLastRow(), 1));
   ui.alert(
     "✅ Participante registrado: " + nombre + "\n\n" +
@@ -810,23 +822,27 @@ function cargarListaParticipantes() { _run(function() {
     else    sinEncontrar.push(item[0] + ". " + nombre);
 
     filas.push([
-      id,            // A: Creamos_ID   ← de la DB oficial
-      nombre,        // B: Nombre
-      CFG.PROYECTO,  // C: Proyecto = "Textil"
-      CFG.ORG,       // D: Programa = "mi eelo"
-      "Inscritx",    // E: Etapa
-      "", "", "",    // F–H: Educacion, Apoyo_Emocional, Inclusion_Laboral
-      cat,           // I: Categoria
-      tarifa,        // J: Tarifa_Hora
-      "Sí",          // K: Tiene_Factura (default Sí)
-      dpi,           // L: DPI          ← de la DB oficial
-      "", "", "", "", "", "", ""  // M–S: NIT, Correo, Banco, Tipo_Cuenta, Num_Cuenta, Forma_Pago, URL
+      id,                 // A: Creamos_ID
+      nombre,             // B: Nombre
+      db.fechaNac || "",  // C: Fecha_Nacimiento
+      db.edad     || "",  // D: Edad
+      db.genero   || "",  // E: Genero
+      db.anioEntrada || "", // F: Ano_Entrada_Creamos
+      CFG.PROYECTO,       // G: Proyecto
+      CFG.ORG,            // H: Programa
+      "Inscritx",         // I: Etapa
+      "", "", "",         // J–L: Educacion, Apoyo_Emocional, Inclusion_Laboral
+      cat,                // M: Categoria
+      tarifa,             // N: Tarifa_Hora
+      "Sí",               // O: Tiene_Factura
+      dpi,                // P: DPI
+      "", "", "", "", "", "", ""  // Q–W: NIT, Correo, Banco, Tipo_Cuenta, Num_Cuenta, Forma_Pago, URL
     ]);
   });
 
   if (filas.length > 0) {
-    hP.getRange(2, 1, filas.length, 19).setValues(filas);
-    hP.getRange(2, 10, filas.length, 1).setNumberFormat("Q#,##0.00");
+    hP.getRange(2, 1, filas.length, 23).setValues(filas);
+    hP.getRange(2, 14, filas.length, 1).setNumberFormat("Q#,##0.00"); // col N = Tarifa_Hora
     _colorearParticipantes(hP, filas.length);
     // Marcar celdas sin Creamos ID (no se encontró en la DB)
     filas.forEach(function(f, i) {
@@ -1120,11 +1136,11 @@ function _protegerHojaCreamos_DB() {
 /** Colorea filas de PARTICIPANTES según categoría (no sobreescribe filas Retiradx) */
 function _colorearParticipantes(hP, total) {
   for (var i = 0; i < total; i++) {
-    var etapa = String(hP.getRange(i + 2, 5).getValue()).trim(); // col E = Etapa
-    if (etapa === "Retiradx") continue; // ya coloreadas en rojo por el flujo de retiro
-    var cat   = String(hP.getRange(i + 2, 9).getValue()).trim().toUpperCase(); // col I = Categoria
+    var etapa = String(hP.getRange(i + 2, 9).getValue()).trim(); // col I = Etapa
+    if (etapa === "Retiradx") continue;
+    var cat   = String(hP.getRange(i + 2, 13).getValue()).trim().toUpperCase(); // col M = Categoria
     var color = (CFG.COLORES_CAT[cat] || {}).bgClaro || "#ffffff";
-    hP.getRange(i + 2, 1, 1, 19).setBackground(color);
+    hP.getRange(i + 2, 1, 1, 23).setBackground(color);
   }
 }
 
@@ -1157,10 +1173,10 @@ var RAZONES_RETIRO = [
 
 function _iniciarRetiro(sheet, fila) {
   var ui = SpreadsheetApp.getUi();
-  var datos = sheet.getRange(fila, 1, 1, 9).getValues()[0];
+  var datos = sheet.getRange(fila, 1, 1, 13).getValues()[0];
   var id = String(datos[0] || "").trim();
   var nombre = String(datos[1] || "").trim();
-  var cat = String(datos[8] || "").trim(); // col I = Categoria
+  var cat = String(datos[12] || "").trim(); // col M = Categoria (idx 12)
 
   var lista = RAZONES_RETIRO.map(function(r, i) { return (i + 1) + ". " + r; });
   var r = ui.prompt(
@@ -1170,7 +1186,7 @@ function _iniciarRetiro(sheet, fila) {
   );
 
   if (r.getSelectedButton() !== ui.Button.OK) {
-    sheet.getRange(fila, 5).setValue("Inscritx"); // revertir
+    sheet.getRange(fila, 9).setValue("Inscritx"); // revertir — col I = Etapa
     return;
   }
 
@@ -1180,7 +1196,7 @@ function _iniciarRetiro(sheet, fila) {
     : "Otra";
 
   // Colorear fila rojo vivo
-  sheet.getRange(fila, 1, 1, 19).setBackground("#ff1744").setFontColor("#ffffff");
+  sheet.getRange(fila, 1, 1, 23).setBackground("#ff1744").setFontColor("#ffffff");
 
   // Registrar en hoja Retiradx
   var hR = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Retiradx");
@@ -1193,15 +1209,15 @@ function _iniciarRetiro(sheet, fila) {
  */
 function _registrarCicloVida(sheet, fila) {
   try {
-    var datos = sheet.getRange(fila, 1, 1, 9).getValues()[0];
-    var id = datos[0], nombre = datos[1], cat = datos[8]; // col I = Categoria
+    var datos = sheet.getRange(fila, 1, 1, 13).getValues()[0];
+    var id = datos[0], nombre = datos[1], cat = datos[12]; // col M = Categoria (idx 12)
     var hCV = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("CiclosVida");
     if (!hCV) return;
     hCV.appendRow([new Date(), id, nombre, cat]);
     var nr = hCV.getLastRow();
     hCV.getRange(nr, 1).setNumberFormat("dd/MM/yyyy");
     // Colorear la fila en PARTICIPANTES con el color de Ciclo de Vida
-    sheet.getRange(fila, 1, 1, 19).setBackground("#b0bec5").setFontColor("#212121");
+    sheet.getRange(fila, 1, 1, 23).setBackground("#b0bec5").setFontColor("#212121");
   } catch(e) { Logger.log("_registrarCicloVida error: " + e.message); }
 }
 
@@ -1537,7 +1553,7 @@ function registrarPagosQuincena() { _run(function() {
   //       O(15)=Banco, P(16)=Tipo_Cuenta, Q(17)=Num_Cuenta, R(18)=Forma_Pago
   var hP = _sh(CFG.HOJAS.PARTICIPANTES);
   if (hP.getLastRow() < 2) { _alert("PARTICIPANTES está vacía."); return; }
-  var datosP = hP.getRange(2, 1, hP.getLastRow() - 1, 18).getValues();
+  var datosP = hP.getRange(2, 1, hP.getLastRow() - 1, 22).getValues();
   // mapaPago indexado por: ID, nombre exacto y nombre normalizado
   var mapaPagoById   = {}; // {cremos_id: info}
   var mapaPagoByNorm = {}; // {nombre_normalizado: info}
@@ -1545,14 +1561,14 @@ function registrarPagosQuincena() { _run(function() {
     var pid    = String(r[0] || "").trim();       // col A = Creamos_ID
     var nombre = String(r[1] || "").trim();
     if (!nombre) return;
-    var programa   = String(r[3]  || "").trim();  // col D
-    var educacion  = String(r[5]  || "").trim();  // col F
-    var apoyo      = String(r[6]  || "").trim();  // col G
-    var inclusion  = String(r[7]  || "").trim();  // col H
-    var banco      = String(r[14] || "").trim();  // col O
-    var tipoCuenta = String(r[15] || "").trim();  // col P
-    var numCuenta  = String(r[16] || "").trim();  // col Q
-    var formaPago  = String(r[17] || "").trim();  // col R
+    var programa   = String(r[7]  || "").trim();  // col H = Programa (idx 7)
+    var educacion  = String(r[9]  || "").trim();  // col J = Educacion (idx 9)
+    var apoyo      = String(r[10] || "").trim();  // col K = Apoyo_Emocional (idx 10)
+    var inclusion  = String(r[11] || "").trim();  // col L = Inclusion_Laboral (idx 11)
+    var banco      = String(r[18] || "").trim();  // col S = Banco (idx 18)
+    var tipoCuenta = String(r[19] || "").trim();  // col T = Tipo_Cuenta (idx 19)
+    var numCuenta  = String(r[20] || "").trim();  // col U = Num_Cuenta (idx 20)
+    var formaPago  = String(r[21] || "").trim();  // col V = Forma_Pago (idx 21)
 
     var servicio = "Textil"; // siempre Textil para el taller
 
@@ -1924,16 +1940,16 @@ function generarDirectorioParticipantes() { _run(function() {
   var lastRow = hP.getLastRow();
   if (lastRow < 2) { _alert("No hay participantes en PARTICIPANTES."); return; }
 
-  var datos = hP.getRange(2, 1, lastRow - 1, 10).getValues();
+  var datos = hP.getRange(2, 1, lastRow - 1, 14).getValues();
 
   // Agrupar por categoría
   var porCat = { A: [], B: [], C: [], D: [] };
   datos.forEach(function(r) {
     var id      = String(r[0]).trim();
     var nombre  = String(r[1]).trim();
-    var cat     = String(r[8]).trim().toUpperCase();  // col I = Categoria
-    var tarifa  = parseFloat(r[9]) || CFG.CATEGORIAS[cat] || 0; // col J = Tarifa
-    var estado  = String(r[4]).trim() || "Inscritx";  // col E = Etapa
+    var cat     = String(r[12]).trim().toUpperCase(); // col M = Categoria (idx 12)
+    var tarifa  = parseFloat(r[13]) || CFG.CATEGORIAS[cat] || 0; // col N = Tarifa (idx 13)
+    var estado  = String(r[8]).trim() || "Inscritx";  // col I = Etapa (idx 8)
     if (!nombre || !porCat[cat]) return;
     porCat[cat].push({ id: id, nombre: nombre, tarifa: tarifa, etapa: estado });
   });
@@ -2055,24 +2071,24 @@ function _sincronizarDP(hP, fila) {
 
   var part = {
     id: id, nombre: nombre,
-    proyecto:         String(f[2]  || ""), programa:         String(f[3]  || ""),
-    etapa:            String(f[4]  || ""), educacion:        String(f[5]  || ""),
-    apoyoEmocional:   String(f[6]  || ""), inclusionLaboral: String(f[7]  || ""),
-    categoria:        String(f[8]  || ""), tarifa:           String(f[9]  || ""),
-    tieneFactura:     String(f[10] || ""),
-    dpi:              String(f[11] || ""), nit:              String(f[12] || ""),
-    correo:           String(f[13] || ""), banco:            String(f[14] || ""),
-    tipoCuenta:       String(f[15] || ""), numCuenta:        String(f[16] || ""),
-    formaPago:        String(f[17] || "")
+    proyecto:         String(f[6]  || ""), programa:         String(f[7]  || ""),
+    etapa:            String(f[8]  || ""), educacion:        String(f[9]  || ""),
+    apoyoEmocional:   String(f[10] || ""), inclusionLaboral: String(f[11] || ""),
+    categoria:        String(f[12] || ""), tarifa:           String(f[13] || ""),
+    tieneFactura:     String(f[14] || ""),
+    dpi:              String(f[15] || ""), nit:              String(f[16] || ""),
+    correo:           String(f[17] || ""), banco:            String(f[18] || ""),
+    tipoCuenta:       String(f[19] || ""), numCuenta:        String(f[20] || ""),
+    formaPago:        String(f[21] || "")
   };
-  var urlActual = String(f[18] || "");
+  var urlActual = String(f[22] || "");
 
   var carpeta = _carpetaDP();
   var doc = _abrirOCrearDocProceso(id, nombre, carpeta, urlActual);
   _escribirContenidoDP(doc, part);
 
   var urlNueva = doc.getUrl();
-  if (urlNueva !== urlActual) hP.getRange(fila, 19).setValue(urlNueva);
+  if (urlNueva !== urlActual) hP.getRange(fila, 23).setValue(urlNueva); // col W = URL_Doc_Proceso
   return urlNueva;
 }
 
@@ -4224,7 +4240,7 @@ function configurarFacturacion() { _run(function() {
   if (lastRow < 2) { _alert("Primero carga la lista de participantes."); return; }
 
   // Leer PARTICIPANTES (A→K = cols 1-11)
-  var datos = hP.getRange(2, 1, lastRow - 1, 11).getValues(); // A→K
+  var datos = hP.getRange(2, 1, lastRow - 1, 15).getValues(); // A→O
 
   // Crear/limpiar hoja Config_IVA
   var tabName = "Config_IVA";
@@ -4256,8 +4272,8 @@ function configurarFacturacion() { _run(function() {
   datos.forEach(function(r, i) {
     var id     = String(r[0] || "").trim();
     var nombre = String(r[1] || "").trim();
-    var cat    = String(r[8] || "").trim().toUpperCase();   // col I = Categoria
-    var tieneFact = String(r[10]||"").trim();              // col K = Tiene_Factura
+    var cat    = String(r[12] || "").trim().toUpperCase();  // col M = Categoria (idx 12)
+    var tieneFact = String(r[14]||"").trim();               // col O = Tiene_Factura (idx 14)
     if (!nombre) return;
     filas.push([i+1, id, nombre, tieneFact||"Sí", cat]);
   });
@@ -4330,9 +4346,9 @@ function aplicarCambiosFacturacion() { _run(function() {
     if (!nombre || (valor !== "Sí" && valor !== "No")) continue;
     var filaP = idxP[textoParaComparar(nombre)];
     if (!filaP) continue;
-    var actual = String(hP.getRange(filaP, 11).getValue()).trim(); // col K = Tiene_Factura
+    var actual = String(hP.getRange(filaP, 15).getValue()).trim(); // col O = Tiene_Factura
     if (actual !== valor) {
-      hP.getRange(filaP, 11).setValue(valor);
+      hP.getRange(filaP, 15).setValue(valor);
       actualizados++;
     }
   }
@@ -4341,7 +4357,7 @@ function aplicarCambiosFacturacion() { _run(function() {
   var total = hP.getLastRow()-1;
   var conFact = 0;
   if (total > 0) {
-    var vals = hP.getRange(2,11,total,1).getValues(); // col K = Tiene_Factura
+    var vals = hP.getRange(2,15,total,1).getValues(); // col O = Tiene_Factura
     vals.forEach(function(v){ if(String(v[0]).trim()==="Sí") conFact++; });
   }
 
@@ -4744,7 +4760,7 @@ function sincronizarDesdeCreamos() { _run(function() {
   var hP = _sh(CFG.HOJAS.PARTICIPANTES);
   if (!hP || hP.getLastRow() < 2) { _alert("No hay participantes cargados."); return; }
 
-  var datos = hP.getRange(2, 1, hP.getLastRow() - 1, 19).getValues();
+  var datos = hP.getRange(2, 1, hP.getLastRow() - 1, 23).getValues();
   var actualizados = [], sinEncontrar = [];
   var mapaNombreAID = {};
 
@@ -4765,9 +4781,13 @@ function sincronizarDesdeCreamos() { _run(function() {
       return;
     }
 
-    // Actualizar ID y DPI en la hoja (col L=12 = DPI)
+    // Actualizar ID, datos personales en la hoja
     hP.getRange(i + 2, 1).setValue(db.id).setBackground(null).setFontColor(null).setFontStyle("normal");
-    if (db.dpi) hP.getRange(i + 2, 12).setValue(db.dpi);
+    if (db.fechaNac)    hP.getRange(i + 2, 3).setValue(db.fechaNac);   // col C = Fecha_Nacimiento
+    if (db.edad)        hP.getRange(i + 2, 4).setValue(db.edad);       // col D = Edad
+    if (db.genero)      hP.getRange(i + 2, 5).setValue(db.genero);     // col E = Genero
+    if (db.anioEntrada) hP.getRange(i + 2, 6).setValue(db.anioEntrada); // col F = Ano_Entrada_Creamos
+    if (db.dpi)         hP.getRange(i + 2, 16).setValue(db.dpi);       // col P = DPI
     mapaNombreAID[nombre] = db.id;
     actualizados.push(nombre + " → " + db.id);
   });
@@ -5649,16 +5669,16 @@ function _construirMapaTarifas() {
       normMap[norm] = nombre;
     }
 
-    var tarifa = parseFloat(datos[i][9]); // col J = Tarifa_Hora
+    var tarifa = parseFloat(datos[i][13]); // col N = Tarifa_Hora (idx 13)
     if (isNaN(tarifa) || tarifa <= 0) {
-      var cat = String(datos[i][8]).trim().toUpperCase(); // col I = Categoria
+      var cat = String(datos[i][12]).trim().toUpperCase(); // col M = Categoria (idx 12)
       tarifa = CFG.CATEGORIAS[cat] || CFG.CATEGORIAS.C;
     }
-    var t = String(datos[i][10]).trim().toLowerCase(); // col K = Tiene_Factura
+    var t = String(datos[i][14]).trim().toLowerCase(); // col O = Tiene_Factura (idx 14)
     map[nombre] = {
       id:           String(datos[i][0]||"").trim(),
       tarifa:       tarifa,
-      categoria:    String(datos[i][8]).trim().toUpperCase(),
+      categoria:    String(datos[i][12]).trim().toUpperCase(),
       tieneFactura: t === "sí" || t === "si",
       estipendio:   0
     };
@@ -5680,7 +5700,7 @@ function recalcularTarifas() { _run(function() {
   if (!hP || hP.getLastRow() < 2) { _alert("Sin datos en PARTICIPANTES."); return; }
 
   var nRows = hP.getLastRow() - 1;
-  var datos = hP.getRange(2, 1, nRows, 11).getValues();
+  var datos = hP.getRange(2, 1, nRows, 15).getValues();
 
   var tarifasNueva  = [];
   var facturaNueva  = [];
@@ -5688,18 +5708,18 @@ function recalcularTarifas() { _run(function() {
 
   datos.forEach(function(r, i) {
     var nombre = String(r[1] || "").trim();
-    var cat    = String(r[8] || "").trim().toUpperCase(); // col I = Categoria
+    var cat    = String(r[12] || "").trim().toUpperCase(); // col M = Categoria (idx 12)
     var tarifa = CFG.CATEGORIAS[cat];
 
     if (tarifa) {
       tarifasNueva.push([tarifa]);
       nTarifa++;
     } else {
-      tarifasNueva.push([r[9] || ""]); // conservar existente si no hay cat válida
+      tarifasNueva.push([r[13] || ""]); // conservar existente si no hay cat válida
       if (nombre) sinCat.push(nombre);
     }
 
-    var fact = String(r[10] || "").trim(); // col K = Tiene_Factura
+    var fact = String(r[14] || "").trim(); // col O = Tiene_Factura (idx 14)
     if (!fact || (fact !== "Sí" && fact !== "No")) {
       facturaNueva.push(["Sí"]);
       nFact++;
@@ -5708,11 +5728,11 @@ function recalcularTarifas() { _run(function() {
     }
   });
 
-  hP.getRange(2, 10, nRows, 1).setValues(tarifasNueva); // col J = Tarifa_Hora
-  hP.getRange(2, 11, nRows, 1).setValues(facturaNueva); // col K = Tiene_Factura
+  hP.getRange(2, 14, nRows, 1).setValues(tarifasNueva); // col N = Tarifa_Hora
+  hP.getRange(2, 15, nRows, 1).setValues(facturaNueva); // col O = Tiene_Factura
 
   var msg = "✅ Tarifas y factura actualizadas\n\n" +
-    "• " + nTarifa + " tarifas calculadas desde Categoria (col I)\n" +
+    "• " + nTarifa + " tarifas calculadas desde Categoria (col M)\n" +
     "• " + nFact + " Tiene_Factura vacíos → rellenados con 'Sí'";
 
   if (sinCat.length > 0) {
@@ -6601,7 +6621,7 @@ function limpiarDuplicadosParticipantes() { _run(function() {
   var hP = _sh(CFG.HOJAS.PARTICIPANTES);
   if (hP.getLastRow() < 3) { _alert("No hay datos que limpiar."); return; }
 
-  var datos = hP.getRange(2, 1, hP.getLastRow()-1, 19).getValues();
+  var datos = hP.getRange(2, 1, hP.getLastRow()-1, 23).getValues();
   var normMap = {}; // norma → índice ganador (0-based en datos)
 
   datos.forEach(function(f, i) {
@@ -6654,9 +6674,9 @@ function cambiarCategoriaParticipante() { _run(function() {
   if (!hP || hP.getLastRow() < 2) { _alert("No hay participantes cargados."); return; }
 
   // Construir lista de nombres
-  var datos  = hP.getRange(2, 1, hP.getLastRow() - 1, 10).getValues();
+  var datos  = hP.getRange(2, 1, hP.getLastRow() - 1, 13).getValues();
   var lista  = datos.map(function(f, i) {
-    return (i + 1) + ". " + String(f[1] || "").trim() + "  [" + String(f[8] || "?") + "]"; // f[8]=Categoria
+    return (i + 1) + ". " + String(f[1] || "").trim() + "  [" + String(f[12] || "?") + "]"; // f[12]=Categoria
   }).filter(function(s) { return s.indexOf(". ") !== -1 && s.length > 5; });
 
   var r1 = ui.prompt(
@@ -6679,7 +6699,7 @@ function cambiarCategoriaParticipante() { _run(function() {
     if (coincide) {
       filaEncontrada = i + 2;
       nombreEncontrado = nombre;
-      catActual = String(datos[i][8] || "").trim().toUpperCase(); // col I = Categoria
+      catActual = String(datos[i][12] || "").trim().toUpperCase(); // col M = Categoria (idx 12)
       break;
     }
   }
@@ -6702,8 +6722,8 @@ function cambiarCategoriaParticipante() { _run(function() {
   if (nuevaCat === catActual) { _alert("La categoría ya es " + catActual + ". No hubo cambio."); return; }
 
   var nuevaTarifa = CFG.CATEGORIAS[nuevaCat];
-  hP.getRange(filaEncontrada, 9).setValue(nuevaCat);      // col I = Categoria
-  hP.getRange(filaEncontrada, 10).setValue(nuevaTarifa); // col J = Tarifa_Hora
+  hP.getRange(filaEncontrada, 13).setValue(nuevaCat);    // col M = Categoria
+  hP.getRange(filaEncontrada, 14).setValue(nuevaTarifa); // col N = Tarifa_Hora
 
   // Actualizar LISTA_OFICIAL en memoria (no persiste pero refleja el cambio visual)
   _colorearParticipantes(hP, hP.getLastRow() - 1);
