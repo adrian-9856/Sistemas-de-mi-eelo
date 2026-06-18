@@ -3982,24 +3982,151 @@ function crearHojaHistorialQuincenas() { _run(function() {
     hoja = ss.insertSheet("HistorialQuincenas");
     var enc = ["#","Período","Fecha_Inicio","Fecha_Fin","Fecha_Cierre",
                "Total_Q","Total_Horas","Participantes_Con_Horas","Participantes_Sin_Horas",
-               "Retiradx_Período","Dias_Estudio_Período","Estipendio_Total","Notas"];
+               "Retiradx_Período","Dias_Estudio_Período","Estipendio_Total",
+               "Ciclos_Vida_Año","Ingreso_Promedio_Q","Horas_Formacion_Período","Promedio_Horas_Mes",
+               "Notas"];
     hoja.getRange(1,1,1,enc.length).setValues([enc])
         .setFontWeight("bold").setBackground("#1a237e").setFontColor("#fff").setHorizontalAlignment("center");
     hoja.setFrozenRows(1);
-    [1,3,4,5].forEach(function(c){ hoja.setColumnWidth(c, 50); });
-    hoja.setColumnWidth(2, 160); hoja.setColumnWidth(3, 110); hoja.setColumnWidth(4, 110);
-    hoja.setColumnWidth(5, 110); hoja.setColumnWidth(6, 110); hoja.setColumnWidth(7, 100);
-    hoja.setColumnWidth(8, 120); hoja.setColumnWidth(9, 120);
+    hoja.setColumnWidth(1, 40); hoja.setColumnWidth(2, 160);
+    hoja.setColumnWidth(3, 110); hoja.setColumnWidth(4, 110); hoja.setColumnWidth(5, 110);
+    hoja.setColumnWidth(6, 110); hoja.setColumnWidth(7, 100);
+    hoja.setColumnWidth(8, 130); hoja.setColumnWidth(9, 130);
     hoja.setColumnWidth(10, 110); hoja.setColumnWidth(11, 120); hoja.setColumnWidth(12, 110);
-    hoja.setColumnWidth(13, 200);
+    hoja.setColumnWidth(13, 100); hoja.setColumnWidth(14, 120);
+    hoja.setColumnWidth(15, 130); hoja.setColumnWidth(16, 130); hoja.setColumnWidth(17, 200);
     hoja.getRange("C2:E500").setNumberFormat("dd/MM/yyyy");
     hoja.getRange("F2:F500").setNumberFormat('"Q"#,##0.00');
     hoja.getRange("G2:G500").setNumberFormat("0.0");
     hoja.getRange("L2:L500").setNumberFormat('"Q"#,##0.00');
+    hoja.getRange("N2:N500").setNumberFormat('"Q"#,##0.00');  // Ingreso_Promedio_Q
+    hoja.getRange("O2:O500").setNumberFormat("0.0");           // Horas_Formacion
+    hoja.getRange("P2:P500").setNumberFormat("0.0");           // Promedio_Horas_Mes
   }
   hoja.activate();
   _alert("✅ Hoja HistorialQuincenas lista.\nSe llena automáticamente al cerrar cada quincena.");
 }); }
+
+// Calcula todos los KPIs para un período — usado por _guardar y _upsert
+function _calcularKPIsHistorial(fi, ff) {
+  var ss   = SpreadsheetApp.getActiveSpreadsheet();
+  var dIni = new Date(fi.getFullYear(), fi.getMonth(), fi.getDate());
+  var dFin = new Date(ff.getFullYear(), ff.getMonth(), ff.getDate());
+  var anio = ff.getFullYear();
+
+  // Horas y pago del período
+  var resumen = _calcularResumenPeriodo(fi, ff);
+  var totalQ = 0, totalHrs = 0, conHoras = 0, sinHoras = 0;
+  Object.keys(resumen).forEach(function(n) {
+    var d = resumen[n];
+    var base = Math.round(d.horas * d.tarifa * 100) / 100;
+    var iva  = d.tieneFactura ? Math.round(base * CFG.IVA_PCT * 100) / 100 : 0;
+    var bono = Math.round((d.bono || 0) * 100) / 100;
+    totalQ   += Math.round((base + iva + bono) * 100) / 100;
+    totalHrs += d.horas;
+    if (d.horas > 0) conHoras++; else sinHoras++;
+  });
+
+  // Retiradx en este período
+  var kRetiradx = 0;
+  var hRet = ss.getSheetByName("Retiradx");
+  if (hRet && hRet.getLastRow() > 1) {
+    hRet.getRange(2,1,hRet.getLastRow()-1,1).getValues().forEach(function(r) {
+      var d = new Date(r[0]); var dia = new Date(d.getFullYear(),d.getMonth(),d.getDate());
+      if (!isNaN(d) && dia >= dIni && dia <= dFin) kRetiradx++;
+    });
+  }
+
+  // Días de estudio distintos en este período (conteo de fechas únicas en DiasEstudio)
+  var kDiasEst = 0;
+  var hDE = ss.getSheetByName("DiasEstudio");
+  if (hDE && hDE.getLastRow() > 1) {
+    hDE.getRange(2,1,hDE.getLastRow()-1,1).getValues().forEach(function(r) {
+      var d = new Date(r[0]); var dia = new Date(d.getFullYear(),d.getMonth(),d.getDate());
+      if (!isNaN(d) && dia >= dIni && dia <= dFin) kDiasEst++;
+    });
+  }
+
+  // Estipendio total en este período
+  var kEstip = 0;
+  var hES = ss.getSheetByName("Estipendio");
+  if (hES && hES.getLastRow() > 1) {
+    hES.getRange(2,1,hES.getLastRow()-1,4).getValues().forEach(function(r) {
+      var d = new Date(r[0]); var dia = new Date(d.getFullYear(),d.getMonth(),d.getDate());
+      if (!isNaN(d) && dia >= dIni && dia <= dFin) kEstip += parseFloat(r[3])||0;
+    });
+  }
+
+  // Indicador 1: Ciclos de Vida completados EN EL AÑO (no solo en el período)
+  var kCiclosAnio = 0;
+  var hCV = ss.getSheetByName("CiclosVida");
+  if (hCV && hCV.getLastRow() > 1) {
+    hCV.getRange(2,1,hCV.getLastRow()-1,1).getValues().forEach(function(r) {
+      var d = new Date(r[0]);
+      if (!isNaN(d) && d.getFullYear() === anio) kCiclosAnio++;
+    });
+  }
+
+  // Indicador 2: Ingreso bruto promedio por participante este período
+  var kIngresoProm = conHoras > 0 ? Math.round((totalQ / conHoras) * 100) / 100 : 0;
+
+  // Indicador 5: Horas de formación en el período
+  // = sesiones de DatosKobo en días de estudio × 7h (usando esDiaDeEstudio por participante)
+  var kHrsFormacion = 0;
+  try {
+    var hK = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
+    if (hK && hK.getLastRow() > 1) {
+      var encK  = hK.getRange(1,1,1,hK.getLastColumn()).getValues()[0];
+      var rawK  = hK.getRange(2,1,hK.getLastRow()-1,hK.getLastColumn()).getValues();
+      var colsK = detectarColumnas(encK, rawK.slice(0,50));
+      var diasEstMap = obtenerDiasEstudio();
+      var mapeoN = cargarMapeoNombres();
+      var vistos = {};
+      rawK.forEach(function(fila) {
+        var ts = _resolverTsKobo(fila, colsK);
+        if (!ts || isNaN(ts)) return;
+        var dia = new Date(ts.getFullYear(), ts.getMonth(), ts.getDate());
+        if (dia < dIni || dia > dFin) return;
+        var nRaw = obtenerParticipanteFila(fila, colsK);
+        if (!nRaw) return;
+        var nombre = normalizarNombre(nRaw, mapeoN) || limpiarNombre(nRaw);
+        if (!nombre) return;
+        if (!esDiaDeEstudio(nombre, ts, diasEstMap)) return;
+        var clave = nombre + "|" + ts.getFullYear() + "-" + ts.getMonth() + "-" + ts.getDate();
+        vistos[clave] = true;
+      });
+      kHrsFormacion = Math.round(Object.keys(vistos).length * CFG.HORAS_JORNADA_NORMAL * 10) / 10;
+    }
+  } catch(e) { Logger.log("kHrsFormacion: " + e.message); }
+
+  // Indicador 6: Promedio horas laborales mensuales
+  // Quincena ≈ 15 días ≈ 0.5 mes → promedio mensual = (totalHrs / conHoras) × 2
+  var diasPeriodo = Math.max(1, Math.round((dFin - dIni) / 86400000) + 1);
+  var factorMensual = 30 / diasPeriodo;
+  var kPromHrsMes = conHoras > 0
+    ? Math.round((totalHrs / conHoras) * factorMensual * 10) / 10
+    : 0;
+
+  return {
+    totalQ: Math.round(totalQ*100)/100, totalHrs: Math.round(totalHrs*100)/100,
+    conHoras: conHoras, sinHoras: sinHoras,
+    kRetiradx: kRetiradx, kDiasEst: kDiasEst,
+    kEstip: Math.round(kEstip*100)/100,
+    kCiclosAnio: kCiclosAnio, kIngresoProm: kIngresoProm,
+    kHrsFormacion: kHrsFormacion, kPromHrsMes: kPromHrsMes
+  };
+}
+
+// Aplica formatos a la fila recién escrita en HistorialQuincenas
+function _formatearFilaHistorial(hH, fila) {
+  hH.getRange(fila, 3, 1, 3).setNumberFormat("dd/MM/yyyy");
+  hH.getRange(fila, 6).setNumberFormat('"Q"#,##0.00');
+  hH.getRange(fila, 7).setNumberFormat("0.0");
+  hH.getRange(fila, 12).setNumberFormat('"Q"#,##0.00');
+  hH.getRange(fila, 14).setNumberFormat('"Q"#,##0.00');
+  hH.getRange(fila, 15).setNumberFormat("0.0");
+  hH.getRange(fila, 16).setNumberFormat("0.0");
+}
 
 // Guarda una fila en HistorialQuincenas con todos los datos del período que se está cerrando
 function _guardarHistorialQuincena(periodo) {
@@ -4008,69 +4135,18 @@ function _guardarHistorialQuincena(periodo) {
     var hH  = ss.getSheetByName("HistorialQuincenas");
     if (!hH) { crearHojaHistorialQuincenas(); hH = ss.getSheetByName("HistorialQuincenas"); }
     if (!hH) return;
-
-    var tz  = CFG.TIMEZONE;
-    var fi  = new Date(periodo.fi);
-    var ff  = new Date(periodo.ff);
-    var dIni = new Date(fi.getFullYear(), fi.getMonth(), fi.getDate());
-    var dFin = new Date(ff.getFullYear(), ff.getMonth(), ff.getDate());
-
-    // Resumen de horas del período
-    var resumen = _calcularResumenPeriodo(fi, ff);
-    var totalQ = 0, totalHrs = 0, conHoras = 0, sinHoras = 0;
-    Object.keys(resumen).forEach(function(n) {
-      var d = resumen[n];
-      var base = Math.round(d.horas * d.tarifa * 100) / 100;
-      var iva  = d.tieneFactura ? Math.round(base * CFG.IVA_PCT * 100) / 100 : 0;
-      var bono = Math.round((d.bono || 0) * 100) / 100;
-      totalQ  += Math.round((base + iva + bono) * 100) / 100;
-      totalHrs += d.horas;
-      if (d.horas > 0) conHoras++; else sinHoras++;
-    });
-
-    // Retiradx en este período
-    var kRetiradx = 0;
-    var hRet = ss.getSheetByName("Retiradx");
-    if (hRet && hRet.getLastRow() > 1) {
-      hRet.getRange(2,1,hRet.getLastRow()-1,1).getValues().forEach(function(r) {
-        var d = new Date(r[0]); var dia = new Date(d.getFullYear(),d.getMonth(),d.getDate());
-        if (!isNaN(d) && dia >= dIni && dia <= dFin) kRetiradx++;
-      });
-    }
-
-    // Días de estudio en este período
-    var kDiasEst = 0;
-    var hDE = ss.getSheetByName("DiasEstudio");
-    if (hDE && hDE.getLastRow() > 1) {
-      hDE.getRange(2,1,hDE.getLastRow()-1,1).getValues().forEach(function(r) {
-        var d = new Date(r[0]); var dia = new Date(d.getFullYear(),d.getMonth(),d.getDate());
-        if (!isNaN(d) && dia >= dIni && dia <= dFin) kDiasEst++;
-      });
-    }
-
-    // Estipendio total en este período
-    var kEstip = 0;
-    var hES = ss.getSheetByName("Estipendio");
-    if (hES && hES.getLastRow() > 1) {
-      hES.getRange(2,1,hES.getLastRow()-1,4).getValues().forEach(function(r) {
-        var d = new Date(r[0]); var dia = new Date(d.getFullYear(),d.getMonth(),d.getDate());
-        if (!isNaN(d) && dia >= dIni && dia <= dFin) kEstip += parseFloat(r[3])||0;
-      });
-    }
-
-    var num = hH.getLastRow(); // fila actual (encabezado = fila 1)
-    var fila = [num, periodo.label, fi, ff, new Date(),
-                Math.round(totalQ*100)/100, Math.round(totalHrs*100)/100,
-                conHoras, sinHoras, kRetiradx, kDiasEst,
-                Math.round(kEstip*100)/100, ""];
-    hH.appendRow(fila);
+    var fi = new Date(periodo.fi), ff = new Date(periodo.ff);
+    var k  = _calcularKPIsHistorial(fi, ff);
+    var num = hH.getLastRow();
+    var filaArr = [num, periodo.label, fi, ff, new Date(),
+      k.totalQ, k.totalHrs, k.conHoras, k.sinHoras,
+      k.kRetiradx, k.kDiasEst, k.kEstip,
+      k.kCiclosAnio, k.kIngresoProm, k.kHrsFormacion, k.kPromHrsMes, ""];
+    hH.appendRow(filaArr);
     var lr = hH.getLastRow();
-    hH.getRange(lr, 3, 1, 3).setNumberFormat("dd/MM/yyyy");
-    hH.getRange(lr, 6).setNumberFormat('"Q"#,##0.00');
-    hH.getRange(lr, 7).setNumberFormat("0.0");
-    hH.getRange(lr, 12).setNumberFormat('"Q"#,##0.00');
+    _formatearFilaHistorial(hH, lr);
     var bg = (num % 2 === 0) ? "#e8eaf6" : "#ffffff";
-    hH.getRange(lr, 1, 1, fila.length).setBackground(bg);
+    hH.getRange(lr, 1, 1, filaArr.length).setBackground(bg);
   } catch(e) { Logger.log("_guardarHistorialQuincena: " + e.message); }
 }
 
@@ -4117,51 +4193,12 @@ function _upsertHistorialActivo() {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var hH = ss.getSheetByName("HistorialQuincenas");
     if (!hH) return;
-
-    var fi  = new Date(periodo.fi), ff = new Date(periodo.ff);
-    var dIni = new Date(fi.getFullYear(), fi.getMonth(), fi.getDate());
-    var dFin = new Date(ff.getFullYear(), ff.getMonth(), ff.getDate());
-
-    var resumen = _calcularResumenPeriodo(fi, ff);
-    var totalQ = 0, totalHrs = 0, conHoras = 0, sinHoras = 0;
-    Object.keys(resumen).forEach(function(n) {
-      var d = resumen[n];
-      var base = Math.round(d.horas * d.tarifa * 100) / 100;
-      var iva  = d.tieneFactura ? Math.round(base * CFG.IVA_PCT * 100) / 100 : 0;
-      var bono = Math.round((d.bono || 0) * 100) / 100;
-      totalQ += Math.round((base + iva + bono) * 100) / 100;
-      totalHrs += d.horas;
-      if (d.horas > 0) conHoras++; else sinHoras++;
-    });
-
-    var kRetiradx = 0, kDiasEst = 0, kEstip = 0;
-    var hRet = ss.getSheetByName("Retiradx");
-    if (hRet && hRet.getLastRow() > 1) {
-      hRet.getRange(2,1,hRet.getLastRow()-1,1).getValues().forEach(function(r) {
-        var d = new Date(r[0]); var dia = new Date(d.getFullYear(),d.getMonth(),d.getDate());
-        if (!isNaN(d) && dia >= dIni && dia <= dFin) kRetiradx++;
-      });
-    }
-    var hDE = ss.getSheetByName("DiasEstudio");
-    if (hDE && hDE.getLastRow() > 1) {
-      hDE.getRange(2,1,hDE.getLastRow()-1,1).getValues().forEach(function(r) {
-        var d = new Date(r[0]); var dia = new Date(d.getFullYear(),d.getMonth(),d.getDate());
-        if (!isNaN(d) && dia >= dIni && dia <= dFin) kDiasEst++;
-      });
-    }
-    var hES = ss.getSheetByName("Estipendio");
-    if (hES && hES.getLastRow() > 1) {
-      hES.getRange(2,1,hES.getLastRow()-1,4).getValues().forEach(function(r) {
-        var d = new Date(r[0]); var dia = new Date(d.getFullYear(),d.getMonth(),d.getDate());
-        if (!isNaN(d) && dia >= dIni && dia <= dFin) kEstip += parseFloat(r[3])||0;
-      });
-    }
-
+    var fi = new Date(periodo.fi), ff = new Date(periodo.ff);
+    var k  = _calcularKPIsHistorial(fi, ff);
     var valores = [periodo.label, fi, ff, "— activo —",
-                   Math.round(totalQ*100)/100, Math.round(totalHrs*100)/100,
-                   conHoras, sinHoras, kRetiradx, kDiasEst,
-                   Math.round(kEstip*100)/100, ""];
-
+                   k.totalQ, k.totalHrs, k.conHoras, k.sinHoras,
+                   k.kRetiradx, k.kDiasEst, k.kEstip,
+                   k.kCiclosAnio, k.kIngresoProm, k.kHrsFormacion, k.kPromHrsMes, ""];
     // Buscar fila existente con mismo label
     var filaExist = -1;
     if (hH.getLastRow() > 1) {
@@ -4170,22 +4207,16 @@ function _upsertHistorialActivo() {
         if (String(labels[i][0]).trim() === periodo.label) { filaExist = i + 2; break; }
       }
     }
-
     if (filaExist > 0) {
       hH.getRange(filaExist, 2, 1, valores.length).setValues([valores]);
+      _formatearFilaHistorial(hH, filaExist);
     } else {
       var num = hH.getLastRow();
       hH.appendRow([num].concat(valores));
       var lr = hH.getLastRow();
-      var bg = (num % 2 === 0) ? "#e8f5e9" : "#f1f8e9"; // verde claro = activa
-      hH.getRange(lr, 1, 1, 13).setBackground(bg);
+      hH.getRange(lr, 1, 1, valores.length+1).setBackground("#e8f5e9"); // verde = activa
+      _formatearFilaHistorial(hH, lr);
     }
-    // Formatos de fecha y Q en la fila
-    var fActual = filaExist > 0 ? filaExist : hH.getLastRow();
-    hH.getRange(fActual, 3, 1, 2).setNumberFormat("dd/MM/yyyy");
-    hH.getRange(fActual, 6).setNumberFormat('"Q"#,##0.00');
-    hH.getRange(fActual, 7).setNumberFormat("0.0");
-    hH.getRange(fActual, 12).setNumberFormat('"Q"#,##0.00');
   } catch(e) { Logger.log("_upsertHistorialActivo: " + e.message); }
 }
 
