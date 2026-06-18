@@ -2347,13 +2347,28 @@ function importarDesdeKobo() { _run(function() {
   var datosRaw = Utilities.parseCsv(resp.getContentText(), ";");
   if (datosRaw.length < 2) { _alert("Kobo no devolvió registros."); return; }
 
-  // Filtrar solo 2026+ (igual que reimportarTodoDesdeKobo)
-  var anioMinimo = 2026;
+  // Filtrar solo registros recientes: desde 60 días antes del inicio del período activo
+  var periodo = _periodoActivo();
+  var fechaMinima;
+  if (periodo && periodo.fi) {
+    fechaMinima = new Date(periodo.fi);
+    fechaMinima.setDate(fechaMinima.getDate() - 60);
+  } else {
+    fechaMinima = new Date();
+    fechaMinima.setDate(fechaMinima.getDate() - 90);
+  }
   var hdrRaw = datosRaw[0];
   var filtrado = [hdrRaw];
   for (var fi = 1; fi < datosRaw.length; fi++) {
-    var anio = parseInt(String(datosRaw[fi][0] || "").substring(0, 4), 10);
-    if (isNaN(anio) || anio < anioMinimo) continue;
+    var rawStart = String(datosRaw[fi][0] || "").trim();
+    // Soporta ISO "2026-01-05T..." y local "05/01/2026..."
+    var tsRow = new Date(rawStart);
+    if (isNaN(tsRow)) {
+      // Intentar parsear DD/MM/YYYY HH:MM
+      var parts = rawStart.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+      if (parts) tsRow = new Date(parts[3], parts[2]-1, parts[1]);
+    }
+    if (isNaN(tsRow) || tsRow < fechaMinima) continue;
     filtrado.push(datosRaw[fi]);
   }
   datosRaw = filtrado;
@@ -2417,7 +2432,8 @@ function importarDesdeKobo() { _run(function() {
 
 // Llamado por el trigger instalable onOpen (tiene permisos completos)
 function importarAlAbrir() {
-  try { importarDesdeKobo(); } catch(_) {}
+  // Import automático desactivado — evita jalar registros históricos de Kobo al abrir.
+  // Importar manualmente desde menú: 📥 Datos Kobo → 📥 Importar desde Kobo
   try { actualizarDetalleQuincena(); } catch(_) {}
   try { actualizarQuincenaActual(); } catch(_) {}
 }
