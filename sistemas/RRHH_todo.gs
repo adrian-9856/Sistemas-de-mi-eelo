@@ -2681,15 +2681,26 @@ function reimportarTodoDesdeKobo() { _run(function() {
   var datos = Utilities.parseCsv(resKobo.getContentText(), ";");
   if (datos.length < 2) { _alert("Kobo no devolvió registros."); return; }
 
-  // Filtrar solo 2026+ para evitar datos viejos y acelerar imports
-  var anioMinimo = 2026;
+  // Filtrar solo registros del período activo (inicio -7 días), igual que importarDesdeKobo
+  var periodoR = _periodoActivo();
+  var fechaMinimaR;
+  if (periodoR && periodoR.fi) {
+    fechaMinimaR = new Date(periodoR.fi);
+    fechaMinimaR.setDate(fechaMinimaR.getDate() - 7);
+  } else {
+    fechaMinimaR = new Date(2026, 0, 1); // fallback: inicio de 2026
+  }
   var header = datos[0];
   var filtrado = [header];
   var descartados = 0;
   for (var fi = 1; fi < datos.length; fi++) {
-    var startStr = String(datos[fi][0] || "");
-    var anio = parseInt(startStr.substring(0, 4), 10);
-    if (isNaN(anio) || anio < anioMinimo) { descartados++; continue; }
+    var rawS = String(datos[fi][0] || "").trim();
+    var tsR  = new Date(rawS);
+    if (isNaN(tsR)) {
+      var pmR = rawS.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+      if (pmR) tsR = new Date(pmR[3], pmR[2]-1, pmR[1]);
+    }
+    if (isNaN(tsR) || tsR < fechaMinimaR) { descartados++; continue; }
     filtrado.push(datos[fi]);
   }
   datos = filtrado;
@@ -2730,7 +2741,7 @@ function reimportarTodoDesdeKobo() { _run(function() {
   _limpiarColumnasKobo(hoja, datos[0]);
   _normalizarAccionSilencioso(hoja);
   _alert("✅ Reimportación completa: " + (datos.length-1) + " registros importados.\n" +
-    "(" + descartados + " anteriores a " + anioMinimo + " descartados)\n" +
+    "(" + descartados + " anteriores a " + Utilities.formatDate(fechaMinimaR, CFG.TIMEZONE, "dd/MM/yyyy") + " descartados)\n" +
     (descartadosNP > 0 ? "(" + descartadosNP + " registros de participantes no oficiales eliminados)" : "✅ Todos los participantes son oficiales"));
 }); }
 
