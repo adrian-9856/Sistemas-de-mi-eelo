@@ -761,6 +761,18 @@ var LISTA_OFICIAL = [
   [33, "Anaid Lluleydi Mateo Morales",       "C", "ANMA100605", "anaid_lluleydi_mateo_morales"]
 ];
 
+// Aliases Kobo → nombre oficial (nombres cortos, typos, slugs parciales)
+// Clave: nombre ya limpio (sin _, sin tildes, minúsculas) → nombre oficial exacto en PARTICIPANTES
+var ALIASES_KOBO = [
+  ["leticia rodriguez",       "Mirna Leticia Rodriguez Paniagua"],
+  ["ericka vasquez",          "Erika Vásquez Tocay de López"],
+  ["otiilia turuy paz",       "Otilia Turuy Paz"],          // typo doble i en Kobo
+  ["jeanette saquic",         "Rosaura Jeannette Saquic Lopez"],
+  ["mar a aide alvarado",     "María Aidé Alvarado Cortéz"], // "á" → "a" en slug
+  ["mayra cifuentes",         "Mayra Lorena Cifuentes García"],
+  ["ruth sara pivaral",       "Ruth Saraí Pivaral Sequen"],
+];
+
 /*
  * Carga la lista oficial en PARTICIPANTES.
  * Limpia duplicados y genera Creamos_ID automático (formato XXXX001).
@@ -2656,9 +2668,11 @@ function extraerCodigo(nombre) {
 }
 function limpiarNombre(nombre) {
   var s = String(nombre)
-    .replace(/^[A-ZÁÉÍÓÚÑÜ]{4}\d{3,6}\s*/i, "")       // ID al inicio
-    .replace(/\s*\([A-ZÁÉÍÓÚÑÜ]{4}\d{3,6}\)\s*/i, ""); // ID en paréntesis
-  return s.replace(/^[•\s]+/, "").trim();
+    .replace(/^[A-ZÁÉÍÓÚÑÜ]{4}\d{3,6}\s*/i, "")        // ID al inicio
+    .replace(/\s*\([A-ZÁÉÍÓÚÑÜ]{4}\d{3,6}\)\s*/i, "")  // ID en paréntesis
+    .replace(/^[_•\s]+/, "")                             // guiones bajos/bullets al inicio
+    .replace(/_/g, " ");                                  // slugs: _ → espacio
+  return s.replace(/\s+/g, " ").trim();
 }
 function textoParaComparar(texto) {
   return String(texto).toLowerCase()
@@ -2683,6 +2697,14 @@ function nombresCoinciden(n1, n2) {
  */
 function cargarMapeoNombres() {
   var m = {};
+
+  // 0. Aliases hardcoded (nombres cortos, typos, slugs parciales de Kobo)
+  ALIASES_KOBO.forEach(function(par) {
+    var alias   = par[0]; // ya en minúsculas sin tildes
+    var oficial = par[1];
+    m[alias] = oficial;
+    m[alias.replace(/\s+/g, "_")] = oficial; // versión slug también
+  });
 
   // 1. Desde LISTA_OFICIAL: slug kobo → nombre oficial
   LISTA_OFICIAL.forEach(function(item) {
