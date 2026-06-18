@@ -20,7 +20,7 @@ const CFG = {
   },
   IVA_PCT:      0.05,  // 5% Pequeño Contribuyente Guatemala (solo quien tiene factura)
   HORAS_JORNADA_NORMAL: 7,
-  KOBO_URL_CSV: "https://kf.kobotoolbox.org/api/v2/assets/agi395bJj6ojXJzPPDT9n6/export-settings/es4oUjEmPvovgLd6Y5yrQ4K/data.csv",
+  KOBO_URL_CSV: "https://kf.kobotoolbox.org/api/v2/assets/agi395bJj6ojXJzPPDT9n6/export-settings/esFyGoVugvB2pNtpgngLSGD/data.csv",
   KOBO_TIPO_ENTRADA: "🟢 Entrada",   // valor normalizado interno (no el label de Kobo)
   KOBO_TIPO_SALIDA:  "🔴 Salida",    // Kobo exporta "Entrada"/"Salida" — detectarColumnas detecta ambos
   HOJAS: {
