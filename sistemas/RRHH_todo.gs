@@ -234,6 +234,7 @@ function onOpen() {
     .addItem("🔴 Hoja Retiradx",                         "crearHojaRetiradx")
     .addItem("🔵 Hoja CiclosVida",                        "crearHojaCiclosVida")
     .addItem("💵 Hoja Bonos",                             "crearHojaBonos")
+    .addItem("🟣 Hoja Estipendio",                        "crearHojaEstipendio")
     .addItem("🏦 Hoja Cheques",                           "crearHojaCheques")
     .addItem("🔄 Hoja Transferencias",                    "crearHojaTransferencias")
     .addItem("👶 Hijos CCI",                             "crearHojaHijosCCI")
@@ -1275,6 +1276,43 @@ function crearHojaBonos() { _run(function() {
     "• Tipo_Bono: ej. 'Desempeño', 'Asistencia perfecta', 'Puntualidad', etc.\n\n" +
     "El bono aparece automáticamente en el reporte de quincena (col Bono) " +
     "y se suma al total que paga la organización."
+  );
+}); }
+
+/**
+ * Hoja "Estipendio" — registra estipendios fijos individuales por quincena.
+ * Columnas: Fecha | Creamos_ID | Participante | Monto | Notas
+ * La fecha debe caer dentro de la quincena para que se sume al pago.
+ */
+function crearHojaEstipendio() { _run(function() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var hoja = ss.getSheetByName("Estipendio");
+  var esNueva = !hoja;
+  if (esNueva) hoja = ss.insertSheet("Estipendio");
+
+  hoja.getRange(1,1,1,5).setValues([["Fecha","Creamos_ID","Participante","Monto","Notas"]])
+    .setFontWeight("bold").setBackground("#4527a0").setFontColor("#fff").setHorizontalAlignment("center");
+  hoja.setFrozenRows(1);
+
+  if (esNueva) {
+    hoja.setColumnWidth(1, 120); hoja.setColumnWidth(2, 110);
+    hoja.setColumnWidth(3, 240); hoja.setColumnWidth(4, 110);
+    hoja.setColumnWidth(5, 300);
+    hoja.getRange("A2:A500").setNumberFormat("dd/MM/yyyy");
+    hoja.getRange("D2:D500").setNumberFormat('"Q"#,##0.00');
+  }
+
+  hoja.activate();
+  _alert(
+    "🟣 ESTIPENDIO — Para qué sirve:\n\n" +
+    "Registra estipendios fijos (ej: transporte, alimentación) por persona y quincena.\n\n" +
+    "Columnas:\n" +
+    "• Fecha: debe caer dentro de la quincena activa\n" +
+    "• Creamos_ID: código de la participante (ej: ANVE241097)\n" +
+    "• Participante: nombre como aparece en PARTICIPANTES\n" +
+    "• Monto: Q a pagar\n" +
+    "• Notas: descripción (ej: 'Transporte Q1 junio')\n\n" +
+    "El estipendio aparece en col Estipendio del reporte de quincena y se suma al total."
   );
 }); }
 
@@ -2787,7 +2825,7 @@ function _calcular(mes, anio) {
       if (!tipo.esIngreso && !tipo.esEgreso) return;
       var dClave = nombre + "|" + ts.getFullYear() + "-" + ts.getMonth() + "-" + ts.getDate();
       if (!porDia[dClave]) porDia[dClave] = { nombre: nombre, ts: ts, regs: [] };
-      var tsEnd = (iEnd >= 0) ? new Date(fila[iEnd]) : null;
+      var tsEnd = (cols.end !== undefined) ? new Date(fila[cols.end]) : null;
       porDia[dClave].regs.push({ ts: ts, tsEnd: tsEnd, tipo: tipo, esTerapia: tipo.esTerapia });
     });
 
@@ -3644,6 +3682,17 @@ function _calcularResumenPeriodo(fi, ff) {
     };
   });
 
+  // Construir mapa inverso ID → nombre para matching robusto en Bonos y Estipendio
+  var mapaIdANombre = {};
+  Object.keys(resultado).forEach(function(nom) {
+    var id = resultado[nom].id;
+    if (id) mapaIdANombre[id] = nom;
+  });
+  function _resolverNombreAux(id, nombre) {
+    if (id && mapaIdANombre[id]) return mapaIdANombre[id];
+    return nombre || "";
+  }
+
   // Sumar bonos del período desde hoja "Bonos"
   var hBonos = ss.getSheetByName("Bonos");
   if (hBonos && hBonos.getLastRow() >= 2) {
@@ -3653,11 +3702,29 @@ function _calcularResumenPeriodo(fi, ff) {
       if (isNaN(fecha)) return;
       var dia = new Date(fecha.getFullYear(), fecha.getMonth(), fecha.getDate());
       if (dia < dIni || dia > dFin) return;
-      var nombreBono = String(b[2] || "").trim(); // col C = Participante
-      var monto = parseFloat(b[3]) || 0;          // col D = Monto
+      var nombreBono = _resolverNombreAux(String(b[1]||"").trim(), String(b[2]||"").trim());
+      var monto = parseFloat(b[3]) || 0;
       if (!nombreBono || !monto) return;
       if (resultado[nombreBono]) {
         resultado[nombreBono].bono = Math.round((resultado[nombreBono].bono + monto) * 100) / 100;
+      }
+    });
+  }
+
+  // Sumar estipendios del período desde hoja "Estipendio"
+  var hEstip = ss.getSheetByName("Estipendio");
+  if (hEstip && hEstip.getLastRow() >= 2) {
+    var datEstip = hEstip.getRange(2, 1, hEstip.getLastRow() - 1, 4).getValues();
+    datEstip.forEach(function(e) {
+      var fecha = new Date(e[0]);
+      if (isNaN(fecha)) return;
+      var dia = new Date(fecha.getFullYear(), fecha.getMonth(), fecha.getDate());
+      if (dia < dIni || dia > dFin) return;
+      var nombreEstip = _resolverNombreAux(String(e[1]||"").trim(), String(e[2]||"").trim());
+      var monto = parseFloat(e[3]) || 0;
+      if (!nombreEstip || !monto) return;
+      if (resultado[nombreEstip]) {
+        resultado[nombreEstip].estipendio = Math.round((resultado[nombreEstip].estipendio + monto) * 100) / 100;
       }
     });
   }
@@ -3693,7 +3760,7 @@ function _calcularResumenPeriodo(fi, ff) {
     var dClave = nombre + "|" + ts.getFullYear() + "-" + ts.getMonth() + "-" + ts.getDate();
     if (!porPartDia[dClave]) porPartDia[dClave] = { nombre: nombre, ing: [], egr: [] };
 
-    var tsEnd = (iEnd >= 0) ? new Date(fila[iEnd]) : null;
+    var tsEnd = (cols.end !== undefined) ? new Date(fila[cols.end]) : null;
     if (tipo.esIngreso) {
       porPartDia[dClave].ing.push(ts);
     } else {
@@ -5799,12 +5866,14 @@ function instalarTodo() { _run(function() {
 
   // PASO 7: Bonos + HijosCCI + Cheques + Transferencias
   try {
-    ss.toast("Paso 7/9: Creando hojas Bonos, HijosCCI, Cheques y Transferencias...", "🚀", -1);
+    ss.toast("Paso 7/9: Creando hojas Bonos, Estipendio, HijosCCI, Cheques y Transferencias...", "🚀", -1);
     if (!ss.getSheetByName("Bonos")) { crearHojaBonos(); log.push("✅ Paso 7a: Hoja Bonos creada"); }
     else { log.push("ℹ️ Paso 7a: Hoja Bonos ya existe"); }
-    if (!ss.getSheetByName("HijosCCI")) { crearHojaHijosCCI(); log.push("✅ Paso 7b: Hoja HijosCCI creada"); }
-    else { log.push("ℹ️ Paso 7b: Hoja HijosCCI ya existe"); }
-    if (!ss.getSheetByName("Cheques")) { crearHojaCheques(); log.push("✅ Paso 7c: Hoja Cheques creada"); }
+    if (!ss.getSheetByName("Estipendio")) { crearHojaEstipendio(); log.push("✅ Paso 7b: Hoja Estipendio creada"); }
+    else { log.push("ℹ️ Paso 7b: Hoja Estipendio ya existe"); }
+    if (!ss.getSheetByName("HijosCCI")) { crearHojaHijosCCI(); log.push("✅ Paso 7c: Hoja HijosCCI creada"); }
+    else { log.push("ℹ️ Paso 7c: Hoja HijosCCI ya existe"); }
+    if (!ss.getSheetByName("Cheques")) { crearHojaCheques(); log.push("✅ Paso 7d: Hoja Cheques creada"); }
     else { log.push("ℹ️ Paso 7c: Hoja Cheques ya existe"); }
     if (!ss.getSheetByName("Transferencias")) { crearHojaTransferencias(); log.push("✅ Paso 7d: Hoja Transferencias creada"); }
     else { log.push("ℹ️ Paso 7d: Hoja Transferencias ya existe"); }
