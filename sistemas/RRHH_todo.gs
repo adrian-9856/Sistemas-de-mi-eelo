@@ -208,6 +208,7 @@ function onOpen() {
   // ══════════════════════════════════════════════════════════
   var menuQuincena = ui.createMenu("📅 Quincena")
     .addItem("📊 Ver / actualizar quincena actual",      "verQuincenaActual")
+    .addItem("📋 Actualizar detalle de quincena",        "actualizarDetalleQuincena")
     .addItem("✅ Cerrar y abrir siguiente",               "cerrarQuincenaYCrearSiguiente")
     .addSeparator()
     .addItem("🗓️ Nueva quincena (manual)",               "configurarNuevaQuincena")
@@ -2268,7 +2269,26 @@ function importarDesdeKobo() { _run(function() {
 }); }
 
 // Llamado por el trigger instalable onOpen (tiene permisos completos)
-function importarAlAbrir() { try { importarDesdeKobo(); } catch(_) {} }
+function importarAlAbrir() {
+  try { importarDesdeKobo(); } catch(_) {}
+  try { actualizarDetalleQuincena(); } catch(_) {}
+  try { actualizarQuincenaActual(); } catch(_) {}
+}
+
+/*
+ * Regenera la hoja "📋 Detalle Quincena" con el período activo actual.
+ * Se llama en onOpen y desde el menú.
+ */
+function actualizarDetalleQuincena() {
+  var periodo = _periodoActivo();
+  if (!periodo) return;
+  var fi  = new Date(periodo.fi);
+  var ff  = new Date(periodo.ff);
+  generarReporte("rango", fi, ff, null, "📋 Detalle Quincena");
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var h  = ss.getSheetByName("📋 Detalle Quincena");
+  if (h) ss.setActiveSheet(h);
+}
 
 // Reimportación completa — borra DatosKobo y lo reconstruye desde cero
 function reimportarTodoDesdeKobo() { _run(function() {
@@ -5162,9 +5182,10 @@ function generarReporte(tipo, fechaInicio, fechaFin, filtroParticipante, nuevaHo
 
   // Crear / limpiar pestaña
   var hoja;
-  if (nuevaHoja === false) {
-    var nh = ss.getSheetByName("Reporte_Fijo");
-    hoja = nh || ss.insertSheet("Reporte_Fijo");
+  if (nuevaHoja === false || typeof nuevaHoja === "string") {
+    var sheetNm = (typeof nuevaHoja === "string") ? nuevaHoja : "Reporte_Fijo";
+    var nh = ss.getSheetByName(sheetNm);
+    hoja = nh || ss.insertSheet(sheetNm);
     hoja.clearContents(); hoja.clearFormats();
   } else {
     hoja = ss.insertSheet("Rep_" + tipo.substring(0,3).toUpperCase() + "_" +
