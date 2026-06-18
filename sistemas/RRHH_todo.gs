@@ -205,6 +205,8 @@ function onOpen() {
     .addItem("🔧 Reparar datos Kobo",                    "repararDatosKobo")
     .addItem("🧹 Eliminar columnas innecesarias",         "eliminarColumnasKobo")
     .addSeparator()
+    .addItem("🧽 Eliminar registros anteriores a 2026",   "limpiarFilasAnteriores2026")
+    .addSeparator()
     .addItem("🔁 Limpiar y reimportar DatosKobo",        "reimportarTodoDesdeKobo");
 
   // ══════════════════════════════════════════════════════════
@@ -2434,6 +2436,49 @@ function actualizarDetalleQuincena() {
   var h  = ss.getSheetByName("📋 Detalle Quincena");
   if (h) ss.setActiveSheet(h);
 }
+
+// Elimina en-lugar las filas con fecha anterior a 2026 sin descargar nada de Kobo
+function limpiarFilasAnteriores2026() { _run(function() {
+  var ss   = SpreadsheetApp.getActiveSpreadsheet();
+  var hoja = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
+  if (!hoja || hoja.getLastRow() < 2) { _alert("DatosKobo está vacío."); return; }
+
+  var total  = hoja.getLastRow() - 1; // sin encabezado
+  var datos  = hoja.getRange(2, 1, total, 1).getValues(); // solo col A (start)
+  var borrar = [];
+  for (var i = datos.length - 1; i >= 0; i--) {
+    var s    = String(datos[i][0] || "").trim();
+    // Soporta ISO "2025-09-01..." y local "01/09/2025..."
+    var anio = NaN;
+    if (s.length >= 4) {
+      var p4 = parseInt(s.substring(0, 4), 10);
+      anio = (p4 >= 2000 && p4 <= 2099) ? p4 : NaN;
+    }
+    if (isNaN(anio)) {
+      // Intenta extraer año de cualquier parte con regex
+      var m = s.match(/\b(20\d{2})\b/);
+      if (m) anio = parseInt(m[1], 10);
+    }
+    if (!isNaN(anio) && anio < 2026) borrar.push(i + 2); // +2 = fila real (1-based + encabezado)
+  }
+
+  if (borrar.length === 0) { _alert("✅ No hay filas anteriores a 2026. Todo limpio."); return; }
+
+  // Borrar en bloques consecutivos (de abajo hacia arriba para no desplazar índices)
+  var inicio = borrar[0], fin = borrar[0], eliminadas = 0;
+  for (var j = 1; j < borrar.length; j++) {
+    if (borrar[j] === inicio - 1) { inicio = borrar[j]; }
+    else {
+      hoja.deleteRows(inicio, fin - inicio + 1);
+      eliminadas += fin - inicio + 1;
+      inicio = borrar[j]; fin = borrar[j];
+    }
+  }
+  hoja.deleteRows(inicio, fin - inicio + 1);
+  eliminadas += fin - inicio + 1;
+
+  _alert("✅ " + eliminadas + " filas anteriores a 2026 eliminadas.\nQuedan " + (hoja.getLastRow() - 1) + " registros.");
+}); }
 
 // Reimportación completa — borra DatosKobo y lo reconstruye desde cero
 function reimportarTodoDesdeKobo() { _run(function() {
