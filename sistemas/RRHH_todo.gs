@@ -2764,10 +2764,13 @@ function cargarMapeoNombres() {
 }
 function normalizarNombre(nombre, mapeo) {
   if (!mapeo || !Object.keys(mapeo).length) return nombre;
-  // Intento exacto
+  // Intento exacto con nombre original
   if (mapeo[nombre]) return mapeo[nombre];
-  // Intento sin tildes / minúsculas
-  var norm = textoParaComparar(nombre);
+  // Limpiar primero (strip _ iniciales, _ → espacios, quitar ID prefix)
+  var limpio = limpiarNombre(nombre);
+  if (mapeo[limpio]) return mapeo[limpio];
+  // Intento sin tildes / minúsculas sobre nombre limpio
+  var norm = textoParaComparar(limpio);
   if (mapeo[norm]) return mapeo[norm];
   // Intento slug (reemplazar espacios por _)
   var slug = norm.replace(/\s+/g, "_");
@@ -2775,7 +2778,7 @@ function normalizarNombre(nombre, mapeo) {
   // Intento por Creamos_ID extraído del nombre (ej. "Nombre (MACI030373)")
   var cod = extraerCodigo(nombre);
   if (cod && mapeo["id:" + cod]) return mapeo["id:" + cod];
-  return limpiarNombre(nombre); // fallback: quitar el código del nombre
+  return limpio; // fallback: nombre limpio sin underscores ni ID
 }
 
 // ── Días de estudio y terapias ────────────────────────────────
