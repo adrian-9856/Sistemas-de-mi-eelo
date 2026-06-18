@@ -3993,7 +3993,6 @@ function _calcularResumenPeriodo(fi, ff) {
 
     var dia = new Date(ts.getFullYear(), ts.getMonth(), ts.getDate());
     if (dia < dIni || dia > dFin) return;
-    if (dia.getDay() === 5) return; // viernes = entrada al trabajo, no sesión
 
     var nombreRaw = obtenerParticipanteFila(fila, cols);
     if (!nombreRaw) return;
@@ -4058,8 +4057,7 @@ function _calcularResumenPeriodo(fi, ff) {
     var entrada = d.ing[0]; // earliest entrada del día
 
     if (d.egr.length === 0) {
-      // Sin salida → estimar jornada normal
-      resultado[nombre].horas = Math.round((resultado[nombre].horas + CFG.HORAS_JORNADA_NORMAL) * 100) / 100;
+      // Sin salida → no se cuenta (entrada sola no es sesión completa)
       return;
     }
 
@@ -4069,10 +4067,8 @@ function _calcularResumenPeriodo(fi, ff) {
     var diffH = (salida - entrada) / 3600000;
     if (diffH > 0 && diffH <= 16) {
       resultado[nombre].horas = Math.round((resultado[nombre].horas + diffH) * 100) / 100;
-    } else {
-      // Diferencia incoherente → estimar
-      resultado[nombre].horas = Math.round((resultado[nombre].horas + CFG.HORAS_JORNADA_NORMAL) * 100) / 100;
     }
+    // Si diferencia es 0 o incoherente (>16h) → no se cuenta ese día
   });
 
 
@@ -8063,7 +8059,6 @@ function diagnosticarParticipantesKobo() { _run(function() {
     if (!ts || isNaN(ts)) return;
     var dia = new Date(ts.getFullYear(), ts.getMonth(), ts.getDate());
     if (dia < dIni || dia > dFin) return;
-    if (dia.getDay() === 5) return; // viernes = entrada al trabajo, no sesión
     var nRaw = obtenerParticipanteFila(fila, cols);
     if (!nRaw) return;
     var nombre = normalizarNombre(nRaw, mapeoNombres) || limpiarNombre(nRaw);
