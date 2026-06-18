@@ -4769,31 +4769,50 @@ function sincronizarDesdeCreamos() { _run(function() {
   var mapaNombreAID = {};
 
   datos.forEach(function(fila, i) {
-    var idActual = String(fila[0] || "").trim();
-    var nombre   = String(fila[1] || "").trim();
+    var idActual    = String(fila[0] || "").trim();
+    var nombre      = String(fila[1] || "").trim();
+    var fechaNacAct = String(fila[2] || "").trim(); // col C = Fecha_Nacimiento
+    var edadAct     = String(fila[3] || "").trim(); // col D = Edad
+    var generoAct   = String(fila[4] || "").trim(); // col E = Genero
+    var anioAct     = String(fila[5] || "").trim(); // col F = Ano_Entrada_Creamos
     if (!nombre) return;
 
-    if (_esCreamos_ID_real(idActual)) {
+    // Si ya tiene ID real Y todos los campos personales están llenos → solo registrar en mapa
+    var yaCompleto = _esCreamos_ID_real(idActual) &&
+                     fechaNacAct && edadAct && generoAct && anioAct;
+    if (yaCompleto) {
       mapaNombreAID[nombre] = idActual;
-      return; // ya tiene ID real, solo registrar en mapa
+      return;
     }
 
     ss.toast("Buscando: " + nombre, "🔍", -1);
     var db = _buscarEnCreamos_DB(nombre);
     if (db.noEncontrado || !db.id) {
-      sinEncontrar.push(nombre);
+      // Si ya tiene ID real aunque no se encuentre en DB, conservar en mapa
+      if (_esCreamos_ID_real(idActual)) mapaNombreAID[nombre] = idActual;
+      else sinEncontrar.push(nombre);
       return;
     }
 
-    // Actualizar ID, datos personales en la hoja
-    hP.getRange(i + 2, 1).setValue(db.id).setBackground(null).setFontColor(null).setFontStyle("normal");
-    if (db.fechaNac)    hP.getRange(i + 2, 3).setValue(db.fechaNac);   // col C = Fecha_Nacimiento
-    if (db.edad)        hP.getRange(i + 2, 4).setValue(db.edad);       // col D = Edad
-    if (db.genero)      hP.getRange(i + 2, 5).setValue(db.genero);     // col E = Genero
-    if (db.anioEntrada) hP.getRange(i + 2, 6).setValue(db.anioEntrada); // col F = Ano_Entrada_Creamos
-    if (db.dpi)         hP.getRange(i + 2, 16).setValue(db.dpi);       // col P = DPI
-    mapaNombreAID[nombre] = db.id;
-    actualizados.push(nombre + " → " + db.id);
+    var fueActualizado = false;
+
+    // Actualizar ID solo si no tenía uno real
+    if (!_esCreamos_ID_real(idActual)) {
+      hP.getRange(i + 2, 1).setValue(db.id).setBackground(null).setFontColor(null).setFontStyle("normal");
+      fueActualizado = true;
+    }
+
+    // Llenar cols C-F solo si están vacías
+    if (!fechaNacAct && db.fechaNac)    { hP.getRange(i + 2, 3).setValue(db.fechaNac);    fueActualizado = true; }
+    if (!edadAct     && db.edad)        { hP.getRange(i + 2, 4).setValue(db.edad);         fueActualizado = true; }
+    if (!generoAct   && db.genero)      { hP.getRange(i + 2, 5).setValue(db.genero);       fueActualizado = true; }
+    if (!anioAct     && db.anioEntrada) { hP.getRange(i + 2, 6).setValue(db.anioEntrada);  fueActualizado = true; }
+    // DPI: llenar si vacío
+    var dpiAct = String(fila[15] || "").trim(); // col P = DPI
+    if (!dpiAct && db.dpi)              { hP.getRange(i + 2, 16).setValue(db.dpi);         fueActualizado = true; }
+
+    mapaNombreAID[nombre] = db.id || idActual;
+    if (fueActualizado) actualizados.push(nombre + " → " + (db.id || idActual));
   });
 
   ss.toast("", "", 1);
