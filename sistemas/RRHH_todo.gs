@@ -2477,31 +2477,8 @@ function importarDesdeKobo() { _run(function() {
   var datosRaw = Utilities.parseCsv(resp.getContentText(), ";");
   if (datosRaw.length < 2) { _alert("Kobo no devolvió registros."); return; }
 
-  // Solo importar registros del período activo (inicio - 7 días de buffer)
-  var periodo = _periodoActivo();
-  var fechaMinima;
-  if (periodo && periodo.fi) {
-    fechaMinima = new Date(periodo.fi);
-    fechaMinima.setDate(fechaMinima.getDate() - 7); // buffer de 7 días
-  } else {
-    fechaMinima = new Date();
-    fechaMinima.setDate(fechaMinima.getDate() - 30);
-  }
-  var hdrRaw = datosRaw[0];
-  var filtrado = [hdrRaw];
-  for (var fi = 1; fi < datosRaw.length; fi++) {
-    var rawStart = String(datosRaw[fi][0] || "").trim();
-    // Soporta ISO "2026-01-05T..." y local "05/01/2026..."
-    var tsRow = new Date(rawStart);
-    if (isNaN(tsRow)) {
-      // Intentar parsear DD/MM/YYYY HH:MM
-      var parts = rawStart.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
-      if (parts) tsRow = new Date(parts[3], parts[2]-1, parts[1]);
-    }
-    if (isNaN(tsRow) || tsRow < fechaMinima) continue;
-    filtrado.push(datosRaw[fi]);
-  }
-  datosRaw = filtrado;
+  // No hay filtro de fecha — se importa todo el histórico de Kobo.
+  // El dedup por UUID + clave compuesta (más abajo) previene duplicados.
 
   // Filtrar participantes oficiales
   var nombresOficiales2 = {};
@@ -2536,21 +2513,31 @@ function importarDesdeKobo() { _run(function() {
     return;
   }
 
-  // Incremental — solo UUIDs nuevos
+  // Incremental — dedup por UUID; si UUID ausente, fallback a fecha+participante
   var encNuevos = datosNuevos[0];
   var uuidColN  = _buscarIndice(encNuevos, "_uuid");
+  var partColN  = detectarColumnas(encNuevos, []).participante;
   var datosEx   = hoja.getDataRange().getValues();
   var uuidColE  = _buscarIndice(datosEx[0], "_uuid");
-  var uuidsExist = {};
-  if (uuidColE >= 0) {
-    for (var i=1; i<datosEx.length; i++) {
-      var u = String(datosEx[i][uuidColE]||"").trim(); if (u) uuidsExist[u] = true;
-    }
+  var partColE  = detectarColumnas(datosEx[0], []).participante;
+  var uuidsExist = {}, compositeExist = {};
+  for (var i=1; i<datosEx.length; i++) {
+    var u = uuidColE >= 0 ? String(datosEx[i][uuidColE]||"").trim() : "";
+    if (u) uuidsExist[u] = true;
+    // Clave compuesta fallback: col0 (timestamp raw) + participante
+    var ck = String(datosEx[i][0]||"").trim() + "|" + (partColE >= 0 ? String(datosEx[i][partColE]||"").trim() : "");
+    if (ck !== "|") compositeExist[ck] = true;
   }
   var filasNuevas = [];
   for (var j=1; j<datosNuevos.length; j++) {
     var uid = uuidColN >= 0 ? String(datosNuevos[j][uuidColN]||"").trim() : "";
-    if (!uid || !uuidsExist[uid]) filasNuevas.push(datosNuevos[j]);
+    if (uid && uuidsExist[uid]) continue; // dedup por UUID
+    if (!uid) {
+      // Sin UUID: usar clave compuesta fecha+participante
+      var ckN = String(datosNuevos[j][0]||"").trim() + "|" + (partColN >= 0 ? String(datosNuevos[j][partColN]||"").trim() : "");
+      if (ckN !== "|" && compositeExist[ckN]) continue;
+    }
+    filasNuevas.push(datosNuevos[j]);
   }
   if (filasNuevas.length === 0) { _alert("✅ Ya está al día. Sin registros nuevos."); return; }
 
@@ -2681,29 +2668,8 @@ function reimportarTodoDesdeKobo() { _run(function() {
   var datos = Utilities.parseCsv(resKobo.getContentText(), ";");
   if (datos.length < 2) { _alert("Kobo no devolvió registros."); return; }
 
-  // Filtrar solo registros del período activo (inicio -7 días), igual que importarDesdeKobo
-  var periodoR = _periodoActivo();
-  var fechaMinimaR;
-  if (periodoR && periodoR.fi) {
-    fechaMinimaR = new Date(periodoR.fi);
-    fechaMinimaR.setDate(fechaMinimaR.getDate() - 7);
-  } else {
-    fechaMinimaR = new Date(2026, 0, 1); // fallback: inicio de 2026
-  }
-  var header = datos[0];
-  var filtrado = [header];
-  var descartados = 0;
-  for (var fi = 1; fi < datos.length; fi++) {
-    var rawS = String(datos[fi][0] || "").trim();
-    var tsR  = new Date(rawS);
-    if (isNaN(tsR)) {
-      var pmR = rawS.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
-      if (pmR) tsR = new Date(pmR[3], pmR[2]-1, pmR[1]);
-    }
-    if (isNaN(tsR) || tsR < fechaMinimaR) { descartados++; continue; }
-    filtrado.push(datos[fi]);
-  }
-  datos = filtrado;
+  // Sin filtro de fecha — reimporta TODO el histórico desde Kobo.
+  // Solo se descartan participantes no oficiales.
 
   // Filtrar participantes no oficiales (solo las 33 de LISTA_OFICIAL)
   var nombresOficiales = {};
@@ -2741,7 +2707,6 @@ function reimportarTodoDesdeKobo() { _run(function() {
   _limpiarColumnasKobo(hoja, datos[0]);
   _normalizarAccionSilencioso(hoja);
   _alert("✅ Reimportación completa: " + (datos.length-1) + " registros importados.\n" +
-    "(" + descartados + " anteriores a " + Utilities.formatDate(fechaMinimaR, CFG.TIMEZONE, "dd/MM/yyyy") + " descartados)\n" +
     (descartadosNP > 0 ? "(" + descartadosNP + " registros de participantes no oficiales eliminados)" : "✅ Todos los participantes son oficiales"));
 }); }
 
@@ -6110,17 +6075,9 @@ function generarReporte(tipo, fechaInicio, fechaFin, filtroParticipante, nuevaHo
     for (var i = 0; i < registros.length; i++) {
       var reg = registros[i];
 
-      // Resetear al cambiar de día
+      // Resetear al cambiar de día — entrada sin salida NO se cuenta, se descarta
       if (fechaAnt && !_esMismaFecha(fechaAnt, reg.fecha)) {
-        var prevHLocal = currentIngreso ? parseInt(Utilities.formatDate(currentIngreso.fecha, CFG.TIMEZONE, "H"), 10) : 0;
-        if (currentIngreso && prevHLocal < 17) {
-          var sEst = new Date(currentIngreso.fecha.getTime() + CFG.HORAS_JORNADA_NORMAL * 3600000);
-          var isDiaEst = esDiaDeEstudio(empId, currentIngreso.fecha, diasEstudioMapa);
-          _addFila(currentIngreso.fecha, currentIngreso.fecha, sEst,
-            (isDiaEst ? "Día de Estudio (Est.)" : "Normal (Estimado)") + "*",
-            CFG.HORAS_JORNADA_NORMAL, isDiaEst ? 0 : 100);
-          currentIngreso = null;
-        }
+        currentIngreso = null; // entrada sola del día anterior → descartada
         lastEgreso = null;
       }
       fechaAnt = reg.fecha;
@@ -6132,21 +6089,20 @@ function generarReporte(tipo, fechaInicio, fechaFin, filtroParticipante, nuevaHo
         var horas  = (reg.fecha - currentIngreso.fecha) / 3600000;
 
         if (horas <= 0) {
-          // "Chained form" pattern: SALIDA opened at exact moment cross-day ENTRADA resolved to.
-          // Try reg.fechaEnd (raw submission time) — that is the real departure.
+          // "Chained form": SALIDA abierta en el instante exacto que ENTRADA cross-day resolvió.
+          // Intentar con reg.fechaEnd (hora real de envío del formulario).
           var isDiaEstInv = esDiaDeEstudio(empId, currentIngreso.fecha, diasEstudioMapa);
           var salidaFin = reg.fechaEnd;
           var horasReal = (salidaFin && !isNaN(salidaFin)) ? (salidaFin - currentIngreso.fecha) / 3600000 : 0;
-          if (horasReal > 0.25 && horasReal < 14) {
+          if (horasReal >= 0.5 && horasReal < 14) {
             var tipoLblR = isDiaEstInv ? "Día de Estudio" : "Normal";
             var porcR    = isDiaEstInv ? 0 : 100;
             _addFila(currentIngreso.fecha, currentIngreso.fecha, salidaFin, tipoLblR, horasReal, porcR);
-          } else {
-            var sEstInv = new Date(currentIngreso.fecha.getTime() + CFG.HORAS_JORNADA_NORMAL * 3600000);
-            _addFila(currentIngreso.fecha, currentIngreso.fecha, sEstInv,
-              (isDiaEstInv ? "Día de Estudio (Est.)" : "Normal (Estimado)") + "*",
-              CFG.HORAS_JORNADA_NORMAL, isDiaEstInv ? 0 : 100);
           }
+          // Si horasReal < 0.5 o incoherente → sesión descartada (no se estima)
+          currentIngreso = null; lastEgreso = reg;
+        } else if (horas < 0.5) {
+          // Sesión menor a 30 minutos → probablemente error de registro, se descarta
           currentIngreso = null; lastEgreso = reg;
         } else {
           var isDiaEst2 = esDiaDeEstudio(empId, currentIngreso.fecha, diasEstudioMapa);
@@ -6162,15 +6118,8 @@ function generarReporte(tipo, fechaInicio, fechaFin, filtroParticipante, nuevaHo
       }
     }
 
-    // Ingreso sin salida al final del set
-    var ciHourLocal = currentIngreso ? parseInt(Utilities.formatDate(currentIngreso.fecha, CFG.TIMEZONE, "H"), 10) : 0;
-    if (currentIngreso && ciHourLocal < 17) {
-      var sEst2 = new Date(currentIngreso.fecha.getTime() + CFG.HORAS_JORNADA_NORMAL * 3600000);
-      var isDiaEstF = esDiaDeEstudio(empId, currentIngreso.fecha, diasEstudioMapa);
-      _addFila(currentIngreso.fecha, currentIngreso.fecha, sEst2,
-        (isDiaEstF ? "Día de Estudio (Est.)" : "Normal (Estimado)") + "*",
-        CFG.HORAS_JORNADA_NORMAL, isDiaEstF ? 0 : 100);
-    }
+    // Ingreso sin salida al final del set → descartado, no se estima
+    // (currentIngreso abierto = entrada sin salida registrada, no cuenta)
 
     // Subtotal del participante
     hoja.getRange(filaActual,1,1,5).merge()
@@ -6743,9 +6692,9 @@ function instalarTodo() { _run(function() {
   } catch(e) { errores.push("❌ Paso 1: " + e.message); }
   Utilities.sleep(500);
 
-  // PASO 2: Importar Kobo — solo período activo, solo registros nuevos (dedup UUID)
+  // PASO 2: Importar Kobo — historial completo, dedup por UUID + clave compuesta
   try {
-    ss.toast("Paso 2/9: Importando datos de Kobo (solo período activo)...", "🚀", -1);
+    ss.toast("Paso 2/9: Importando datos de Kobo (historial completo, sin duplicados)...", "🚀", -1);
     var res = UrlFetchApp.fetch(CFG.KOBO_URL_CSV, { muteHttpExceptions: true });
     var code = res.getResponseCode();
     if (code === 503) {
@@ -6757,59 +6706,47 @@ function instalarTodo() { _run(function() {
       if (datosRaw2.length < 2) {
         log.push("⚠️ Paso 2: Kobo sin registros");
       } else {
-        // Filtrar por período activo (-7 días de buffer)
-        var periodoI = _periodoActivo();
-        var fechaMinI;
-        if (periodoI && periodoI.fi) {
-          fechaMinI = new Date(periodoI.fi);
-          fechaMinI.setDate(fechaMinI.getDate() - 7);
-        } else {
-          fechaMinI = new Date(); fechaMinI.setDate(fechaMinI.getDate() - 30);
-        }
-        var hdrI = datosRaw2[0];
-        var filtradoI = [hdrI];
-        for (var fii = 1; fii < datosRaw2.length; fii++) {
-          var rawSI = String(datosRaw2[fii][0]||"").trim();
-          var tsI = new Date(rawSI);
-          if (isNaN(tsI)) {
-            var pI = rawSI.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
-            if (pI) tsI = new Date(pI[3], pI[2]-1, pI[1]);
-          }
-          if (!isNaN(tsI) && tsI >= fechaMinI) filtradoI.push(datosRaw2[fii]);
-        }
-        // Filtrar columnas y normalizar
-        var datosN2 = _filtrarColumnasKobo(filtradoI);
+        // Sin filtro de fecha — todo el histórico; dedup previene duplicados
+        var datosN2 = _filtrarColumnasKobo(datosRaw2);
         var hK = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
         if (!hK) {
-          // Instalación nueva: crear hoja y escribir todo el período
+          // Instalación nueva: crear hoja y escribir todo el histórico
           hK = ss.insertSheet(CFG.HOJAS.DATOS_KOBO);
           hK.getRange(1,1,datosN2.length,datosN2[0].length).setValues(datosN2);
           hK.getRange(1,1,1,datosN2[0].length).setFontWeight("bold").setBackground("#4a86e8").setFontColor("#fff");
           hK.setFrozenRows(1);
           _limpiarColumnasKobo(hK, datosN2[0]);
           _normalizarAccionSilencioso(hK);
-          log.push("✅ Paso 2: " + (datosN2.length-1) + " registros del período importados");
+          log.push("✅ Paso 2: " + (datosN2.length-1) + " registros importados desde Kobo");
         } else {
-          // Reinstalación: solo agregar UUIDs nuevos (no borrar datos existentes)
+          // Reinstalación: solo agregar registros nuevos (UUID + clave compuesta)
           var encN2 = datosN2[0];
           var uuidCN2 = _buscarIndice(encN2, "_uuid");
+          var partCN2 = detectarColumnas(encN2, []).participante;
           var datosEx2 = hK.getDataRange().getValues();
           var uuidCE2 = _buscarIndice(datosEx2[0], "_uuid");
-          var uuidsEx2 = {};
-          if (uuidCE2 >= 0) {
-            for (var ue2=1; ue2<datosEx2.length; ue2++) {
-              var uv2 = String(datosEx2[ue2][uuidCE2]||"").trim(); if (uv2) uuidsEx2[uv2] = true;
-            }
+          var partCE2 = detectarColumnas(datosEx2[0], []).participante;
+          var uuidsEx2 = {}, compositeEx2 = {};
+          for (var ue2=1; ue2<datosEx2.length; ue2++) {
+            var uv2 = uuidCE2>=0 ? String(datosEx2[ue2][uuidCE2]||"").trim() : "";
+            if (uv2) uuidsEx2[uv2] = true;
+            var ck2 = String(datosEx2[ue2][0]||"").trim() + "|" + (partCE2>=0 ? String(datosEx2[ue2][partCE2]||"").trim() : "");
+            if (ck2 !== "|") compositeEx2[ck2] = true;
           }
           var nuevas2 = [];
           for (var jj2=1; jj2<datosN2.length; jj2++) {
             var uid2 = uuidCN2>=0 ? String(datosN2[jj2][uuidCN2]||"").trim() : "";
-            if (!uid2 || !uuidsEx2[uid2]) nuevas2.push(datosN2[jj2]);
+            if (uid2 && uuidsEx2[uid2]) continue;
+            if (!uid2) {
+              var ckN2 = String(datosN2[jj2][0]||"").trim() + "|" + (partCN2>=0 ? String(datosN2[jj2][partCN2]||"").trim() : "");
+              if (ckN2 !== "|" && compositeEx2[ckN2]) continue;
+            }
+            nuevas2.push(datosN2[jj2]);
           }
           if (nuevas2.length > 0) {
             hK.getRange(hK.getLastRow()+1,1,nuevas2.length,nuevas2[0].length).setValues(nuevas2);
             _normalizarAccionSilencioso(hK);
-            log.push("✅ Paso 2: " + nuevas2.length + " registros nuevos agregados (período activo)");
+            log.push("✅ Paso 2: " + nuevas2.length + " registros nuevos agregados");
           } else {
             log.push("ℹ️ Paso 2: DatosKobo ya al día, sin registros nuevos");
           }
