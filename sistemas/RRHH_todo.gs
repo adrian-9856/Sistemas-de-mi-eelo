@@ -2569,10 +2569,10 @@ function _importarKoboCore(silencioso) {
 
 // Llamado por el trigger instalable onOpen (tiene permisos completos)
 function importarAlAbrir() {
-  // DatosKobo (asistencia): desactivado — jalaría todos los históricos de 2026 al abrir.
-  // Importar manualmente desde menú: 📥 Datos Kobo → 📥 Importar desde Kobo
-  try { _autoImportarKobo(); } catch(_) {}       // asistencia Kobo silencioso
-  try { importarEstipendioDesdeKobo(true); } catch(_) {}  // estipendio silencioso
+  // Kobo asistencia: NO se importa al abrir — descarga miles de filas y tarda >10s.
+  // El trigger de 6h (_autoImportarKobo) lo hace silencioso en segundo plano.
+  // Importación manual: Admin → 📥 Datos Kobo → 📥 Importar desde Kobo
+  try { importarEstipendioDesdeKobo(true); } catch(_) {}  // estipendio: ligero, OK al abrir
   try { _upsertHistorialActivo(); } catch(_) {}
   try { actualizarDetalleQuincena(); } catch(_) {}
   try { actualizarQuincenaActual(); } catch(_) {}
