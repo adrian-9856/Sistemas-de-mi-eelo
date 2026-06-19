@@ -2477,6 +2477,12 @@ function _ckTs(val) {
   return isNaN(d) ? String(val).trim().substring(0, 19) : String(d.getTime());
 }
 
+// Normaliza nombre de participante para dedup: minúsculas + guiones→espacios.
+// Kobo devuelve "sindy_paola_lazaro_diaz"; la hoja guarda "Sindy Paola Lazaro Diaz".
+function _ckPart(val) {
+  return String(val||"").trim().toLowerCase().replace(/_/g, " ");
+}
+
 function _autoImportarKobo() {
   try { _importarKoboCore(true); } catch(e) { Logger.log("Error auto-import Kobo: " + e); }
 }
@@ -2541,7 +2547,7 @@ function _importarKoboCore(silencioso) {
     var u = uuidColE >= 0 ? String(datosEx[i][uuidColE]||"").trim() : "";
     if (u) uuidsExist[u] = true;
     var tsK = _ckTs(datosEx[i][0]);
-    var ptK = partColE >= 0 ? String(datosEx[i][partColE]||"").trim() : "";
+    var ptK = _ckPart(partColE >= 0 ? datosEx[i][partColE] : "");
     if (tsK && ptK) compositeExist[tsK+"|"+ptK] = true;
   }
   var filasNuevas = [];
@@ -2549,7 +2555,7 @@ function _importarKoboCore(silencioso) {
     var uid = uuidColN >= 0 ? String(datosNuevos[j][uuidColN]||"").trim() : "";
     if (uid && uuidsExist[uid]) continue;
     var tsN = _ckTs(datosNuevos[j][0]);
-    var ptN = partColN >= 0 ? String(datosNuevos[j][partColN]||"").trim() : "";
+    var ptN = _ckPart(partColN >= 0 ? datosNuevos[j][partColN] : "");
     if (tsN && ptN && compositeExist[tsN+"|"+ptN]) continue;
     filasNuevas.push(datosNuevos[j]);
   }
@@ -6766,7 +6772,7 @@ function instalarTodo() { _run(function() {
             var uv2 = uuidCE2>=0 ? String(datosEx2[ue2][uuidCE2]||"").trim() : "";
             if (uv2) uuidsEx2[uv2] = true;
             var ts2e = _ckTs(datosEx2[ue2][0]);
-            var pt2e = partCE2>=0 ? String(datosEx2[ue2][partCE2]||"").trim() : "";
+            var pt2e = _ckPart(partCE2>=0 ? datosEx2[ue2][partCE2] : "");
             if (ts2e && pt2e) compositeEx2[ts2e+"|"+pt2e] = true;
           }
           var nuevas2 = [];
@@ -6774,7 +6780,7 @@ function instalarTodo() { _run(function() {
             var uid2 = uuidCN2>=0 ? String(datosN2[jj2][uuidCN2]||"").trim() : "";
             if (uid2 && uuidsEx2[uid2]) continue;
             var ts2n = _ckTs(datosN2[jj2][0]);
-            var pt2n = partCN2>=0 ? String(datosN2[jj2][partCN2]||"").trim() : "";
+            var pt2n = _ckPart(partCN2>=0 ? datosN2[jj2][partCN2] : "");
             if (ts2n && pt2n && compositeEx2[ts2n+"|"+pt2n]) continue;
             nuevas2.push(datosN2[jj2]);
           }
