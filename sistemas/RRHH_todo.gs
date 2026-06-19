@@ -6180,6 +6180,11 @@ function generarReporte(tipo, fechaInicio, fechaFin, filtroParticipante, nuevaHo
     ["", "", "TOTAL MONTO (Q):", Math.round(totGen.monto*100)/100]
   ];
   hoja.getRange(filaActual,1,3,4).setValues(tablaRes);
+  // Forzar formato numérico en celdas de horas y monto (evita que GAS aplique formato "Time")
+  hoja.getRange(filaActual,  4).setNumberFormat("0.00");   // Horas Lab.
+  hoja.getRange(filaActual+1,2).setNumberFormat("0.00");   // Total Terapias
+  hoja.getRange(filaActual+1,4).setNumberFormat("0.00");   // Horas a Pagar
+  hoja.getRange(filaActual+2,4).setNumberFormat('"Q "#,##0.00'); // Monto
   hoja.getRange(filaActual,3,3,1).setFontWeight("bold");
   hoja.getRange(filaActual+2,3,1,2).setBackground("#fff9c4").setFontWeight("bold").setFontSize(12);
   filaActual += 5;
