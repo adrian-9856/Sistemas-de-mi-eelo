@@ -2477,17 +2477,24 @@ function _ckTs(val) {
   return isNaN(d) ? String(val).trim().substring(0, 19) : String(d.getTime());
 }
 
-function importarDesdeKobo() { _run(function() {
+function _autoImportarKobo() {
+  try { _importarKoboCore(true); } catch(e) { Logger.log("Error auto-import Kobo: " + e); }
+}
+
+function importarDesdeKobo() { _run(function() { _importarKoboCore(false); }); }
+
+function _importarKoboCore(silencioso) {
+  function _msg(m) { if (!silencioso) _alert(m); else Logger.log(m); }
+
   var resp = UrlFetchApp.fetch(CFG.KOBO_URL_CSV, { muteHttpExceptions: true });
   var code = resp.getResponseCode();
-  if (code === 503) { _alert("⏳ Kobo ocupado (503). Espera 2 min e intenta de nuevo."); return; }
+  if (code === 503) { _msg("⏳ Kobo ocupado (503). Espera 2 min e intenta de nuevo."); return; }
   if (code !== 200) throw new Error("Error Kobo HTTP " + code + ": " + resp.getContentText().substring(0,200));
 
   var datosRaw = Utilities.parseCsv(resp.getContentText(), ";");
-  if (datosRaw.length < 2) { _alert("Kobo no devolvió registros."); return; }
+  if (datosRaw.length < 2) { _msg("Kobo no devolvió registros."); return; }
 
-  // No hay filtro de fecha — se importa todo el histórico de Kobo.
-  // El dedup por UUID + clave compuesta (más abajo) previene duplicados.
+  // Sin filtro de fecha — todo el histórico; dedup previene duplicados.
 
   // Filtrar participantes oficiales
   var nombresOficiales2 = {};
@@ -2518,7 +2525,7 @@ function importarDesdeKobo() { _run(function() {
     hoja.setFrozenRows(1);
     _limpiarColumnasKobo(hoja, datosNuevos[0]);
     _normalizarAccionSilencioso(hoja);
-    _alert("✅ Importación inicial: " + (datosNuevos.length-1) + " registros.");
+    _msg("✅ Importación inicial: " + (datosNuevos.length-1) + " registros.");
     return;
   }
 
@@ -2533,37 +2540,34 @@ function importarDesdeKobo() { _run(function() {
   for (var i=1; i<datosEx.length; i++) {
     var u = uuidColE >= 0 ? String(datosEx[i][uuidColE]||"").trim() : "";
     if (u) uuidsExist[u] = true;
-    // Clave compuesta: timestamp-normalizado + participante (funciona con Date obj o ISO string)
     var tsK = _ckTs(datosEx[i][0]);
     var ptK = partColE >= 0 ? String(datosEx[i][partColE]||"").trim() : "";
-    var ck  = tsK + "|" + ptK;
-    if (tsK && ptK) compositeExist[ck] = true;
+    if (tsK && ptK) compositeExist[tsK+"|"+ptK] = true;
   }
   var filasNuevas = [];
   for (var j=1; j<datosNuevos.length; j++) {
     var uid = uuidColN >= 0 ? String(datosNuevos[j][uuidColN]||"").trim() : "";
-    if (uid && uuidsExist[uid]) continue; // dedup por UUID
-    // Siempre verificar clave compuesta (también cuando hay UUID, por si acaso)
+    if (uid && uuidsExist[uid]) continue;
     var tsN = _ckTs(datosNuevos[j][0]);
     var ptN = partColN >= 0 ? String(datosNuevos[j][partColN]||"").trim() : "";
-    var ckN = tsN + "|" + ptN;
-    if (tsN && ptN && compositeExist[ckN]) continue;
+    if (tsN && ptN && compositeExist[tsN+"|"+ptN]) continue;
     filasNuevas.push(datosNuevos[j]);
   }
-  if (filasNuevas.length === 0) { _alert("✅ Ya está al día. Sin registros nuevos."); return; }
+  if (filasNuevas.length === 0) { _msg("✅ Ya está al día. Sin registros nuevos."); return; }
 
   hoja.getRange(hoja.getLastRow()+1,1,filasNuevas.length,filasNuevas[0].length).setValues(filasNuevas);
   _normalizarAccionSilencioso(hoja);
-  _alert("✅ " + filasNuevas.length + " registros nuevos importados.");
+  _msg("✅ " + filasNuevas.length + " registros nuevos importados.");
   try { actualizarDashboardVisual(); } catch(_) {}
-}); }
+}
 
 // Llamado por el trigger instalable onOpen (tiene permisos completos)
 function importarAlAbrir() {
   // DatosKobo (asistencia): desactivado — jalaría todos los históricos de 2026 al abrir.
   // Importar manualmente desde menú: 📥 Datos Kobo → 📥 Importar desde Kobo
-  try { importarEstipendioDesdeKobo(true); } catch(_) {}  // estipendio auto-actualiza silencioso
-  try { _upsertHistorialActivo(); } catch(_) {}           // historial quincena activa al día
+  try { _autoImportarKobo(); } catch(_) {}       // asistencia Kobo silencioso
+  try { importarEstipendioDesdeKobo(true); } catch(_) {}  // estipendio silencioso
+  try { _upsertHistorialActivo(); } catch(_) {}
   try { actualizarDetalleQuincena(); } catch(_) {}
   try { actualizarQuincenaActual(); } catch(_) {}
 }
@@ -5247,14 +5251,17 @@ function configurarTriggers() { _run(function() {
   // Eliminar triggers manejados por este sistema
   ScriptApp.getProjectTriggers().forEach(function(t){
     var h = t.getHandlerFunction();
-    if (h === "importarDesdeKobo" || h === "_autoImportarEstipendio" ||
-        h === "importarAlAbrir" || h === "actualizarQuincenaActual" ||
-        h === "actualizarDashboardVisual" || h === "onEditInstalable") {
+    if (h === "importarDesdeKobo" || h === "_autoImportarKobo" ||
+        h === "_autoImportarEstipendio" || h === "importarAlAbrir" ||
+        h === "actualizarQuincenaActual" || h === "actualizarDashboardVisual" ||
+        h === "onEditInstalable") {
       ScriptApp.deleteTrigger(t);
     }
   });
-  // Importar Kobo al abrir el Spreadsheet (solo estipendio + actualizaciones — NO asistencia)
+  // Al abrir: importa Kobo + estipendio silencioso, actualiza reportes
   ScriptApp.newTrigger("importarAlAbrir").forSpreadsheet(ss).onOpen().create();
+  // Kobo asistencia: auto-importar cada 6 horas silencioso (dedup previene duplicados)
+  ScriptApp.newTrigger("_autoImportarKobo").timeBased().everyHours(6).create();
   // Estipendio: auto-importar cada 6 horas silencioso
   ScriptApp.newTrigger("_autoImportarEstipendio").timeBased().everyHours(6).create();
   // Actualizar reporte de quincena activa cada día a las 7am
@@ -5268,8 +5275,8 @@ function configurarTriggers() { _run(function() {
     .forSpreadsheet(ss).onEdit().create();
 
   _alert("✅ Automatizaciones activadas:\n\n" +
-    "• 🔄 Kobo asistencia: SOLO manual (menú → 📥 Importar desde Kobo)\n" +
-    "• 💵 Estipendio: se actualiza automático cada 6 horas\n" +
+    "• 📥 Kobo asistencia: auto cada 6h + al abrir (silencioso, sin duplicados)\n" +
+    "• 💵 Estipendio: auto cada 6h + al abrir (silencioso)\n" +
     "• 📅 Quincena activa: se actualiza cada día a las 7am\n" +
     "• 📊 Dashboard Visual: se actualiza cada 10 minutos\n\n" +
     "onEdit (automático):\n" +
