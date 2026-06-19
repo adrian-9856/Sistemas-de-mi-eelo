@@ -2468,6 +2468,15 @@ function procesarPagoCompleto() { _run(function() {
   );
 }); }
 
+// Normaliza un valor de celda (Date obj o ISO string) a ms-epoch como string.
+// Permite comparar timestamps sin importar si vienen de getValues() o parseCsv().
+function _ckTs(val) {
+  if (!val && val !== 0) return "";
+  if (val instanceof Date) return isNaN(val) ? "" : String(val.getTime());
+  var d = new Date(String(val).trim());
+  return isNaN(d) ? String(val).trim().substring(0, 19) : String(d.getTime());
+}
+
 function importarDesdeKobo() { _run(function() {
   var resp = UrlFetchApp.fetch(CFG.KOBO_URL_CSV, { muteHttpExceptions: true });
   var code = resp.getResponseCode();
@@ -2513,7 +2522,7 @@ function importarDesdeKobo() { _run(function() {
     return;
   }
 
-  // Incremental — dedup por UUID; si UUID ausente, fallback a fecha+participante
+  // Incremental — dedup por UUID; si UUID ausente, fallback a timestamp+participante
   var encNuevos = datosNuevos[0];
   var uuidColN  = _buscarIndice(encNuevos, "_uuid");
   var partColN  = detectarColumnas(encNuevos, []).participante;
@@ -2524,19 +2533,21 @@ function importarDesdeKobo() { _run(function() {
   for (var i=1; i<datosEx.length; i++) {
     var u = uuidColE >= 0 ? String(datosEx[i][uuidColE]||"").trim() : "";
     if (u) uuidsExist[u] = true;
-    // Clave compuesta fallback: col0 (timestamp raw) + participante
-    var ck = String(datosEx[i][0]||"").trim() + "|" + (partColE >= 0 ? String(datosEx[i][partColE]||"").trim() : "");
-    if (ck !== "|") compositeExist[ck] = true;
+    // Clave compuesta: timestamp-normalizado + participante (funciona con Date obj o ISO string)
+    var tsK = _ckTs(datosEx[i][0]);
+    var ptK = partColE >= 0 ? String(datosEx[i][partColE]||"").trim() : "";
+    var ck  = tsK + "|" + ptK;
+    if (tsK && ptK) compositeExist[ck] = true;
   }
   var filasNuevas = [];
   for (var j=1; j<datosNuevos.length; j++) {
     var uid = uuidColN >= 0 ? String(datosNuevos[j][uuidColN]||"").trim() : "";
     if (uid && uuidsExist[uid]) continue; // dedup por UUID
-    if (!uid) {
-      // Sin UUID: usar clave compuesta fecha+participante
-      var ckN = String(datosNuevos[j][0]||"").trim() + "|" + (partColN >= 0 ? String(datosNuevos[j][partColN]||"").trim() : "");
-      if (ckN !== "|" && compositeExist[ckN]) continue;
-    }
+    // Siempre verificar clave compuesta (también cuando hay UUID, por si acaso)
+    var tsN = _ckTs(datosNuevos[j][0]);
+    var ptN = partColN >= 0 ? String(datosNuevos[j][partColN]||"").trim() : "";
+    var ckN = tsN + "|" + ptN;
+    if (tsN && ptN && compositeExist[ckN]) continue;
     filasNuevas.push(datosNuevos[j]);
   }
   if (filasNuevas.length === 0) { _alert("✅ Ya está al día. Sin registros nuevos."); return; }
@@ -6742,17 +6753,17 @@ function instalarTodo() { _run(function() {
           for (var ue2=1; ue2<datosEx2.length; ue2++) {
             var uv2 = uuidCE2>=0 ? String(datosEx2[ue2][uuidCE2]||"").trim() : "";
             if (uv2) uuidsEx2[uv2] = true;
-            var ck2 = String(datosEx2[ue2][0]||"").trim() + "|" + (partCE2>=0 ? String(datosEx2[ue2][partCE2]||"").trim() : "");
-            if (ck2 !== "|") compositeEx2[ck2] = true;
+            var ts2e = _ckTs(datosEx2[ue2][0]);
+            var pt2e = partCE2>=0 ? String(datosEx2[ue2][partCE2]||"").trim() : "";
+            if (ts2e && pt2e) compositeEx2[ts2e+"|"+pt2e] = true;
           }
           var nuevas2 = [];
           for (var jj2=1; jj2<datosN2.length; jj2++) {
             var uid2 = uuidCN2>=0 ? String(datosN2[jj2][uuidCN2]||"").trim() : "";
             if (uid2 && uuidsEx2[uid2]) continue;
-            if (!uid2) {
-              var ckN2 = String(datosN2[jj2][0]||"").trim() + "|" + (partCN2>=0 ? String(datosN2[jj2][partCN2]||"").trim() : "");
-              if (ckN2 !== "|" && compositeEx2[ckN2]) continue;
-            }
+            var ts2n = _ckTs(datosN2[jj2][0]);
+            var pt2n = partCN2>=0 ? String(datosN2[jj2][partCN2]||"").trim() : "";
+            if (ts2n && pt2n && compositeEx2[ts2n+"|"+pt2n]) continue;
             nuevas2.push(datosN2[jj2]);
           }
           if (nuevas2.length > 0) {
