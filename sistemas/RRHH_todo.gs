@@ -6105,6 +6105,18 @@ function generarReporte(tipo, fechaInicio, fechaFin, filtroParticipante, nuevaHo
           // Sesión menor a 30 minutos → probablemente error de registro, se descarta
           currentIngreso = null; lastEgreso = reg;
         } else {
+          // Salida normal (horas >= 0.5). Verificar si el form fue enviado mucho después
+          // de que fue abierto — en ese caso usar fechaEnd como hora real de salida.
+          var salidaR = reg.fecha;
+          if (reg.fechaEnd && !isNaN(reg.fechaEnd)) {
+            var formDelay = (reg.fechaEnd - reg.fecha) / 3600000; // cuánto tardó en enviar
+            var horasConEnd = (reg.fechaEnd - currentIngreso.fecha) / 3600000;
+            // Si el form tardó >1h en enviarse Y la sesión resultante es razonable: usar fechaEnd
+            if (formDelay > 1 && horasConEnd > horas && horasConEnd <= 16) {
+              salidaR = reg.fechaEnd;
+              horas   = horasConEnd;
+            }
+          }
           var isDiaEst2 = esDiaDeEstudio(empId, currentIngreso.fecha, diasEstudioMapa);
           var tipoLbl, porc;
           if      (isDiaEst2)      { tipoLbl = "Día de Estudio"; porc = 0; }
@@ -6112,7 +6124,7 @@ function generarReporte(tipo, fechaInicio, fechaFin, filtroParticipante, nuevaHo
           else if (reg.esTerapia || listaTerapias[empId]) { tipoLbl = "Terapia"; porc = 100; }
           else if (reg.esComputacion) { tipoLbl = "Computación"; porc = 50; }
           else                     { tipoLbl = "Normal"; porc = 100; }
-          _addFila(currentIngreso.fecha, currentIngreso.fecha, reg.fecha, tipoLbl, horas, porc);
+          _addFila(currentIngreso.fecha, currentIngreso.fecha, salidaR, tipoLbl, horas, porc);
           currentIngreso = null; lastEgreso = reg;
         }
       }
