@@ -6726,7 +6726,7 @@ function instalarTodo() { _run(function() {
     "5 — Crear hoja Lista de Terapias\n" +
     "6 — Crear hojas Inclusión Laboral y Retiradx\n" +
     "7 — Crear hojas Bonos y HijosCCI\n" +
-    "8 — Activar automatizaciones (Kobo cada hora + al abrir)\n" +
+    "8 — Activar automatizaciones (Kobo SOLO manual + estipendio auto cada 6h)\n" +
     "9 — Crear Guía de Uso\n\n" +
     "Los datos existentes NO se borran.\n\n¿Continuar?",
     ui.ButtonSet.YES_NO);
@@ -6743,27 +6743,78 @@ function instalarTodo() { _run(function() {
   } catch(e) { errores.push("❌ Paso 1: " + e.message); }
   Utilities.sleep(500);
 
-  // PASO 2: Importar Kobo
+  // PASO 2: Importar Kobo — solo período activo, solo registros nuevos (dedup UUID)
   try {
-    ss.toast("Paso 2/7: Importando datos de Kobo...", "🚀", -1);
+    ss.toast("Paso 2/9: Importando datos de Kobo (solo período activo)...", "🚀", -1);
     var res = UrlFetchApp.fetch(CFG.KOBO_URL_CSV, { muteHttpExceptions: true });
     var code = res.getResponseCode();
-    if (code === 200) {
-      var datos = Utilities.parseCsv(res.getContentText(), ";");
-      if (datos.length > 1) {
-        var hK = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO) || ss.insertSheet(CFG.HOJAS.DATOS_KOBO);
-        hK.clearContents();
-        hK.getRange(1,1,datos.length,datos[0].length).setValues(datos);
-        hK.getRange(1,1,1,datos[0].length).setFontWeight("bold").setBackground("#4a86e8").setFontColor("#fff");
-        hK.setFrozenRows(1);
-        _limpiarColumnasKobo(hK, datos[0]);
-        _normalizarAccionSilencioso(hK);
-        log.push("✅ Paso 2: " + (datos.length-1) + " registros importados desde Kobo");
-      } else { log.push("⚠️ Paso 2: Kobo sin registros"); }
-    } else if (code === 503) {
-      log.push("⏳ Paso 2: Kobo ocupado (503) — ejecuta manualmente después");
-    } else {
+    if (code === 503) {
+      log.push("⏳ Paso 2: Kobo ocupado (503) — importa manualmente desde el menú después");
+    } else if (code !== 200) {
       errores.push("❌ Paso 2: Error Kobo HTTP " + code);
+    } else {
+      var datosRaw2 = Utilities.parseCsv(res.getContentText(), ";");
+      if (datosRaw2.length < 2) {
+        log.push("⚠️ Paso 2: Kobo sin registros");
+      } else {
+        // Filtrar por período activo (-7 días de buffer)
+        var periodoI = _periodoActivo();
+        var fechaMinI;
+        if (periodoI && periodoI.fi) {
+          fechaMinI = new Date(periodoI.fi);
+          fechaMinI.setDate(fechaMinI.getDate() - 7);
+        } else {
+          fechaMinI = new Date(); fechaMinI.setDate(fechaMinI.getDate() - 30);
+        }
+        var hdrI = datosRaw2[0];
+        var filtradoI = [hdrI];
+        for (var fii = 1; fii < datosRaw2.length; fii++) {
+          var rawSI = String(datosRaw2[fii][0]||"").trim();
+          var tsI = new Date(rawSI);
+          if (isNaN(tsI)) {
+            var pI = rawSI.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+            if (pI) tsI = new Date(pI[3], pI[2]-1, pI[1]);
+          }
+          if (!isNaN(tsI) && tsI >= fechaMinI) filtradoI.push(datosRaw2[fii]);
+        }
+        // Filtrar columnas y normalizar
+        var datosN2 = _filtrarColumnasKobo(filtradoI);
+        var hK = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
+        if (!hK) {
+          // Instalación nueva: crear hoja y escribir todo el período
+          hK = ss.insertSheet(CFG.HOJAS.DATOS_KOBO);
+          hK.getRange(1,1,datosN2.length,datosN2[0].length).setValues(datosN2);
+          hK.getRange(1,1,1,datosN2[0].length).setFontWeight("bold").setBackground("#4a86e8").setFontColor("#fff");
+          hK.setFrozenRows(1);
+          _limpiarColumnasKobo(hK, datosN2[0]);
+          _normalizarAccionSilencioso(hK);
+          log.push("✅ Paso 2: " + (datosN2.length-1) + " registros del período importados");
+        } else {
+          // Reinstalación: solo agregar UUIDs nuevos (no borrar datos existentes)
+          var encN2 = datosN2[0];
+          var uuidCN2 = _buscarIndice(encN2, "_uuid");
+          var datosEx2 = hK.getDataRange().getValues();
+          var uuidCE2 = _buscarIndice(datosEx2[0], "_uuid");
+          var uuidsEx2 = {};
+          if (uuidCE2 >= 0) {
+            for (var ue2=1; ue2<datosEx2.length; ue2++) {
+              var uv2 = String(datosEx2[ue2][uuidCE2]||"").trim(); if (uv2) uuidsEx2[uv2] = true;
+            }
+          }
+          var nuevas2 = [];
+          for (var jj2=1; jj2<datosN2.length; jj2++) {
+            var uid2 = uuidCN2>=0 ? String(datosN2[jj2][uuidCN2]||"").trim() : "";
+            if (!uid2 || !uuidsEx2[uid2]) nuevas2.push(datosN2[jj2]);
+          }
+          if (nuevas2.length > 0) {
+            hK.getRange(hK.getLastRow()+1,1,nuevas2.length,nuevas2[0].length).setValues(nuevas2);
+            _normalizarAccionSilencioso(hK);
+            log.push("✅ Paso 2: " + nuevas2.length + " registros nuevos agregados (período activo)");
+          } else {
+            log.push("ℹ️ Paso 2: DatosKobo ya al día, sin registros nuevos");
+          }
+        }
+      }
     }
   } catch(e) { errores.push("❌ Paso 2: " + e.message); }
   Utilities.sleep(500);
@@ -6824,7 +6875,7 @@ function instalarTodo() { _run(function() {
   try {
     ss.toast("Paso 8/9: Activando automatizaciones...", "🚀", -1);
     configurarTriggers();
-    log.push("✅ Paso 8: Triggers activados (cada hora + al abrir)");
+    log.push("✅ Paso 8: Triggers activados (estipendio cada 6h + dashboard 10min + al abrir)");
   } catch(e) { errores.push("❌ Paso 8: " + e.message); }
 
   // PASO 9: Guía de Uso
