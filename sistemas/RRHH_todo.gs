@@ -5261,21 +5261,26 @@ function _getOCreate(padre, nombre) {
 
 // ── Triggers ──────────────────────────────────────────────────
 
+// Wrapper sin argumentos para trigger de tiempo (triggers no pueden pasar params)
+function _autoImportarEstipendio() {
+  try { importarEstipendioDesdeKobo(true); } catch(e) { Logger.log("Error auto-estipendio: " + e); }
+}
+
 function configurarTriggers() { _run(function() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   // Eliminar triggers manejados por este sistema
   ScriptApp.getProjectTriggers().forEach(function(t){
     var h = t.getHandlerFunction();
-    if (h === "importarDesdeKobo" || h === "importarAlAbrir" ||
-        h === "actualizarQuincenaActual" || h === "actualizarDashboardVisual" ||
-        h === "onEditInstalable") {
+    if (h === "importarDesdeKobo" || h === "_autoImportarEstipendio" ||
+        h === "importarAlAbrir" || h === "actualizarQuincenaActual" ||
+        h === "actualizarDashboardVisual" || h === "onEditInstalable") {
       ScriptApp.deleteTrigger(t);
     }
   });
-  // Importar Kobo cada hora
-  ScriptApp.newTrigger("importarDesdeKobo").timeBased().everyHours(1).create();
-  // Importar Kobo al abrir el Spreadsheet
+  // Importar Kobo al abrir el Spreadsheet (solo estipendio + actualizaciones — NO asistencia)
   ScriptApp.newTrigger("importarAlAbrir").forSpreadsheet(ss).onOpen().create();
+  // Estipendio: auto-importar cada 6 horas silencioso
+  ScriptApp.newTrigger("_autoImportarEstipendio").timeBased().everyHours(6).create();
   // Actualizar reporte de quincena activa cada día a las 7am
   ScriptApp.newTrigger("actualizarQuincenaActual")
     .timeBased().everyDays(1).atHour(7).create();
@@ -5287,8 +5292,8 @@ function configurarTriggers() { _run(function() {
     .forSpreadsheet(ss).onEdit().create();
 
   _alert("✅ Automatizaciones activadas:\n\n" +
-    "• ⏰ Kobo: importa datos cada hora\n" +
-    "• 🔄 Kobo: importa al abrir la hoja\n" +
+    "• 🔄 Kobo asistencia: SOLO manual (menú → 📥 Importar desde Kobo)\n" +
+    "• 💵 Estipendio: se actualiza automático cada 6 horas\n" +
     "• 📅 Quincena activa: se actualiza cada día a las 7am\n" +
     "• 📊 Dashboard Visual: se actualiza cada 10 minutos\n\n" +
     "onEdit (automático):\n" +
