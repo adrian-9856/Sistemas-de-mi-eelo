@@ -2502,6 +2502,20 @@ function _importarKoboCore(silencioso) {
 
   // Sin filtro de fecha — todo el histórico; dedup previene duplicados.
 
+  // Excluir registros de Manufactura (columna "Destino" del formulario Kobo).
+  // Estas personas no pertenecen a mi eelo y no deben contarse en horas/pagos.
+  var colsDestino = detectarColumnas(datosRaw[0], []);
+  var descartadosMan = 0;
+  if (colsDestino.destino !== undefined) {
+    var filtradoDestino = [datosRaw[0]];
+    for (var fd = 1; fd < datosRaw.length; fd++) {
+      var valDestino = String(datosRaw[fd][colsDestino.destino] || "").trim().toLowerCase();
+      if (valDestino === "manufactura") { descartadosMan++; continue; }
+      filtradoDestino.push(datosRaw[fd]);
+    }
+    datosRaw = filtradoDestino;
+  }
+
   // Filtrar participantes oficiales
   var nombresOficiales2 = {};
   LISTA_OFICIAL.forEach(function(it) { nombresOficiales2[it[1]] = true; });
@@ -2559,11 +2573,16 @@ function _importarKoboCore(silencioso) {
     if (tsN && ptN && compositeExist[tsN+"|"+ptN]) continue;
     filasNuevas.push(datosNuevos[j]);
   }
-  if (filasNuevas.length === 0) { _msg("✅ Ya está al día. Sin registros nuevos."); return; }
+  if (filasNuevas.length === 0) {
+    _msg("✅ Ya está al día. Sin registros nuevos." +
+      (descartadosMan > 0 ? " (" + descartadosMan + " de Manufactura ignorados)" : ""));
+    return;
+  }
 
   hoja.getRange(hoja.getLastRow()+1,1,filasNuevas.length,filasNuevas[0].length).setValues(filasNuevas);
   _normalizarAccionSilencioso(hoja);
-  _msg("✅ " + filasNuevas.length + " registros nuevos importados.");
+  _msg("✅ " + filasNuevas.length + " registros nuevos importados." +
+    (descartadosMan > 0 ? "\n(" + descartadosMan + " registros de Manufactura ignorados)" : ""));
   try { actualizarDashboardVisual(); } catch(_) {}
 }
 
@@ -2690,7 +2709,20 @@ function reimportarTodoDesdeKobo() { _run(function() {
   if (datos.length < 2) { _alert("Kobo no devolvió registros."); return; }
 
   // Sin filtro de fecha — reimporta TODO el histórico desde Kobo.
-  // Solo se descartan participantes no oficiales.
+  // Se descartan: participantes no oficiales y registros de Manufactura.
+
+  // Excluir registros de Manufactura (columna "Destino" del formulario Kobo)
+  var colsDestinoR = detectarColumnas(datos[0], []);
+  var descartadosMan2 = 0;
+  if (colsDestinoR.destino !== undefined) {
+    var filtradoDestinoR = [datos[0]];
+    for (var fdr = 1; fdr < datos.length; fdr++) {
+      var valDestinoR = String(datos[fdr][colsDestinoR.destino] || "").trim().toLowerCase();
+      if (valDestinoR === "manufactura") { descartadosMan2++; continue; }
+      filtradoDestinoR.push(datos[fdr]);
+    }
+    datos = filtradoDestinoR;
+  }
 
   // Filtrar participantes no oficiales (solo las 33 de LISTA_OFICIAL)
   var nombresOficiales = {};
@@ -2728,7 +2760,8 @@ function reimportarTodoDesdeKobo() { _run(function() {
   _limpiarColumnasKobo(hoja, datos[0]);
   _normalizarAccionSilencioso(hoja);
   _alert("✅ Reimportación completa: " + (datos.length-1) + " registros importados.\n" +
-    (descartadosNP > 0 ? "(" + descartadosNP + " registros de participantes no oficiales eliminados)" : "✅ Todos los participantes son oficiales"));
+    (descartadosNP > 0 ? "(" + descartadosNP + " registros de participantes no oficiales eliminados)\n" : "✅ Todos los participantes son oficiales\n") +
+    (descartadosMan2 > 0 ? "(" + descartadosMan2 + " registros de Manufactura ignorados)" : "✅ Sin registros de Manufactura"));
 }); }
 
 // Palabras clave que identifican columnas necesarias para el sistema
@@ -2992,6 +3025,7 @@ function detectarColumnas(encabezados, datosEjemplo) {
     if((hLow.indexOf("ingreso")!==-1||hLow.indexOf("entrada")!==-1)&&(hLow.indexOf("egreso")!==-1||hLow.indexOf("salida")!==-1)){cols.accionUnificada=i;continue;}
     if(hLow.indexOf("accion")!==-1||hLow.indexOf("acción")!==-1||hLow==="type"||hLow.indexOf("marcar")!==-1){cols.accionUnificada=i;continue;}
     if(hLow==="subtipo_egreso"){cols.subtipoEgreso=i;continue;}
+    if(hLow==="destino"||hLow.indexOf("dirige")!==-1){cols.destino=i;continue;}
     if(hLow.indexOf("/ingreso")!==-1||hLow.indexOf("/entrada")!==-1){cols.ingreso=i;continue;}
     if(hLow.indexOf("/egreso")!==-1||hLow.indexOf("/salida")!==-1){cols.egreso=i;continue;}
     if(hLow.indexOf("/terapia")!==-1){cols.terapia=i;continue;}
@@ -6748,6 +6782,16 @@ function instalarTodo() { _run(function() {
         log.push("⚠️ Paso 2: Kobo sin registros");
       } else {
         // Sin filtro de fecha — todo el histórico; dedup previene duplicados
+        // Excluir registros de Manufactura (columna "Destino")
+        var colsDestinoI = detectarColumnas(datosRaw2[0], []);
+        if (colsDestinoI.destino !== undefined) {
+          var filtradoDestinoI = [datosRaw2[0]];
+          for (var fdi = 1; fdi < datosRaw2.length; fdi++) {
+            var valDestinoI = String(datosRaw2[fdi][colsDestinoI.destino] || "").trim().toLowerCase();
+            if (valDestinoI !== "manufactura") filtradoDestinoI.push(datosRaw2[fdi]);
+          }
+          datosRaw2 = filtradoDestinoI;
+        }
         var datosN2 = _filtrarColumnasKobo(datosRaw2);
         var hK = ss.getSheetByName(CFG.HOJAS.DATOS_KOBO);
         if (!hK) {
